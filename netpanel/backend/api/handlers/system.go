@@ -1,0 +1,107 @@
+package handlers
+
+import (
+	"net/http"
+	"runtime"
+
+	"github.com/gin-gonic/gin"
+	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/config"
+	"github.com/netpanel/netpanel/pkg/utils"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
+)
+
+// SystemHandler 系统信息处理器
+type SystemHandler struct {
+	db     *gorm.DB
+	log    *logrus.Logger
+	config *config.Config
+}
+
+func NewSystemHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config) *SystemHandler {
+	return &SystemHandler{db: db, log: log, config: cfg}
+}
+
+// GetInfo 获取系统信息
+func (h *SystemHandler) GetInfo(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"version":  h.config.Version,
+			"os":       runtime.GOOS,
+			"arch":     runtime.GOARCH,
+			"go_version": runtime.Version(),
+		},
+	})
+}
+
+// GetStats 获取系统资源统计
+func (h *SystemHandler) GetStats(c *gin.Context) {
+	// CPU 使用率
+	cpuPercent, _ := cpu.Percent(0, false)
+	cpuUsage := 0.0
+	if len(cpuPercent) > 0 {
+		cpuUsage = cpuPercent[0]
+	}
+
+	// 内存使用
+	memInfo, _ := mem.VirtualMemory()
+
+	// 磁盘使用
+	diskInfo, _ := disk.Usage("/")
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": gin.H{
+			"cpu_usage":    cpuUsage,
+			"mem_total":    memInfo.Total,
+			"mem_used":     memInfo.Used,
+			"mem_percent":  memInfo.UsedPercent,
+			"disk_total":   diskInfo.Total,
+			"disk_used":    diskInfo.Used,
+			"disk_percent": diskInfo.UsedPercent,
+		},
+	})
+}
+
+// GetConfig 获取系统配置
+func (h *SystemHandler) GetConfig(c *gin.Context) {
+	var configs []model.SystemConfig
+	h.db.Find(&configs)
+
+	result := make(map[string]string)
+	for _, cfg := range configs {
+		// 不返回密码
+		if cfg.Key == "admin_password" {
+			continue
+		}
+		result[cfg.Key] = cfg.Value
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": result})
+}
+
+// UpdateConfig 更新系统配置
+func (h *SystemHandler) UpdateConfig(c *gin.Context) {
+	var req map[string]string
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	for key, value := range req {
+		h.db.Model(&model.SystemConfig{}).Where("key = ?", key).Update("value", value)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "配置已更新"})
+}
+
+// GetInterfaces 获取网络接口列表
+func (h *SystemHandler) GetInterfaces(c *gin.Context) {
+	interfaces := utils.GetNetInterfaces()
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": interfaces})
+}

@@ -30,3 +30,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# 自定义屏蔽的库
+/caddy/
+/coraza/
+/ddnsgo/
+/frp/
+/lucky/
+
