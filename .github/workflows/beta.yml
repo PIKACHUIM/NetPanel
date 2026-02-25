@@ -137,7 +137,7 @@ jobs:
           - goos: windows
             goarch: arm64
             et_os: windows
-            et_arch: aarch64
+            et_arch: arm64
             et_bin: easytier-core.exe
             cc: aarch64-w64-mingw32-gcc
             output: netpanel.exe
