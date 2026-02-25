@@ -1,0 +1,397 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（例如：v1.0.0）'
+        required: true
+        type: string
+      easytier_version:
+        description: 'EasyTier 版本号'
+        required: false
+        default: '1.2.1'
+        type: string
+      release_notes:
+        description: '发布说明（可选，留空则自动生成）'
+        required: false
+        type: string
+
+env:
+  GO_VERSION: '1.21'
+  NODE_VERSION: '20'
+  EASYTIER_VERSION: ${{ github.event.inputs.easytier_version || '1.2.1' }}
+
+jobs:
+  # ===== 校验版本号格式 =====
+  validate:
+    name: Validate Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check version format
+        id: check
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$ ]]; then
+            echo "❌ 版本号格式不正确: ${VERSION}"
+            echo "   正确格式示例: v1.0.0 或 v1.0.0-rc1"
+            exit 1
+          fi
+          echo "✅ 版本号格式正确: ${VERSION}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+  # ===== 构建前端 =====
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: webpage/package-lock.json
+
+      - name: Install dependencies
+        working-directory: webpage
+        run: npm ci
+
+      - name: Build webpage
+        working-directory: webpage
+        run: npm run build
+
+      - name: Upload webpage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webpage-dist
+          path: backend/embed/dist/
+          retention-days: 1
+
+  # ===== 下载 EasyTier 二进制 =====
+  download-easytier:
+    name: Download EasyTier (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: x86_64
+            bin: easytier-core
+            ext: tar.gz
+          - os: linux
+            arch: aarch64
+            bin: easytier-core
+            ext: tar.gz
+          - os: windows
+            arch: x86_64
+            bin: easytier-core.exe
+            ext: zip
+          - os: windows
+            arch: aarch64
+            bin: easytier-core.exe
+            ext: zip
+          - os: macos
+            arch: x86_64
+            bin: easytier-core
+            ext: tar.gz
+          - os: macos
+            arch: aarch64
+            bin: easytier-core
+            ext: tar.gz
+    steps:
+      - name: Download EasyTier binary
+        run: |
+          VERSION="${{ env.EASYTIER_VERSION }}"
+          OS="${{ matrix.os }}"
+          ARCH="${{ matrix.arch }}"
+          EXT="${{ matrix.ext }}"
+          BIN="${{ matrix.bin }}"
+          BASE_URL="https://github.com/EasyTier/EasyTier/releases/download/v${VERSION}"
+          ARCHIVE="easytier-${OS}-${ARCH}-v${VERSION}.${EXT}"
+
+          echo "Downloading: ${BASE_URL}/${ARCHIVE}"
+          curl -fsSL --retry 3 --retry-delay 5 "${BASE_URL}/${ARCHIVE}" -o "easytier.${EXT}"
+
+          if [ "${EXT}" = "zip" ]; then
+            unzip -j "easytier.${EXT}" "*/easytier-core.exe" -d ./ 2>/dev/null || \
+            unzip -j "easytier.${EXT}" "easytier-core.exe" -d ./ 2>/dev/null || \
+            unzip "easytier.${EXT}" && find . -name "easytier-core.exe" -exec cp {} ./ \;
+          else
+            tar -xzf "easytier.${EXT}" --wildcards "*/easytier-core" --strip-components=1 2>/dev/null || \
+            tar -xzf "easytier.${EXT}" "easytier-core" 2>/dev/null || \
+            (tar -xzf "easytier.${EXT}" && find . -name "easytier-core" -not -path "./easytier-core" -exec cp {} ./ \;)
+            chmod +x "${BIN}"
+          fi
+
+          ls -la "${BIN}"
+          echo "EasyTier ${VERSION} for ${OS}-${ARCH} downloaded successfully"
+
+      - name: Upload EasyTier artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: easytier-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ matrix.bin }}
+          retention-days: 1
+
+  # ===== 构建后端（Linux / Windows 交叉编译）=====
+  build-linux-windows:
+    name: Build (${{ matrix.goos }}-${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: [build-frontend, download-easytier]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            et_os: linux
+            et_arch: x86_64
+            et_bin: easytier-core
+            cc: gcc
+            output: netpanel
+            pkg_ext: tar.gz
+          - goos: linux
+            goarch: arm64
+            et_os: linux
+            et_arch: aarch64
+            et_bin: easytier-core
+            cc: aarch64-linux-gnu-gcc
+            output: netpanel
+            pkg_ext: tar.gz
+          - goos: windows
+            goarch: amd64
+            et_os: windows
+            et_arch: x86_64
+            et_bin: easytier-core.exe
+            cc: x86_64-w64-mingw32-gcc
+            output: netpanel.exe
+            pkg_ext: zip
+          - goos: windows
+            goarch: arm64
+            et_os: windows
+            et_arch: aarch64
+            et_bin: easytier-core.exe
+            cc: aarch64-w64-mingw32-gcc
+            output: netpanel.exe
+            pkg_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Download webpage dist
+        uses: actions/download-artifact@v4
+        with:
+          name: webpage-dist
+          path: backend/embed/dist/
+
+      - name: Download EasyTier binary
+        uses: actions/download-artifact@v4
+        with:
+          name: easytier-${{ matrix.et_os }}-${{ matrix.et_arch }}
+          path: easytier-bin/
+
+      - name: Install cross-compile toolchains
+        run: |
+          sudo apt-get update -qq
+          PKGS="gcc"
+          if [ "${{ matrix.goarch }}" = "arm64" ] && [ "${{ matrix.goos }}" = "linux" ]; then
+            PKGS="${PKGS} gcc-aarch64-linux-gnu"
+          fi
+          if [ "${{ matrix.goos }}" = "windows" ] && [ "${{ matrix.goarch }}" = "amd64" ]; then
+            PKGS="${PKGS} gcc-mingw-w64-x86-64"
+          fi
+          if [ "${{ matrix.goos }}" = "windows" ] && [ "${{ matrix.goarch }}" = "arm64" ]; then
+            PKGS="${PKGS} gcc-mingw-w64"
+            sudo apt-get install -y ${PKGS} || true
+            LLVM_MINGW_VER="20231128"
+            curl -fsSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-20.04-x86_64.tar.xz" \
+              -o /tmp/llvm-mingw.tar.xz
+            sudo tar -xJf /tmp/llvm-mingw.tar.xz -C /opt/
+            sudo ln -sf /opt/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-20.04-x86_64/bin/aarch64-w64-mingw32-gcc \
+              /usr/local/bin/aarch64-w64-mingw32-gcc
+            exit 0
+          fi
+          sudo apt-get install -y ${PKGS}
+
+      - name: Build backend
+        working-directory: backend
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+          CC: ${{ matrix.cc }}
+        run: |
+          BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          VERSION="${{ needs.validate.outputs.version }}"
+          go build \
+            -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
+            -o ../dist/${{ matrix.output }} .
+
+      - name: Prepare release package
+        run: |
+          PKG_NAME="netpanel-${{ matrix.goos }}-${{ matrix.goarch }}"
+          PKG_DIR="release/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}/bin"
+
+          cp "dist/${{ matrix.output }}" "${PKG_DIR}/"
+          cp "easytier-bin/${{ matrix.et_bin }}" "${PKG_DIR}/bin/"
+          chmod +x "${PKG_DIR}/bin/${{ matrix.et_bin }}" 2>/dev/null || true
+
+          echo "NetPanel ${{ needs.validate.outputs.version }}" > "${PKG_DIR}/VERSION"
+          echo "Built: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "${PKG_DIR}/VERSION"
+          echo "Platform: ${{ matrix.goos }}/${{ matrix.goarch }}" >> "${PKG_DIR}/VERSION"
+          echo "EasyTier: v${{ env.EASYTIER_VERSION }}" >> "${PKG_DIR}/VERSION"
+
+          cd release
+          if [ "${{ matrix.pkg_ext }}" = "zip" ]; then
+            zip -r "${PKG_NAME}.zip" "${PKG_NAME}/"
+          else
+            tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}/"
+          fi
+          ls -lh
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            release/*.tar.gz
+            release/*.zip
+          retention-days: 7
+
+  # ===== 构建后端（macOS 原生编译）=====
+  build-macos:
+    name: Build (darwin-${{ matrix.goarch }})
+    runs-on: macos-latest
+    needs: [build-frontend, download-easytier]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            et_arch: x86_64
+            output: netpanel
+          - goarch: arm64
+            et_arch: aarch64
+            output: netpanel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Download webpage dist
+        uses: actions/download-artifact@v4
+        with:
+          name: webpage-dist
+          path: backend/embed/dist/
+
+      - name: Download EasyTier binary
+        uses: actions/download-artifact@v4
+        with:
+          name: easytier-macos-${{ matrix.et_arch }}
+          path: easytier-bin/
+
+      - name: Build backend
+        working-directory: backend
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          VERSION="${{ needs.validate.outputs.version }}"
+          go build \
+            -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
+            -o ../dist/${{ matrix.output }} .
+
+      - name: Prepare release package
+        run: |
+          PKG_NAME="netpanel-darwin-${{ matrix.goarch }}"
+          PKG_DIR="release/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}/bin"
+
+          cp "dist/${{ matrix.output }}" "${PKG_DIR}/"
+          cp "easytier-bin/easytier-core" "${PKG_DIR}/bin/"
+          chmod +x "${PKG_DIR}/bin/easytier-core"
+
+          echo "NetPanel ${{ needs.validate.outputs.version }}" > "${PKG_DIR}/VERSION"
+          echo "Built: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "${PKG_DIR}/VERSION"
+          echo "Platform: darwin/${{ matrix.goarch }}" >> "${PKG_DIR}/VERSION"
+          echo "EasyTier: v${{ env.EASYTIER_VERSION }}" >> "${PKG_DIR}/VERSION"
+
+          cd release
+          tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}/"
+          ls -lh
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-darwin-${{ matrix.goarch }}
+          path: release/*.tar.gz
+          retention-days: 7
+
+  # ===== 创建 Git Tag 并发布正式 Release =====
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate, build-linux-windows, build-macos]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release/
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: List release files
+        run: ls -lh release/
+
+      - name: Create Git Tag
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin "${VERSION}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate.outputs.version }}
+          name: "NetPanel ${{ needs.validate.outputs.version }}"
+          files: |
+            release/*.tar.gz
+            release/*.zip
+            release/SHA256SUMS.txt
+          generate_release_notes: ${{ github.event.inputs.release_notes == '' }}
+          draft: false
+          prerelease: ${{ contains(needs.validate.outputs.version, 'beta') || contains(needs.validate.outputs.version, 'alpha') || contains(needs.validate.outputs.version, 'rc') }}
+          body: ${{ github.event.inputs.release_notes != '' && format('## NetPanel {0}\n\n{1}\n\n### 下载说明\n\n| 平台 | 架构 | 文件 |\n|------|------|------|\n| Linux | x86_64 | `netpanel-linux-amd64.tar.gz` |\n| Linux | ARM64 | `netpanel-linux-arm64.tar.gz` |\n| Windows | x86_64 | `netpanel-windows-amd64.zip` |\n| Windows | ARM64 | `netpanel-windows-arm64.zip` |\n| macOS | Intel | `netpanel-darwin-amd64.tar.gz` |\n| macOS | Apple Silicon | `netpanel-darwin-arm64.tar.gz` |\n\n### 快速开始\n\n```bash\n# Linux/macOS\ntar -xzf netpanel-linux-amd64.tar.gz\ncd netpanel-linux-amd64\n./netpanel\n\n# Windows\n# 解压 netpanel-windows-amd64.zip 后运行 netpanel.exe\n```\n\n> 默认监听端口：`8080`，首次启动请访问 `http://localhost:8080` 完成初始化。\n\n### 校验文件完整性\n\n```bash\nsha256sum -c SHA256SUMS.txt\n```', needs.validate.outputs.version, github.event.inputs.release_notes) || '' }}

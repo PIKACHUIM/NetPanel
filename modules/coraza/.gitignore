@@ -1,0 +1,22 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.o
+*.dylib
+.DS_Store
+.idea
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+test/crs
+/main
+vendor/
+coraza-waf
+__debug_bin
+
+build/
+
+go.work.sum

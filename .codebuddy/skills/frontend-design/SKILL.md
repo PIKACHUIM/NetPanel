@@ -1,6 +1,6 @@
 ---
-name: frontend-design
-description: Creates unique, production-grade frontend interfaces with exceptional design quality. Use when user asks to build web components, pages, materials, posters, or applications (e.g., websites, landing pages, dashboards, React components, HTML/CSS layouts, or styling/beautifying any web UI). Generates creative, polished code and UI designs that avoid mediocre AI aesthetics.
+name: webpage-design
+description: Creates unique, production-grade webpage interfaces with exceptional design quality. Use when user asks to build web components, pages, materials, posters, or applications (e.g., websites, landing pages, dashboards, React components, HTML/CSS layouts, or styling/beautifying any web UI). Generates creative, polished code and UI designs that avoid mediocre AI aesthetics.
 ---
 
 # Frontend Design Skill

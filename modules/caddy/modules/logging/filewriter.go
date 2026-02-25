@@ -1,0 +1,563 @@
+// Copyright 2015 Matthew Holt and The Caddy Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package logging
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/DeRuina/timberjack"
+	"github.com/dustin/go-humanize"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+)
+
+func init() {
+	caddy.RegisterModule(FileWriter{})
+}
+
+// fileMode is a string made of 1 to 4 octal digits representing
+// a numeric mode as specified with the `chmod` unix command.
+// `"0777"` and `"777"` are thus equivalent values.
+type fileMode os.FileMode
+
+// UnmarshalJSON satisfies json.Unmarshaler.
+func (m *fileMode) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		return io.EOF
+	}
+
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+
+	mode, err := parseFileMode(s)
+	if err != nil {
+		return err
+	}
+
+	*m = fileMode(mode)
+	return err
+}
+
+// MarshalJSON satisfies json.Marshaler.
+func (m *fileMode) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf("\"%04o\"", *m)), nil
+}
+
+// parseFileMode parses a file mode string,
+// adding support for `chmod` unix command like
+// 1 to 4 digital octal values.
+func parseFileMode(s string) (os.FileMode, error) {
+	modeStr := fmt.Sprintf("%04s", s)
+	mode, err := strconv.ParseUint(modeStr, 8, 32)
+	if err != nil {
+		return 0, err
+	}
+	return os.FileMode(mode), nil
+}
+
+// FileWriter can write logs to files. By default, log files
+// are rotated ("rolled") when they get large, and old log
+// files get deleted, to ensure that the process does not
+// exhaust disk space.
+type FileWriter struct {
+	// Filename is the name of the file to write.
+	Filename string `json:"filename,omitempty"`
+
+	// The file permissions mode.
+	// 0600 by default.
+	Mode fileMode `json:"mode,omitempty"`
+
+	// DirMode controls permissions for any directories created to reach Filename.
+	// Default: 0700 (current behavior).
+	//
+	// Special values:
+	//   - "inherit"   → copy the nearest existing parent directory's perms (with r→x normalization)
+	//   - "from_file" → derive from the file Mode (with r→x), e.g. 0644 → 0755, 0600 → 0700
+	// Numeric octal strings (e.g. "0755") are also accepted. Subject to process umask.
+	DirMode string `json:"dir_mode,omitempty"`
+
+	// Roll toggles log rolling or rotation, which is
+	// enabled by default.
+	Roll *bool `json:"roll,omitempty"`
+
+	// When a log file reaches approximately this size,
+	// it will be rotated.
+	RollSizeMB int `json:"roll_size_mb,omitempty"`
+
+	// Roll log file after some time
+	RollInterval time.Duration `json:"roll_interval,omitempty"`
+
+	// Roll log file at fix minutes
+	// For example []int{0, 30} will roll file at xx:00 and xx:30 each hour
+	// Invalid value are ignored with a warning on stderr
+	// See https://github.com/DeRuina/timberjack#%EF%B8%8F-rotation-notes--warnings for caveats
+	RollAtMinutes []int `json:"roll_minutes,omitempty"`
+
+	// Roll log file at fix time
+	// For example []string{"00:00", "12:00"} will roll file at 00:00 and 12:00 each day
+	// Invalid value are ignored with a warning on stderr
+	// See https://github.com/DeRuina/timberjack#%EF%B8%8F-rotation-notes--warnings for caveats
+	RollAt []string `json:"roll_at,omitempty"`
+
+	// Whether to compress rolled files.
+	// Default: true.
+	// Deprecated: Use RollCompression instead, setting it to "none".
+	RollCompress *bool `json:"roll_gzip,omitempty"`
+
+	// RollCompression selects the compression algorithm for rolled files.
+	// Accepted values: "none", "gzip", "zstd".
+	// Default: gzip
+	RollCompression string `json:"roll_compression,omitempty"`
+
+	// Whether to use local timestamps in rolled filenames.
+	// Default: false
+	RollLocalTime bool `json:"roll_local_time,omitempty"`
+
+	// The maximum number of rolled log files to keep.
+	// Default: 10
+	RollKeep int `json:"roll_keep,omitempty"`
+
+	// How many days to keep rolled log files. Default: 90
+	RollKeepDays int `json:"roll_keep_days,omitempty"`
+
+	// Rotated file will have format <logfilename>-<format>-<criterion>.log
+	// Optional. If unset or invalid, defaults to 2006-01-02T15-04-05.000 (with fallback warning)
+	// <format> must be a Go time compatible format, see https://pkg.go.dev/time#pkg-constants
+	BackupTimeFormat string `json:"backup_time_format,omitempty"`
+}
+
+// CaddyModule returns the Caddy module information.
+func (FileWriter) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "caddy.logging.writers.file",
+		New: func() caddy.Module { return new(FileWriter) },
+	}
+}
+
+// Provision sets up the module
+func (fw *FileWriter) Provision(ctx caddy.Context) error {
+	// Replace placeholder in filename
+	repl := caddy.NewReplacer()
+	filename, err := repl.ReplaceOrErr(fw.Filename, true, true)
+	if err != nil {
+		return fmt.Errorf("invalid filename for log file: %v", err)
+	}
+
+	fw.Filename = filename
+	return nil
+}
+
+func (fw FileWriter) String() string {
+	fpath, err := caddy.FastAbs(fw.Filename)
+	if err == nil {
+		return fpath
+	}
+	return fw.Filename
+}
+
+// WriterKey returns a unique key representing this fw.
+func (fw FileWriter) WriterKey() string {
+	return "file:" + fw.Filename
+}
+
+// OpenWriter opens a new file writer.
+func (fw FileWriter) OpenWriter() (io.WriteCloser, error) {
+	modeIfCreating := os.FileMode(fw.Mode)
+	if modeIfCreating == 0 {
+		modeIfCreating = 0o600
+	}
+
+	// roll log files as a sensible default to avoid disk space exhaustion
+	roll := fw.Roll == nil || *fw.Roll
+
+	// Ensure directory exists before opening the file.
+	dirPath := filepath.Dir(fw.Filename)
+	switch strings.ToLower(strings.TrimSpace(fw.DirMode)) {
+	case "", "0":
+		// Preserve current behavior: locked-down directories by default.
+		if err := os.MkdirAll(dirPath, 0o700); err != nil {
+			return nil, err
+		}
+	case "inherit":
+		if err := mkdirAllInherit(dirPath); err != nil {
+			return nil, err
+		}
+	case "from_file":
+		if err := mkdirAllFromFile(dirPath, os.FileMode(fw.Mode)); err != nil {
+			return nil, err
+		}
+	default:
+		dm, err := parseFileMode(fw.DirMode)
+		if err != nil {
+			return nil, fmt.Errorf("dir_mode: %w", err)
+		}
+		if err := os.MkdirAll(dirPath, dm); err != nil {
+			return nil, err
+		}
+	}
+
+	// create/open the file
+	file, err := os.OpenFile(fw.Filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, modeIfCreating)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if roll {
+		file.Close() // timberjack will reopen it on its own
+	}
+
+	// Ensure already existing files have the right mode, since OpenFile will not set the mode in such case.
+	if configuredMode := os.FileMode(fw.Mode); configuredMode != 0 {
+		if err != nil {
+			return nil, fmt.Errorf("unable to stat log file to see if we need to set permissions: %v", err)
+		}
+		// only chmod if the configured mode is different
+		if info.Mode()&os.ModePerm != configuredMode&os.ModePerm {
+			if err = os.Chmod(fw.Filename, configuredMode); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// if not rolling, then the plain file handle is all we need
+	if !roll {
+		return file, nil
+	}
+
+	// otherwise, return a rolling log
+	if fw.RollSizeMB == 0 {
+		fw.RollSizeMB = 100
+	}
+	if fw.RollCompress == nil {
+		compress := true
+		fw.RollCompress = &compress
+	}
+	if fw.RollKeep == 0 {
+		fw.RollKeep = 10
+	}
+	if fw.RollKeepDays == 0 {
+		fw.RollKeepDays = 90
+	}
+
+	// Determine compression algorithm to use. Priority:
+	// 1) explicit RollCompression (none|gzip|zstd)
+	// 2) if RollCompress is unset or true -> gzip
+	// 3) if RollCompress is false -> none
+	var compression string
+	if fw.RollCompression != "" {
+		compression = strings.ToLower(strings.TrimSpace(fw.RollCompression))
+		if compression != "none" && compression != "gzip" && compression != "zstd" {
+			return nil, fmt.Errorf("invalid roll_compression: %s", fw.RollCompression)
+		}
+	} else {
+		if fw.RollCompress == nil || *fw.RollCompress {
+			compression = "gzip"
+		} else {
+			compression = "none"
+		}
+	}
+
+	return &timberjack.Logger{
+		Filename:         fw.Filename,
+		MaxSize:          fw.RollSizeMB,
+		MaxAge:           fw.RollKeepDays,
+		MaxBackups:       fw.RollKeep,
+		LocalTime:        fw.RollLocalTime,
+		Compression:      compression,
+		RotationInterval: fw.RollInterval,
+		RotateAtMinutes:  fw.RollAtMinutes,
+		RotateAt:         fw.RollAt,
+		BackupTimeFormat: fw.BackupTimeFormat,
+		FileMode:         os.FileMode(fw.Mode),
+	}, nil
+}
+
+// normalizeDirPerm ensures that read bits also have execute bits set.
+func normalizeDirPerm(p os.FileMode) os.FileMode {
+	if p&0o400 != 0 {
+		p |= 0o100
+	}
+	if p&0o040 != 0 {
+		p |= 0o010
+	}
+	if p&0o004 != 0 {
+		p |= 0o001
+	}
+	return p
+}
+
+// mkdirAllInherit creates missing dirs using the nearest existing parent's
+// permissions, normalized with r→x.
+func mkdirAllInherit(dir string) error {
+	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+		return nil
+	}
+	cur := dir
+	var parent string
+	for {
+		next := filepath.Dir(cur)
+		if next == cur {
+			parent = next
+			break
+		}
+		if fi, err := os.Stat(next); err == nil {
+			if !fi.IsDir() {
+				return fmt.Errorf("path component %s exists and is not a directory", next)
+			}
+			parent = next
+			break
+		}
+		cur = next
+	}
+	perm := os.FileMode(0o700)
+	if fi, err := os.Stat(parent); err == nil && fi.IsDir() {
+		perm = fi.Mode().Perm()
+	}
+	perm = normalizeDirPerm(perm)
+	return os.MkdirAll(dir, perm)
+}
+
+// mkdirAllFromFile creates missing dirs using the file's mode (with r→x) so
+// 0644 → 0755, 0600 → 0700, etc.
+func mkdirAllFromFile(dir string, fileMode os.FileMode) error {
+	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+		return nil
+	}
+	perm := normalizeDirPerm(fileMode.Perm()) | 0o200 // ensure owner write on dir so files can be created
+	return os.MkdirAll(dir, perm)
+}
+
+// UnmarshalCaddyfile sets up the module from Caddyfile tokens. Syntax:
+//
+//	file <filename> {
+//	    mode          <mode>
+//	    dir_mode      <mode|inherit|from_file>
+//	    roll_disabled
+//	    roll_size     <size>
+//	    roll_uncompressed
+//	    roll_compression <none|gzip|zstd>
+//	    roll_local_time
+//	    roll_keep     <num>
+//	    roll_keep_for <days>
+//	}
+//
+// The roll_size value has megabyte resolution.
+// Fractional values are rounded up to the next whole megabyte (MiB).
+//
+// By default, compression is enabled, but can be turned off by setting
+// the roll_uncompressed option.
+//
+// The roll_keep_for duration has day resolution.
+// Fractional values are rounded up to the next whole number of days.
+//
+// If any of the mode, roll_size, roll_keep, or roll_keep_for subdirectives are
+// omitted or set to a zero value, then Caddy's default value for that
+// subdirective is used.
+func (fw *FileWriter) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume writer name
+	if !d.NextArg() {
+		return d.ArgErr()
+	}
+	fw.Filename = d.Val()
+	if d.NextArg() {
+		return d.ArgErr()
+	}
+
+	for d.NextBlock(0) {
+		switch d.Val() {
+		case "mode":
+			var modeStr string
+			if !d.AllArgs(&modeStr) {
+				return d.ArgErr()
+			}
+			mode, err := parseFileMode(modeStr)
+			if err != nil {
+				return d.Errf("parsing mode: %v", err)
+			}
+			fw.Mode = fileMode(mode)
+
+		case "dir_mode":
+			var val string
+			if !d.AllArgs(&val) {
+				return d.ArgErr()
+			}
+			val = strings.TrimSpace(val)
+			switch strings.ToLower(val) {
+			case "inherit", "from_file":
+				fw.DirMode = val
+			default:
+				if _, err := parseFileMode(val); err != nil {
+					return d.Errf("parsing dir_mode: %v", err)
+				}
+				fw.DirMode = val
+			}
+
+		case "roll_disabled":
+			var f bool
+			fw.Roll = &f
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+
+		case "roll_size":
+			var sizeStr string
+			if !d.AllArgs(&sizeStr) {
+				return d.ArgErr()
+			}
+			size, err := humanize.ParseBytes(sizeStr)
+			if err != nil {
+				return d.Errf("parsing size: %v", err)
+			}
+			fw.RollSizeMB = int(math.Ceil(float64(size) / humanize.MiByte))
+
+		case "roll_uncompressed":
+			var f bool
+			fw.RollCompress = &f
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+
+		case "roll_compression":
+			var comp string
+			if !d.AllArgs(&comp) {
+				return d.ArgErr()
+			}
+			comp = strings.ToLower(strings.TrimSpace(comp))
+			switch comp {
+			case "none", "gzip", "zstd":
+				fw.RollCompression = comp
+			default:
+				return d.Errf("parsing roll_compression: must be 'none', 'gzip' or 'zstd'")
+			}
+
+		case "roll_local_time":
+			fw.RollLocalTime = true
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+
+		case "roll_keep":
+			var keepStr string
+			if !d.AllArgs(&keepStr) {
+				return d.ArgErr()
+			}
+			keep, err := strconv.Atoi(keepStr)
+			if err != nil {
+				return d.Errf("parsing roll_keep number: %v", err)
+			}
+			fw.RollKeep = keep
+
+		case "roll_keep_for":
+			var keepForStr string
+			if !d.AllArgs(&keepForStr) {
+				return d.ArgErr()
+			}
+			keepFor, err := caddy.ParseDuration(keepForStr)
+			if err != nil {
+				return d.Errf("parsing roll_keep_for duration: %v", err)
+			}
+			if keepFor < 0 {
+				return d.Errf("negative roll_keep_for duration: %v", keepFor)
+			}
+			fw.RollKeepDays = int(math.Ceil(keepFor.Hours() / 24))
+
+		case "roll_interval":
+			var durationStr string
+			if !d.AllArgs(&durationStr) {
+				return d.ArgErr()
+			}
+			duration, err := time.ParseDuration(durationStr)
+			if err != nil {
+				return d.Errf("parsing roll_interval duration: %v", err)
+			}
+			fw.RollInterval = duration
+
+		case "roll_minutes":
+			// Accept either a single comma-separated argument or
+			// multiple space-separated arguments. Collect all
+			// remaining args on the line and split on commas.
+			args := d.RemainingArgs()
+			if len(args) == 0 {
+				return d.ArgErr()
+			}
+			var minutes []int
+			for _, arg := range args {
+				parts := strings.SplitSeq(arg, ",")
+				for p := range parts {
+					ms := strings.TrimSpace(p)
+					if ms == "" {
+						return d.Errf("parsing roll_minutes: empty value")
+					}
+					m, err := strconv.Atoi(ms)
+					if err != nil {
+						return d.Errf("parsing roll_minutes number: %v", err)
+					}
+					minutes = append(minutes, m)
+				}
+			}
+			fw.RollAtMinutes = minutes
+
+		case "roll_at":
+			// Accept either a single comma-separated argument or
+			// multiple space-separated arguments. Collect all
+			// remaining args on the line and split on commas.
+			args := d.RemainingArgs()
+			if len(args) == 0 {
+				return d.ArgErr()
+			}
+			var times []string
+			for _, arg := range args {
+				parts := strings.SplitSeq(arg, ",")
+				for p := range parts {
+					ts := strings.TrimSpace(p)
+					if ts == "" {
+						return d.Errf("parsing roll_at: empty value")
+					}
+					times = append(times, ts)
+				}
+			}
+			fw.RollAt = times
+
+		case "backup_time_format":
+			var format string
+			if !d.AllArgs(&format) {
+				return d.ArgErr()
+			}
+			fw.BackupTimeFormat = format
+
+		default:
+			return d.Errf("unrecognized subdirective '%s'", d.Val())
+		}
+	}
+	return nil
+}
+
+// Interface guards
+var (
+	_ caddy.Provisioner     = (*FileWriter)(nil)
+	_ caddy.WriterOpener    = (*FileWriter)(nil)
+	_ caddyfile.Unmarshaler = (*FileWriter)(nil)
+)

@@ -1,0 +1,37 @@
+[
+  {
+    "ret": 1,
+    "input": "",
+    "type": "tfn",
+    "name": "hexDecode",
+    "output": ""
+  },
+  {
+    "output": "TestCase",
+    "ret": 1,
+    "name": "hexDecode",
+    "input": "5465737443617365",
+    "type": "tfn"
+  },
+  {
+    "type": "tfn",
+    "input": "546573740043617365",
+    "name": "hexDecode",
+    "ret": 1,
+    "output": "Test\\u0000Case"
+  },
+  {
+    "type": "tfn",
+    "name": "invalidCharacter",
+    "input": "01234567890z",
+    "output": "",
+    "ret": 0
+  },
+  {
+    "type": "tfn",
+    "name": "invalidLen",
+    "input": "54657374004",
+    "output": "",
+    "ret": 0
+  }
+]

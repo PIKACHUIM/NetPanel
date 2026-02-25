@@ -1,0 +1,26 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+relayports
+lucky
+# Test binary, built with `go test -c`
+*.test
+
+.goreleaser.yaml
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+*.log
+*.upx
+*.pem
+*.crt
+*.key
+lucky.conf
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+/dist/
+config.json
