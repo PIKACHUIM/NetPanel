@@ -51,11 +51,11 @@ jobs:
           - os: linux
             arch: x86_64
             bin: easytier-core
-            ext: tar.gz
+            ext: zip
           - os: linux
             arch: aarch64
             bin: easytier-core
-            ext: tar.gz
+            ext: zip
           - os: windows
             arch: x86_64
             bin: easytier-core.exe
@@ -67,11 +67,11 @@ jobs:
           - os: macos
             arch: x86_64
             bin: easytier-core
-            ext: tar.gz
+            ext: zip
           - os: macos
             arch: aarch64
             bin: easytier-core
-            ext: tar.gz
+            ext: zip
     steps:
       - name: Download EasyTier binary
         run: |
@@ -86,16 +86,10 @@ jobs:
           echo "Downloading: ${BASE_URL}/${ARCHIVE}"
           curl -fsSL --retry 3 --retry-delay 5 "${BASE_URL}/${ARCHIVE}" -o "easytier.${EXT}"
 
-          if [ "${EXT}" = "zip" ]; then
-            unzip -j "easytier.${EXT}" "*/easytier-core.exe" -d ./ 2>/dev/null || \
-            unzip -j "easytier.${EXT}" "easytier-core.exe" -d ./ 2>/dev/null || \
-            unzip "easytier.${EXT}" && find . -name "easytier-core.exe" -exec cp {} ./ \;
-          else
-            tar -xzf "easytier.${EXT}" --wildcards "*/easytier-core" --strip-components=1 2>/dev/null || \
-            tar -xzf "easytier.${EXT}" "easytier-core" 2>/dev/null || \
-            (tar -xzf "easytier.${EXT}" && find . -name "easytier-core" -not -path "./easytier-core" -exec cp {} ./ \;)
-            chmod +x "${BIN}"
-          fi
+          unzip -j "easytier.zip" "*/${BIN}" -d ./ 2>/dev/null || \
+          unzip -j "easytier.zip" "${BIN}" -d ./ 2>/dev/null || \
+          (unzip "easytier.zip" && find . -name "${BIN}" ! -path "./easytier.zip" -exec cp {} ./ \;)
+          chmod +x "${BIN}" 2>/dev/null || true
 
           ls -la "${BIN}"
           echo "EasyTier ${VERSION} for ${OS}-${ARCH} downloaded successfully"
