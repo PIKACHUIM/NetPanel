@@ -61,7 +61,7 @@ jobs:
             bin: easytier-core.exe
             ext: zip
           - os: windows
-            arch: aarch64
+            arch: arm64
             bin: easytier-core.exe
             ext: zip
           - os: macos

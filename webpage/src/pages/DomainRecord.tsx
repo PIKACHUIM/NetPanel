@@ -34,7 +34,7 @@ const DomainRecord: React.FC = () => {
     setLoading(true)
     try {
       const [recRes, accRes]: any[] = await Promise.all([
-        domainRecordApi.list(accountId ? { account_id: accountId } : undefined),
+        domainRecordApi.list(accountId),
         domainAccountApi.list(),
       ])
       setData(recRes.data || [])

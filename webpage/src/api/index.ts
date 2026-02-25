@@ -100,6 +100,7 @@ export const domainAccountApi = {
   create: (data: any) => request.post('/v1/domain/accounts', data),
   update: (id: number, data: any) => request.put(`/v1/domain/accounts/${id}`, data),
   delete: (id: number) => request.delete(`/v1/domain/accounts/${id}`),
+  test: (id: number) => request.post(`/v1/domain/accounts/${id}/test`),
 }
 
 // ===== 域名证书 =====
