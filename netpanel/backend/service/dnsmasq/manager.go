@@ -2,6 +2,7 @@ package dnsmasq
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -150,11 +151,14 @@ func (m *Manager) forwardToUpstream(w dns.ResponseWriter, r *dns.Msg) {
 
 	var upstreams []string
 	if cfg.UpstreamDNS != "" {
-		// 解析 JSON 数组
-		for _, u := range strings.Split(cfg.UpstreamDNS, ",") {
-			u = strings.TrimSpace(u)
-			if u != "" {
-				upstreams = append(upstreams, u)
+		// 优先尝试解析 JSON 数组格式 ["8.8.8.8","114.114.114.114"]
+		if err := json.Unmarshal([]byte(cfg.UpstreamDNS), &upstreams); err != nil {
+			// 降级：逗号分隔格式
+			for _, u := range strings.Split(cfg.UpstreamDNS, ",") {
+				u = strings.TrimSpace(u)
+				if u != "" {
+					upstreams = append(upstreams, u)
+				}
 			}
 		}
 	}

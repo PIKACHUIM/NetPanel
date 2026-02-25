@@ -67,16 +67,17 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/system/config", sysHandler.GetConfig)
 	auth.PUT("/system/config", sysHandler.UpdateConfig)
 	auth.GET("/system/interfaces", sysHandler.GetInterfaces)
+	auth.POST("/system/change-password", sysHandler.ChangePassword)
 
-	// 端口转发
+	// 端口转发（路径与前端保持一致）
 	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr)
-	auth.GET("/portforward", pfHandler.List)
-	auth.POST("/portforward", pfHandler.Create)
-	auth.PUT("/portforward/:id", pfHandler.Update)
-	auth.DELETE("/portforward/:id", pfHandler.Delete)
-	auth.POST("/portforward/:id/start", pfHandler.Start)
-	auth.POST("/portforward/:id/stop", pfHandler.Stop)
-	auth.GET("/portforward/:id/logs", pfHandler.GetLogs)
+	auth.GET("/port-forward", pfHandler.List)
+	auth.POST("/port-forward", pfHandler.Create)
+	auth.PUT("/port-forward/:id", pfHandler.Update)
+	auth.DELETE("/port-forward/:id", pfHandler.Delete)
+	auth.POST("/port-forward/:id/start", pfHandler.Start)
+	auth.POST("/port-forward/:id/stop", pfHandler.Stop)
+	auth.GET("/port-forward/:id/logs", pfHandler.GetLogs)
 
 	// STUN 穿透
 	stunHandler := handlers.NewStunHandler(opts.DB, opts.Log, opts.StunMgr)
@@ -96,6 +97,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/frpc/:id", frpcHandler.Delete)
 	auth.POST("/frpc/:id/start", frpcHandler.Start)
 	auth.POST("/frpc/:id/stop", frpcHandler.Stop)
+	auth.POST("/frpc/:id/restart", frpcHandler.Restart)
 	// FRP 代理
 	auth.GET("/frpc/:id/proxies", frpcHandler.ListProxies)
 	auth.POST("/frpc/:id/proxies", frpcHandler.CreateProxy)
@@ -113,22 +115,22 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 
 	// EasyTier 客户端
 	etHandler := handlers.NewEasytierHandler(opts.DB, opts.Log, opts.EasytierMgr)
-	auth.GET("/easytier", etHandler.List)
-	auth.POST("/easytier", etHandler.Create)
-	auth.PUT("/easytier/:id", etHandler.Update)
-	auth.DELETE("/easytier/:id", etHandler.Delete)
-	auth.POST("/easytier/:id/start", etHandler.Start)
-	auth.POST("/easytier/:id/stop", etHandler.Stop)
-	auth.GET("/easytier/:id/status", etHandler.GetStatus)
+	auth.GET("/easytier/client", etHandler.List)
+	auth.POST("/easytier/client", etHandler.Create)
+	auth.PUT("/easytier/client/:id", etHandler.Update)
+	auth.DELETE("/easytier/client/:id", etHandler.Delete)
+	auth.POST("/easytier/client/:id/start", etHandler.Start)
+	auth.POST("/easytier/client/:id/stop", etHandler.Stop)
+	auth.GET("/easytier/client/:id/status", etHandler.GetStatus)
 
 	// EasyTier 服务端
 	etsHandler := handlers.NewEasytierServerHandler(opts.DB, opts.Log, opts.EasytierMgr)
-	auth.GET("/easytier-server", etsHandler.List)
-	auth.POST("/easytier-server", etsHandler.Create)
-	auth.PUT("/easytier-server/:id", etsHandler.Update)
-	auth.DELETE("/easytier-server/:id", etsHandler.Delete)
-	auth.POST("/easytier-server/:id/start", etsHandler.Start)
-	auth.POST("/easytier-server/:id/stop", etsHandler.Stop)
+	auth.GET("/easytier/server", etsHandler.List)
+	auth.POST("/easytier/server", etsHandler.Create)
+	auth.PUT("/easytier/server/:id", etsHandler.Update)
+	auth.DELETE("/easytier/server/:id", etsHandler.Delete)
+	auth.POST("/easytier/server/:id/start", etsHandler.Start)
+	auth.POST("/easytier/server/:id/stop", etsHandler.Stop)
 
 	// DDNS
 	ddnsHandler := handlers.NewDDNSHandler(opts.DB, opts.Log, opts.DdnsMgr)
@@ -159,26 +161,26 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 
 	// 域名账号
 	daHandler := handlers.NewDomainAccountHandler(opts.DB, opts.Log)
-	auth.GET("/domain-accounts", daHandler.List)
-	auth.POST("/domain-accounts", daHandler.Create)
-	auth.PUT("/domain-accounts/:id", daHandler.Update)
-	auth.DELETE("/domain-accounts/:id", daHandler.Delete)
+	auth.GET("/domain/accounts", daHandler.List)
+	auth.POST("/domain/accounts", daHandler.Create)
+	auth.PUT("/domain/accounts/:id", daHandler.Update)
+	auth.DELETE("/domain/accounts/:id", daHandler.Delete)
 
 	// 域名证书
 	certHandler := handlers.NewCertHandler(opts.DB, opts.Log, opts.Config)
-	auth.GET("/certs", certHandler.List)
-	auth.POST("/certs", certHandler.Create)
-	auth.PUT("/certs/:id", certHandler.Update)
-	auth.DELETE("/certs/:id", certHandler.Delete)
-	auth.POST("/certs/:id/renew", certHandler.Renew)
+	auth.GET("/domain/certs", certHandler.List)
+	auth.POST("/domain/certs", certHandler.Create)
+	auth.PUT("/domain/certs/:id", certHandler.Update)
+	auth.DELETE("/domain/certs/:id", certHandler.Delete)
+	auth.POST("/domain/certs/:id/apply", certHandler.Renew)
 
 	// 域名解析
 	drHandler := handlers.NewDomainRecordHandler(opts.DB, opts.Log)
-	auth.GET("/domain-records", drHandler.List)
-	auth.POST("/domain-records", drHandler.Create)
-	auth.PUT("/domain-records/:id", drHandler.Update)
-	auth.DELETE("/domain-records/:id", drHandler.Delete)
-	auth.POST("/domain-records/sync/:accountId", drHandler.SyncFromProvider)
+	auth.GET("/domain/records", drHandler.List)
+	auth.POST("/domain/records", drHandler.Create)
+	auth.PUT("/domain/records/:id", drHandler.Update)
+	auth.DELETE("/domain/records/:id", drHandler.Delete)
+	auth.POST("/domain/records/sync/:accountId", drHandler.SyncFromProvider)
 
 	// DNSMasq
 	dnsmasqHandler := handlers.NewDnsmasqHandler(opts.DB, opts.Log, opts.DnsmasqMgr)
@@ -197,6 +199,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/cron", cronHandler.Create)
 	auth.PUT("/cron/:id", cronHandler.Update)
 	auth.DELETE("/cron/:id", cronHandler.Delete)
+	auth.POST("/cron/:id/enable", cronHandler.Enable)
+	auth.POST("/cron/:id/disable", cronHandler.Disable)
 	auth.POST("/cron/:id/run", cronHandler.RunNow)
 
 	// 网络存储
@@ -225,19 +229,19 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/access/:id", accessHandler.Delete)
 
 	// 回调账号
-	cbAccountHandler := handlers.NewCallbackAccountHandler(opts.DB, opts.Log)
-	auth.GET("/callback-accounts", cbAccountHandler.List)
-	auth.POST("/callback-accounts", cbAccountHandler.Create)
-	auth.PUT("/callback-accounts/:id", cbAccountHandler.Update)
-	auth.DELETE("/callback-accounts/:id", cbAccountHandler.Delete)
-	auth.POST("/callback-accounts/:id/test", cbAccountHandler.Test)
+	cbAccountHandler := handlers.NewCallbackAccountHandler(opts.DB, opts.Log, opts.CallbackMgr)
+	auth.GET("/callback/accounts", cbAccountHandler.List)
+	auth.POST("/callback/accounts", cbAccountHandler.Create)
+	auth.PUT("/callback/accounts/:id", cbAccountHandler.Update)
+	auth.DELETE("/callback/accounts/:id", cbAccountHandler.Delete)
+	auth.POST("/callback/accounts/:id/test", cbAccountHandler.Test)
 
 	// 回调任务
 	cbTaskHandler := handlers.NewCallbackTaskHandler(opts.DB, opts.Log)
-	auth.GET("/callback-tasks", cbTaskHandler.List)
-	auth.POST("/callback-tasks", cbTaskHandler.Create)
-	auth.PUT("/callback-tasks/:id", cbTaskHandler.Update)
-	auth.DELETE("/callback-tasks/:id", cbTaskHandler.Delete)
+	auth.GET("/callback/tasks", cbTaskHandler.List)
+	auth.POST("/callback/tasks", cbTaskHandler.Create)
+	auth.PUT("/callback/tasks/:id", cbTaskHandler.Update)
+	auth.DELETE("/callback/tasks/:id", cbTaskHandler.Delete)
 
 	return r
 }

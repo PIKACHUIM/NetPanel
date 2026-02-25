@@ -105,3 +105,37 @@ func (h *SystemHandler) GetInterfaces(c *gin.Context) {
 	interfaces := utils.GetNetInterfaces()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": interfaces})
 }
+
+// ChangePassword 修改管理员密码
+func (h *SystemHandler) ChangePassword(c *gin.Context) {
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=6"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	// 查询当前密码
+	var cfg model.SystemConfig
+	if err := h.db.Where("key = ?", "admin_password").First(&cfg).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询密码失败"})
+		return
+	}
+
+	// 验证旧密码
+	if !utils.CheckPassword(req.OldPassword, cfg.Value) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "旧密码错误"})
+		return
+	}
+
+	// 更新新密码
+	hashed, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码加密失败"})
+		return
+	}
+	h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "密码修改成功"})
+}

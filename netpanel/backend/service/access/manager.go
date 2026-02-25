@@ -15,16 +15,31 @@ import (
 
 // Manager 访问控制管理器
 type Manager struct {
-	db    *gorm.DB
-	log   *logrus.Logger
-	rules []model.AccessRule
-	mu    sync.RWMutex
+	db           *gorm.DB
+	log          *logrus.Logger
+	rules        []model.AccessRule
+	mu           sync.RWMutex
+	// excludePaths 不受访问控制影响的路径前缀（可通过 SetExcludePaths 配置）
+	excludePaths []string
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
-	m := &Manager{db: db, log: log}
+	m := &Manager{
+		db:  db,
+		log: log,
+		// 默认不豁免任何路径，所有请求均受访问控制
+		excludePaths: []string{},
+	}
 	m.loadRules()
 	return m
+}
+
+// SetExcludePaths 设置不受访问控制影响的路径前缀列表
+// 例如：["/api/v1/system/login"] 使登录接口不受访问控制影响
+func (m *Manager) SetExcludePaths(paths []string) {
+	m.mu.Lock()
+	m.excludePaths = paths
+	m.mu.Unlock()
 }
 
 func (m *Manager) loadRules() {
@@ -46,10 +61,17 @@ func (m *Manager) SetGinEngine(r *gin.Engine) {
 // GinMiddleware 访问控制 Gin 中间件
 func (m *Manager) GinMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// API 路由不受访问控制影响（只控制前端访问）
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			c.Next()
-			return
+		// 检查是否在豁免路径列表中
+		m.mu.RLock()
+		excludePaths := m.excludePaths
+		m.mu.RUnlock()
+
+		path := c.Request.URL.Path
+		for _, ep := range excludePaths {
+			if strings.HasPrefix(path, ep) {
+				c.Next()
+				return
+			}
 		}
 
 		clientIP := getClientIP(c.Request)

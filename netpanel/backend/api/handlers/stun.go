@@ -29,7 +29,7 @@ func (h *StunHandler) List(c *gin.Context) {
 		if info := h.mgr.GetCurrentInfo(rules[i].ID); info != nil {
 			rules[i].CurrentIP = info.IP
 			rules[i].CurrentPort = info.Port
-			rules[i].NATType = info.NATType
+			rules[i].NATType = string(info.NATType)
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rules})

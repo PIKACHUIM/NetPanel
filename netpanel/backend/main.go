@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +35,12 @@ import (
 
 //go:embed embed/dist
 var staticFiles embed.FS
+
+// Version 由构建时 ldflags 注入
+var (
+	Version   = "dev"
+	BuildTime = "unknown"
+)
 
 var (
 	port    = flag.Int("port", 8080, "HTTP 监听端口")
@@ -69,11 +76,11 @@ func main() {
 	ddnsMgr := ddns.NewManager(db, log)
 	caddyMgr := caddy.NewManager(db, log, *dataDir)
 	cronMgr := cron.NewManager(db, log)
-	storageMgr := storage.NewManager(db, log)
+	storageMgr := storage.NewManager(db, log, *dataDir)
 	accessMgr := access.NewManager(db, log)
 	dnsmasqMgr := dnsmasq.NewManager(db, log)
 	wolMgr := wol.NewManager(db, log)
-	certMgr := cert.NewManager(db, log)
+	certMgr := cert.NewManager(db, log, *dataDir)
 	callbackMgr := callback.NewManager(db, log)
 
 	// 启动所有已启用的服务
@@ -116,12 +123,30 @@ func main() {
 		CallbackMgr:    callbackMgr,
 	})
 
-	// 挂载前端静态文件
-	distFS, err := fs.Sub(staticFiles, "embed/dist")
-	if err != nil {
-		log.Warnf("前端静态文件加载失败（开发模式）: %v", err)
+	// 挂载前端静态文件（SPA 模式：所有非 /api 路径均返回 index.html）
+	distFS, fsErr := fs.Sub(staticFiles, "embed/dist")
+	if fsErr != nil {
+		log.Warnf("前端静态文件加载失败（开发模式）: %v", fsErr)
 	} else {
-		router.StaticFS("/", http.FS(distFS))
+		fileServer := http.FileServer(http.FS(distFS))
+		router.NoRoute(func(c *gin.Context) {
+			// API 路由未匹配时返回 404 JSON
+			if strings.HasPrefix(c.Request.URL.Path, "/api") {
+				c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "接口不存在"})
+				return
+			}
+			// 尝试提供静态文件，不存在则返回 index.html（SPA 路由）
+			filePath := c.Request.URL.Path
+			if filePath == "/" || filePath == "" {
+				filePath = "index.html"
+			} else {
+				filePath = filePath[1:] // 去掉前导 /
+			}
+			if _, openErr := distFS.Open(filePath); openErr != nil {
+				c.Request.URL.Path = "/"
+			}
+			fileServer.ServeHTTP(c.Writer, c.Request)
+		})
 	}
 
 	// 访问控制中间件注入

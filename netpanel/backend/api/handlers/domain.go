@@ -8,6 +8,7 @@ import (
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/callback"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -368,10 +369,11 @@ func (h *AccessHandler) Delete(c *gin.Context) {
 type CallbackAccountHandler struct {
 	db  *gorm.DB
 	log *logrus.Logger
+	mgr *callback.Manager
 }
 
-func NewCallbackAccountHandler(db *gorm.DB, log *logrus.Logger) *CallbackAccountHandler {
-	return &CallbackAccountHandler{db: db, log: log}
+func NewCallbackAccountHandler(db *gorm.DB, log *logrus.Logger, mgr *callback.Manager) *CallbackAccountHandler {
+	return &CallbackAccountHandler{db: db, log: log, mgr: mgr}
 }
 
 func (h *CallbackAccountHandler) List(c *gin.Context) {
@@ -409,7 +411,11 @@ func (h *CallbackAccountHandler) Delete(c *gin.Context) {
 }
 
 func (h *CallbackAccountHandler) Test(c *gin.Context) {
-	// TODO: 测试回调账号连通性
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err := h.mgr.TestAccount(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "测试失败: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "测试成功"})
 }
 

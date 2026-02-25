@@ -87,6 +87,16 @@ func (h *FrpcHandler) Stop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
+// Restart 重启 FRP 客户端
+func (h *FrpcHandler) Restart(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err := h.mgr.RestartClient(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已重启"})
+}
+
 func (h *FrpcHandler) ListProxies(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var proxies []model.FrpcProxy

@@ -2,7 +2,6 @@ package wol
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"regexp"
@@ -30,7 +29,7 @@ func (m *Manager) Wake(id uint) error {
 	if err := m.db.First(&device, id).Error; err != nil {
 		return fmt.Errorf("设备不存在: %w", err)
 	}
-	return m.SendMagicPacket(device.MacAddress, device.BroadcastIP, device.NetInterface, device.Port)
+	return m.SendMagicPacket(device.MACAddress, device.BroadcastIP, device.NetInterface, device.Port)
 }
 
 // SendMagicPacket 发送魔术包
@@ -91,6 +90,5 @@ func (m *Manager) SendMagicPacket(macAddr, broadcastIP, iface string, port int) 
 	}
 
 	m.log.Infof("[WOL] 已向 %s 发送魔术包，目标 MAC: %s", udpAddr, macAddr)
-	_ = binary.BigEndian // 避免未使用导入
 	return nil
 }

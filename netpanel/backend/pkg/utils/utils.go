@@ -7,7 +7,25 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 )
+
+// HashPassword 对密码进行 bcrypt 哈希
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bytes), err
+}
+
+// CheckPassword 验证密码是否匹配哈希值（同时兼容明文密码）
+func CheckPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	if err == nil {
+		return true
+	}
+	// 兼容旧版明文密码
+	return password == hash
+}
 
 // GenerateKey 生成随机 key
 func GenerateKey(length int) string {

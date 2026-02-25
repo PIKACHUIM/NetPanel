@@ -230,6 +230,26 @@ func (h *CronHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
+func (h *CronHandler) Enable(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var task model.CronTask
+	if err := h.db.First(&task, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "任务不存在"})
+		return
+	}
+	task.Enable = true
+	h.db.Save(&task)
+	h.mgr.AddTask(&task)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启用"})
+}
+
+func (h *CronHandler) Disable(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	h.mgr.RemoveTask(uint(id))
+	h.db.Model(&model.CronTask{}).Where("id = ?", id).Update("enable", false)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已禁用"})
+}
+
 func (h *CronHandler) RunNow(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.mgr.RunNow(uint(id)); err != nil {

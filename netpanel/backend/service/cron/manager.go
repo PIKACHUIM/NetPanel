@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -111,10 +112,10 @@ func (m *Manager) executeTask(id uint) {
 
 func (m *Manager) runShell(command string) (string, error) {
 	var cmd *exec.Cmd
-	if strings.Contains(command, " ") {
-		cmd = exec.Command("sh", "-c", command)
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", command)
 	} else {
-		cmd = exec.Command(command)
+		cmd = exec.Command("sh", "-c", command)
 	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
