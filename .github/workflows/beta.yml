@@ -8,7 +8,7 @@ on:
 env:
   GO_VERSION: '1.21'
   NODE_VERSION: '20'
-  EASYTIER_VERSION: '1.2.1'
+  EASYTIER_VERSION: '2.5.0'
 
 jobs:
   # ===== 构建前端 =====
