@@ -6,7 +6,7 @@ BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)
 
 # 目录
-FRONTEND_DIR := frontend
+FRONTEND_DIR := webpage
 BACKEND_DIR  := backend
 DIST_DIR     := dist
 
@@ -23,11 +23,11 @@ help:
 ## install-deps: 安装所有依赖
 install-deps:
 	@echo ">>> 安装前端依赖..."
-	cd $(FRONTEND_DIR) && npm ci
+	cd $(FRONTEND_DIR) && npm install
 	@echo ">>> 下载后端依赖..."
 	cd $(BACKEND_DIR) && go mod download
 
-## build-webpage: 构建前端
+## build-frontend: 构建前端
 build-frontend:
 	@echo ">>> 构建前端..."
 	cd $(FRONTEND_DIR) && npm run build
@@ -45,7 +45,7 @@ build-backend:
 ## build: 构建前端 + 后端
 build: build-frontend build-backend
 
-## dev-webpage: 启动前端开发服务器
+## dev-frontend: 启动前端开发服务器
 dev-frontend:
 	@echo ">>> 启动前端开发服务器 (http://localhost:3000)..."
 	cd $(FRONTEND_DIR) && npm run dev
