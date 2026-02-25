@@ -43,6 +43,26 @@ export const frpsApi = {
   stop: (id: number) => request.post(`/v1/frps/${id}/stop`),
 }
 
+// ===== NPS 服务端 =====
+export const npsServerApi = {
+  list: () => request.get('/v1/nps/server'),
+  create: (data: any) => request.post('/v1/nps/server', data),
+  update: (id: number, data: any) => request.put(`/v1/nps/server/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/nps/server/${id}`),
+  start: (id: number) => request.post(`/v1/nps/server/${id}/start`),
+  stop: (id: number) => request.post(`/v1/nps/server/${id}/stop`),
+}
+
+// ===== NPS 客户端 =====
+export const npsClientApi = {
+  list: () => request.get('/v1/nps/client'),
+  create: (data: any) => request.post('/v1/nps/client', data),
+  update: (id: number, data: any) => request.put(`/v1/nps/client/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/nps/client/${id}`),
+  start: (id: number) => request.post(`/v1/nps/client/${id}/start`),
+  stop: (id: number) => request.post(`/v1/nps/client/${id}/stop`),
+}
+
 // ===== EasyTier 客户端 =====
 export const easytierClientApi = {
   list: () => request.get('/v1/easytier/client'),

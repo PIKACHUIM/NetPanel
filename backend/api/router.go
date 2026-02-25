@@ -14,6 +14,7 @@ import (
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
@@ -30,6 +31,7 @@ type RouterOptions struct {
 	PortForwardMgr *portforward.Manager
 	StunMgr        *stun.Manager
 	FrpMgr         *frp.Manager
+	NpsMgr         *nps.Manager
 	EasytierMgr    *easytier.Manager
 	DdnsMgr        *ddns.Manager
 	CaddyMgr       *caddy.Manager
@@ -112,6 +114,27 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/frps/:id", frpsHandler.Delete)
 	auth.POST("/frps/:id/start", frpsHandler.Start)
 	auth.POST("/frps/:id/stop", frpsHandler.Stop)
+
+	// NPS 服务端
+	npsServerHandler := handlers.NewNpsServerHandler(opts.DB, opts.Log, opts.NpsMgr)
+	auth.GET("/nps/server", npsServerHandler.List)
+	auth.POST("/nps/server", npsServerHandler.Create)
+	auth.PUT("/nps/server/:id", npsServerHandler.Update)
+	auth.DELETE("/nps/server/:id", npsServerHandler.Delete)
+	auth.POST("/nps/server/:id/start", npsServerHandler.Start)
+	auth.POST("/nps/server/:id/stop", npsServerHandler.Stop)
+
+	// NPS 客户端
+	npsClientHandler := handlers.NewNpsClientHandler(opts.DB, opts.Log, opts.NpsMgr)
+	auth.GET("/nps/client", npsClientHandler.List)
+	auth.POST("/nps/client", npsClientHandler.Create)
+	auth.PUT("/nps/client/:id", npsClientHandler.Update)
+	auth.DELETE("/nps/client/:id", npsClientHandler.Delete)
+	auth.POST("/nps/client/:id/start", npsClientHandler.Start)
+	auth.POST("/nps/client/:id/stop", npsClientHandler.Stop)
+
+	// EasyTier 客户端
+	auth.GET("/frps/:id/dashboard", frpsHandler.GetDashboardURL)
 
 	// EasyTier 客户端
 	etHandler := handlers.NewEasytierHandler(opts.DB, opts.Log, opts.EasytierMgr)

@@ -1,0 +1,6 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+*.js linguist-language=golang
+*.css linguist-language=golang
+*.html linguist-language=golang

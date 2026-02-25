@@ -27,6 +27,7 @@ import (
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
@@ -72,6 +73,7 @@ func main() {
 	portforwardMgr := portforward.NewManager(db, log)
 	stunMgr := stun.NewManager(db, log)
 	frpMgr := frp.NewManager(db, log)
+	npsMgr := nps.NewManager(db, log, *dataDir)
 	easytierMgr := easytier.NewManager(db, log, *dataDir)
 	ddnsMgr := ddns.NewManager(db, log)
 	caddyMgr := caddy.NewManager(db, log, *dataDir)
@@ -87,6 +89,7 @@ func main() {
 	portforwardMgr.StartAll()
 	stunMgr.StartAll()
 	frpMgr.StartAll()
+	npsMgr.StartAll()
 	easytierMgr.StartAll()
 	ddnsMgr.StartAll()
 	caddyMgr.StartAll()
@@ -111,6 +114,7 @@ func main() {
 		PortForwardMgr: portforwardMgr,
 		StunMgr:        stunMgr,
 		FrpMgr:         frpMgr,
+		NpsMgr:         npsMgr,
 		EasytierMgr:    easytierMgr,
 		DdnsMgr:        ddnsMgr,
 		CaddyMgr:       caddyMgr,
@@ -179,6 +183,7 @@ func main() {
 	portforwardMgr.StopAll()
 	stunMgr.StopAll()
 	frpMgr.StopAll()
+	npsMgr.StopAll()
 	easytierMgr.StopAll()
 	ddnsMgr.StopAll()
 	caddyMgr.StopAll()

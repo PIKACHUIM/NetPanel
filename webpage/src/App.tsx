@@ -11,6 +11,8 @@ const PortForward = lazy(() => import('./pages/PortForward'))
 const Stun = lazy(() => import('./pages/Stun'))
 const FrpClient = lazy(() => import('./pages/FrpClient'))
 const FrpServer = lazy(() => import('./pages/FrpServer'))
+const NpsServer = lazy(() => import('./pages/NpsServer'))
+const NpsClient = lazy(() => import('./pages/NpsClient'))
 const EasytierClient = lazy(() => import('./pages/EasytierClient'))
 const EasytierServer = lazy(() => import('./pages/EasytierServer'))
 const Ddns = lazy(() => import('./pages/Ddns'))
@@ -59,6 +61,8 @@ const App: React.FC = () => {
         <Route path="stun" element={<Suspense fallback={<PageLoader />}><Stun /></Suspense>} />
         <Route path="frp/client" element={<Suspense fallback={<PageLoader />}><FrpClient /></Suspense>} />
         <Route path="frp/server" element={<Suspense fallback={<PageLoader />}><FrpServer /></Suspense>} />
+        <Route path="nps/server" element={<Suspense fallback={<PageLoader />}><NpsServer /></Suspense>} />
+        <Route path="nps/client" element={<Suspense fallback={<PageLoader />}><NpsClient /></Suspense>} />
         <Route path="easytier/client" element={<Suspense fallback={<PageLoader />}><EasytierClient /></Suspense>} />
         <Route path="easytier/server" element={<Suspense fallback={<PageLoader />}><EasytierServer /></Suspense>} />
         <Route path="ddns" element={<Suspense fallback={<PageLoader />}><Ddns /></Suspense>} />

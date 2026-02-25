@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title langtag="title-login"></title>
+    <!-- Mainly scripts -->
+    <!-- Latest compiled and minified CSS -->
+    <link href="{{.web_base_url}}/static/css/fontawesome.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/solid.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/style.css?v={{.version}}" rel="stylesheet">
+    <!-- Latest compiled and minified JavaScript -->
+    <script src="{{.web_base_url}}/static/js/jquery-3.7.1.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/bootstrap.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/jsencrypt.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/crypto-js.min.js"></script>
+    <!-- Latest compiled and minified Locales -->
+    <script src="{{.web_base_url}}/static/js/language.js?v={{.version}}" type="text/javascript"></script>
+    {{.head_custom_code}}
+</head>
+
+<body class="login-page">
+    <nav class="navbar navbar-static-top navbar-right navbar-login">
+        <div class="ml-auto d-flex align-items-center" style="gap: 0.5rem;">
+            <button id="theme-toggle" class="btn btn-outline-secondary" onclick="toggleTheme()">
+                <i class="fa fa-moon"></i>
+            </button>
+            <span class="btn-group dropdown">
+                <button id="languagemenu" class="btn btn-outline-primary dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    <i class="fa fa-globe-asia fa-lg"></i>
+                    <span></span>
+                </button>
+                <ul class="dropdown-menu"></ul>
+            </span>
+        </div>
+    </nav>
+
+    <div class="login-card">
+        <div class="login-header">
+            <img src="{{.web_base_url}}/static/img/nps.svg?v={{.version}}" alt="Logo" style="width: 32px; height: 32px; margin-right: 20px !important;">
+            <div class="navbar-brand" style="font-weight: lighter; font-size: 2.0rem !important"><h1 langtag="title-login"></h1></div>
+        </div>
+        <div class="login-body">
+            <form class="m-t" onsubmit="return false;">
+                <div class="form-group position-relative">
+                    <i class="fas fa-user-circle input-icon"></i>
+                    <input class="form-control" langtag="word-username" name="username" placeholder="username" required="" type="text">
+                </div>
+                <div class="form-group position-relative">
+                    <i class="fas fa-key input-icon"></i>
+                    <input class="form-control" langtag="word-password" name="password" placeholder="password" required="" type="password">
+                </div>
+                {{if eq true .captcha_open}}
+                <div class="form-group captcha-group position-relative">
+                    <div class="flex-fill">
+                    <i class="fas fa-shield-alt input-icon"></i>
+                    <input class="form-control" langtag="word-captcha" name="captcha" placeholder="captcha" required="">
+                    </div>
+                    <div class="captcha-container">
+                    {{create_captcha}}
+                    </div>
+                </div>
+                {{end}}
+                <button id="loginBtn" class="btn btn-primary block full-width m-b" langtag="word-login" onclick="if (this.form.reportValidity()) login()" type="submit"></button>
+                {{if eq true .register_allow}}
+                <p class="text-muted text-center">
+                    <small langtag="info-noaccount"></small>
+                    <small><a href="{{.web_base_url}}/login/register" langtag="word-register"></a></small>
+                </p>
+                {{end}}
+            </form>
+    </div>
+    <div class="footer">
+        <div class="float-right">
+            <span langtag="word-readmore"></span>
+            <strong><a href="https://github.com/djylb/nps" langtag="word-go"></a></strong>
+        </div>
+        <div><strong langtag="word-copyright"></strong> <span langtag="application"></span> &copy; 2018-{{.year}}</div>
+    </div>
+
+    <script type="text/javascript">
+        window.nps = {
+            web_base_url : "{{.web_base_url}}",
+            version      : "{{.version}}",
+            publicKey    : `{{.public_key}}`,
+            loginNonce   : "{{.login_nonce}}",
+            loginDelay   : {{.login_delay}},
+            totpLen      : {{.totp_len}},
+            powBits      : {{.pow_bits}},
+            powEnable    : {{if .pow_enable}}true{{else}}false{{end}},
+            lastAttempt  : Date.now(),
+            timeOffset: 0
+        };
+        function syncServerTime() {
+            var t0 = Date.now();
+            $.ajax({
+                url: window.nps.web_base_url + "/auth/gettime",
+                dataType: "json",
+                cache: false,
+                timeout: 5000,
+                success: function (res) {
+                    if (!res || res.time == null) return;
+                    var t3 = Date.now();
+                    var server = res.time * 1000;
+                    if (server == null) return;
+                    var rtt = t3 - t0;
+                    var estServerAtT3 = server + Math.floor(rtt / 2);
+                    window.nps.timeOffset = estServerAtT3 - t3;
+                }
+            });
+        }
+        const loginBtn = document.getElementById('loginBtn');
+        const rsaEncryptor = new JSEncrypt();
+        rsaEncryptor.setPublicKey(window.nps.publicKey);
+        function encryptWithRSA(plain) {
+            return rsaEncryptor.encrypt(plain);
+        }
+        async function sha256Uint8(encPwd, nonce) {
+            const hex = CryptoJS.SHA256(encPwd + nonce).toString(CryptoJS.enc.Hex);
+            const out = new Uint8Array(hex.length >> 1);
+            for (let i = 0; i < out.length; i++) {
+                out[i] = parseInt(hex.substr(i << 1, 2), 16);
+            }
+            return out;
+        }
+        function prefixZero(hashBytes, bits) {
+            const full = bits >> 3, rem = bits & 7;
+            for (let i = 0; i < full; i++) if (hashBytes[i]) return false;
+            return rem ? (hashBytes[full] & (0xFF << (8 - rem))) === 0 : true;
+        }
+        async function calcPowX(encPwd, bits, timeoutMs = 60000) {
+            if (window.Worker) {
+                return new Promise((resolve, reject) => {
+                    const w = new Worker(window.nps.web_base_url + '/static/js/pow-worker.js');
+                    const timer = setTimeout(() => {
+                        w.terminate();
+                        reject('PoW timeout');
+                    }, timeoutMs + 500);
+                    w.onmessage = ({ data }) => {
+                        if (data.ok) {
+                            clearTimeout(timer);
+                            w.terminate();
+                            resolve(data.nonce.toString());
+                        } else if (!data.progress) {
+                            clearTimeout(timer);
+                            w.terminate();
+                            reject('PoW timeout');
+                        }
+                    };
+                    w.postMessage({ encPwd, bits, timeout: timeoutMs });
+                });
+            } else {
+                const endTime = Date.now() + timeoutMs;
+                let nonce = (Math.random() * 0xFFFFFFFF) >>> 0;
+                while (Date.now() < endTime) {
+                    const hash = await sha256Uint8(encPwd, nonce);
+                    if (prefixZero(hash, bits)) return nonce.toString();
+                    nonce = (nonce + 1) >>> 0;
+                    if ((nonce & 0xFFF) === 0) await Promise.resolve();
+                }
+                throw new Error("PoW timeout");
+            }
+        }
+        $(function () {
+            syncServerTime();
+        });
+        async function login() {
+            loginBtn.disabled = true;
+            showMsg(langreply('Processing'), 'loading', 60000);
+            await new Promise(requestAnimationFrame);
+            await new Promise(resolve => setTimeout(resolve, 600));
+            const data = Object.fromEntries(new FormData(document.querySelector('form')).entries());
+            const ts = Date.now() + window.nps.timeOffset;
+            const payload = JSON.stringify({
+                n: window.nps.loginNonce,
+                t: ts,
+                p: data.password
+            });
+            const encPwd  = encryptWithRSA(payload);
+            data.password = encPwd;
+            const needPow = window.nps.powBits > 0 && (window.nps.powEnable || (data.captcha && data.captcha.length === window.nps.totpLen));
+            if (needPow) {
+                try {
+                    data.powx = await calcPowX(encPwd, window.nps.powBits);
+                    data.bits = window.nps.powBits;
+                } catch (e) {
+                    showMsg(e.toString(), 'error', 4000);
+                    return false;
+                }
+            }
+            const now = Date.now();
+            const wait = window.nps.loginDelay - (now - window.nps.lastAttempt);
+            if (wait > 0) {
+              await new Promise(r => setTimeout(r, wait));
+            }
+            window.nps.lastAttempt = Date.now();
+            $.ajax({
+                type: "POST",
+                url : window.nps.web_base_url + "/login/verify",
+                data: data,
+                success: function (res) {
+                    if (res.status) {
+                        showMsg(langreply(res.msg), 'success', 1000, function () {
+                            window.location.href = window.nps.web_base_url + "/index/index";
+                        });
+                    } else {
+                        {{if eq true .captcha_open}}
+                        var $img = $('.captcha-img');
+                        if ($img.length) {
+                            $img.trigger('click');
+                        }
+                        $('input[name="captcha"]').val('');
+                        {{end}}
+                        showMsg(langreply(res.msg), 'error', 3000, function() {
+                            loginBtn.disabled = false;
+                            if (res.nonce) {
+                                window.nps.loginNonce = res.nonce;
+                            }
+                            if (res.cert) {
+                                window.nps.publicKey = res.cert;
+                                rsaEncryptor.setPublicKey(res.cert);
+                            }
+                            if (res.timestamp) {
+                                window.nps.timeOffset = res.timestamp - Date.now();
+                            }
+                            if (res.bits) {
+                                window.nps.powBits = res.bits;
+                                window.nps.powEnable = true;
+                            }
+                        });
+                    }
+                },
+                error: function (xhr, textStatus) {
+                    console.error("Login request failed:", textStatus);
+                    window.location.reload();
+                }
+            });
+            return false;
+        }
+    </script>
+</body>
+</html>

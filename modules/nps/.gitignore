@@ -1,0 +1,8 @@
+.idea
+nps
+npc
+*.exe
+.vscode/
+*.tar.gz
+*.json
+*.tmp

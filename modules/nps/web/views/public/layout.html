@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta content="IE=edge" http-equiv="X-UA-Compatible">
+    <title langtag="title-admin"></title>
+    <!-- Mainly scripts -->
+    <!-- Latest compiled and minified CSS -->
+    <link href="{{.web_base_url}}/static/css/fontawesome.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/solid.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/bootstrap-select.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/bootstrap-table.min.css" rel="stylesheet">
+    <link href="{{.web_base_url}}/static/css/style.css?v={{.version}}" rel="stylesheet">
+    <!-- Latest compiled and minified JavaScript -->
+    <script src="{{.web_base_url}}/static/js/jquery-3.7.1.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/popper.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/bootstrap.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/bootstrap-select.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/bootstrap-table.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/bootstrap-table-cookie.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/bootstrap-table-locale-all.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/echarts.min.js"></script>
+    <script src="{{.web_base_url}}/static/js/inspinia.js"></script>
+    <!-- Latest compiled and minified Locales -->
+    <script src="{{.web_base_url}}/static/js/language.js?v={{.version}}" type="text/javascript"></script>
+    {{.head_custom_code}}
+</head>
+
+<body class="pace-done fixed-nav fixed-nav-basic">
+<div id="wrapper">
+    <nav class="navbar-default navbar-static-side" role="navigation">
+        <div class="sidebar-collapse">
+            <ul class="nav metismenu" id="side-menu">
+                <li class="nav-header">
+                    <div class="dropdown profile-element">
+                    {{if eq true .isAdmin}}
+                        <span><i class="fa fa-user-cog fa-2x"></i></span>
+                        <span class="clear"> <span class="block m-t-xs"><strong class="font-bold" langtag="word-admin"></strong></span>
+                        <span class="text-muted text-xs block" langtag="word-system">
+                    {{else}}
+                        <span><i class="fa fa-user fa-3x"></i></span>
+                        <span class="clear"> <span class="block m-t-xs"><strong class="font-bold">{{.username}}</strong></span>
+                        <span class="text-muted text-xs block" langtag="word-user">
+                    {{end}}
+                        </span>
+                    </div>
+                    <div class="logo-element" langtag="application"></div>
+                </li>
+                <li class="{{if eq "index" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/" class="d-flex align-items-center">
+                    <i class="fa fa-tachometer-alt fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="word-dashboard"></span></a>
+                </li>
+                <li class="{{if eq "client" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/client/list" class="d-flex align-items-center">
+                    <i class="fa fa-desktop fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="word-client"></span></a>
+                </li>
+                <li class="{{if eq "host" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/hostlist" class="d-flex align-items-center">
+                    <i class="fa fa-globe fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="scheme-host"></span></a>
+                </li>
+                <li class="{{if eq "tcp" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/tcp" class="d-flex align-items-center">
+                    <i class="fa fa-retweet fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="scheme-tcp"></span></a>
+                </li>
+                <li class="{{if eq "udp" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/udp" class="d-flex align-items-center">
+                    <i class="fa fa-random fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="scheme-udp"></span></a>
+                </li>
+                <li class="{{if eq "mix" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/mix" class="d-flex align-items-center">
+                    <i class="fa fa-layer-group fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="scheme-mixproxy"></span></a>
+                </li>
+                <li class="{{if eq "secret" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/secret" class="d-flex align-items-center">
+                    <i class="fa fa-low-vision fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="scheme-secret"></span></a>
+                </li>
+                <li class="{{if eq "p2p" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/p2p" class="d-flex align-items-center">
+                    <i class="fa fa-exchange-alt fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="scheme-p2p"></span></a>
+                </li>
+                <li class="{{if eq "file" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/file" class="d-flex align-items-center">
+                    <i class="fa fa-briefcase fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="scheme-file"></span></a>
+                </li>
+                {{if eq true .isAdmin}}
+                <li class="{{if eq "global" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/global/index" class="d-flex align-items-center">
+                    <i class="fa fa-cog fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="word-globalparam"></span></a>
+                </li>
+                <li class="{{if eq "banlist" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/global/banlist" class="d-flex align-items-center">
+                    <i class="fa fa-ban fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="word-banlist"></span></a>
+                </li>
+                {{end}}
+                <li class="{{if eq "help" .menu}}active{{end}}">
+                    <a href="https://d-jy.net/docs/nps/" target="_blank" class="d-flex align-items-center">
+                    <i class="fa fa-lightbulb fa-lg fa-fw"></i>
+                    <span class="nav-label" langtag="word-help"></span></a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+    <div id="page-wrapper" class="gray-bg">
+        <div class="row border-bottom">
+            <nav class="navbar navbar-fixed-top" role="navigation" style="margin-bottom: 0">
+
+                <div class="navbar-header">
+                    <a class="navbar-minimalize minimalize-styl-2 btn btn-primary " href="#"><i class="fa fa-bars"></i></a>
+                </div>
+                <ul class="nav navbar-top-links navbar-right">
+                    <li>
+                        <span class="m-r-sm text-muted welcome-message"><span langtag="word-welcome"></span>
+                        <a href="https://github.com/djylb/nps" langtag="application"></a></span>
+                    </li>
+                    <li>
+                        <div class="ml-auto d-flex align-items-center" style="gap: 0.5rem;">
+                            <button id="theme-toggle" class="btn btn-outline-secondary" onclick="toggleTheme()">
+                                <i class="fa fa-moon"></i>
+                            </button>
+                            <span class="btn-group dropdown">
+                                <button id="languagemenu" class="btn btn-primary dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                    <i class="fa fa-globe-asia fa-lg"></i>
+                                    <span></span>
+                                </button>
+                                <ul class="dropdown-menu"></ul>
+                            </span>
+                        </div>
+                    </li>
+                    <li>
+                        <a href="{{.web_base_url}}/login/out" onclick="localStorage.clear(); return true;">
+                            <i class="fa fa-sign-in-alt"></i><span langtag="word-logout"></span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+
+        <div class="page-content">
+        {{.LayoutContent}}
+        </div>
+        
+        <div class="footer fixed">
+            <div class="float-right">
+                <span langtag="word-readmore"></span> <strong><a href="https://github.com/djylb/nps" langtag="word-go"></a></strong>
+            </div>
+            <div><strong langtag="word-copyright"></strong> <span langtag="application"></span> &copy; 2018-{{.year}}</div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+
+<script>
+    window.nps = {
+        "web_base_url": "{{.web_base_url}}",
+        "version": "{{.version}}"
+    }
+    /*
+         googleTranslateElementInit()
+         function googleTranslateElementInit() {
+             new google.translate.TranslateElement({
+                 layout: google.translate.TranslateElement.InlineLayout.HORIZONTAL
+             }, 'wrapper');
+         }
+    */
+</script>
+{{/*<script src="http://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>*/}}
+

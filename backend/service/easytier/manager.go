@@ -49,21 +49,29 @@ func (m *Manager) isBinaryAvailable() bool {
 }
 
 func (m *Manager) StartAll() {
-	var clients []model.EasytierClient
-	m.db.Where("enable = ?", true).Find(&clients)
-	for _, c := range clients {
-		if err := m.StartClient(c.ID); err != nil {
-			m.log.Errorf("EasyTier 客户端 [%s] 启动失败: %v", c.Name, err)
+	go func() {
+		var clients []model.EasytierClient
+		m.db.Where("enable = ?", true).Find(&clients)
+		for _, c := range clients {
+			c := c
+			go func() {
+				if err := m.StartClient(c.ID); err != nil {
+					m.log.Errorf("EasyTier 客户端 [%s] 启动失败: %v", c.Name, err)
+				}
+			}()
 		}
-	}
 
-	var servers []model.EasytierServer
-	m.db.Where("enable = ?", true).Find(&servers)
-	for _, s := range servers {
-		if err := m.StartServer(s.ID); err != nil {
-			m.log.Errorf("EasyTier 服务端 [%s] 启动失败: %v", s.Name, err)
+		var servers []model.EasytierServer
+		m.db.Where("enable = ?", true).Find(&servers)
+		for _, s := range servers {
+			s := s
+			go func() {
+				if err := m.StartServer(s.ID); err != nil {
+					m.log.Errorf("EasyTier 服务端 [%s] 启动失败: %v", s.Name, err)
+				}
+			}()
 		}
-	}
+	}()
 }
 
 func (m *Manager) StopAll() {
@@ -173,13 +181,16 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		args = append(args, "--ipv4", cfg.VirtualIP)
 	}
 
-	// 监听地址
-	listenProto := cfg.ListenProtocol
-	if listenProto == "" {
-		listenProto = "tcp"
-	}
-	if cfg.ListenPort > 0 {
-		args = append(args, "-l", fmt.Sprintf("%s://0.0.0.0:%d", listenProto, cfg.ListenPort))
+	// 本地监听端口（支持多个）
+	// 格式：12345（基准端口）或 tcp:11010,udp:11011（多协议多端口）
+	if cfg.ListenPorts != "" {
+		ports := strings.Split(cfg.ListenPorts, ",")
+		for _, p := range ports {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				args = append(args, "-l", p)
+			}
+		}
 	}
 
 	// 额外参数
@@ -265,10 +276,27 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 	if listenAddr == "" {
 		listenAddr = "0.0.0.0"
 	}
-	if cfg.ListenPort > 0 {
-		args = append(args, "-l", fmt.Sprintf("tcp://%s:%d", listenAddr, cfg.ListenPort))
-		args = append(args, "-l", fmt.Sprintf("udp://%s:%d", listenAddr, cfg.ListenPort))
-		args = append(args, "-l", fmt.Sprintf("ws://%s:%d", listenAddr, cfg.ListenPort))
+
+	// 监听端口（支持多个）
+	// 格式：12345（基准端口）或 tcp:11010,udp:11011（多协议多端口）
+	if cfg.ListenPorts != "" {
+		ports := strings.Split(cfg.ListenPorts, ",")
+		for _, p := range ports {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			// 如果是纯数字（基准端口），直接传入
+			// 如果包含协议前缀（如 tcp:11010），拼接地址
+			if strings.Contains(p, ":") {
+				// 格式如 tcp:11010 → tcp://0.0.0.0:11010
+				parts := strings.SplitN(p, ":", 2)
+				args = append(args, "-l", fmt.Sprintf("%s://%s:%s", parts[0], listenAddr, parts[1]))
+			} else {
+				// 纯数字基准端口，直接传入
+				args = append(args, "-l", p)
+			}
+		}
 	}
 
 	if cfg.NetworkName != "" {

@@ -61,6 +61,8 @@ func autoMigrate(db *gorm.DB) error {
 		&FrpcConfig{},
 		&FrpcProxy{},
 		&FrpsConfig{},
+		&NpsServerConfig{},
+		&NpsClientConfig{},
 		&EasytierClient{},
 		&EasytierServer{},
 		&DDNSTask{},

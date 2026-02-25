@@ -1,0 +1,38 @@
+<div class="wrapper wrapper-content">
+    <!--全局参数-->
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="ibox float-e-margins">
+                <div class="ibox-title">
+                    <h5 langtag="word-globalparam"></h5>
+                </div>
+                <div class="ibox-content">
+                    <form class="form-horizontal">
+                        <div class="form-group" id="black_ip_list">
+                            <label class="control-label font-bold" langtag="word-globalblackiplist"></label>
+                            <div class="col-sm-12">
+                                <textarea class="form-control" langtag="info-suchasblackiplist" name="globalBlackIpList" placeholder="" rows="10" type="text">{{.globalBlackIpList}}</textarea>
+                                <span class="help-block m-b-none" langtag="info-descblackiplist"></span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="col-lg-12 col-sm-offset-2">
+                                <button class="btn btn-success" onclick="submitform('global', '{{.web_base_url}}/global/save', $('form').serializeArray())" type="button">
+                                    <i class="fa fa-fw fa-lg fa-check-circle"></i> <span langtag="word-save"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    window.addEventListener('resize', () => {
+        for (var key in charts) {
+            charts[key].resize();
+        }
+    });
+</script>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Table, Button, Space, Switch, Modal, Form, Input, InputNumber,
+  Table, Button, Space, Switch, Modal, Form, Input,
   Popconfirm, message, Typography, Tag, Tooltip, Row, Col, Divider,
 } from 'antd'
 import {
@@ -12,6 +12,15 @@ import { easytierServerApi } from '../api'
 import StatusTag from '../components/StatusTag'
 
 const { Text } = Typography
+
+// 默认监听端口配置（参考 EasyTier 默认端口）
+const DEFAULT_LISTEN_PORTS = 'tcp:11010,udp:11010'
+
+// 解析 listen_ports 字符串为可读标签
+const parseListenPorts = (listenPorts: string): string[] => {
+  if (!listenPorts) return []
+  return listenPorts.split(',').map(p => p.trim()).filter(Boolean)
+}
 
 const EasytierServer: React.FC = () => {
   const { t } = useTranslation()
@@ -37,7 +46,7 @@ const EasytierServer: React.FC = () => {
     form.setFieldsValue({
       enable: true,
       listen_addr: '0.0.0.0',
-      listen_port: 11010,
+      listen_ports: DEFAULT_LISTEN_PORTS,
     })
     setModalOpen(true)
   }
@@ -87,10 +96,18 @@ const EasytierServer: React.FC = () => {
       ),
     },
     {
-      title: '监听地址',
-      render: (_: any, r: any) => (
-        <Text code style={{ fontSize: 12 }}>{r.listen_addr || '0.0.0.0'}:{r.listen_port || 11010}</Text>
-      ),
+      title: '监听端口',
+      render: (_: any, r: any) => {
+        const ports = parseListenPorts(r.listen_ports)
+        if (ports.length === 0) return <Text type="secondary">未配置</Text>
+        return (
+          <Space size={4} wrap>
+            {ports.map((p, i) => (
+              <Tag key={i} color="geekblue" style={{ fontSize: 11 }}>{p}</Tag>
+            ))}
+          </Space>
+        )
+      },
     },
     {
       title: t('easytier.networkName'), dataIndex: 'network_name',
@@ -144,7 +161,7 @@ const EasytierServer: React.FC = () => {
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)}
-        width={520} destroyOnClose
+        width={560} destroyOnClose
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Row gutter={16}>
@@ -161,17 +178,33 @@ const EasytierServer: React.FC = () => {
           </Row>
 
           <Row gutter={16}>
-            <Col span={16}>
+            <Col span={10}>
               <Form.Item name="listen_addr" label="监听地址">
                 <Input placeholder="0.0.0.0" />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item name="listen_port" label={t('easytier.listenPort')} rules={[{ required: true }]}>
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+            <Col span={14}>
+              <Form.Item
+                name="listen_ports"
+                label="监听端口"
+                rules={[{ required: true, message: '请填写监听端口' }]}
+                extra={
+                  <span style={{ fontSize: 11 }}>
+                    多个用逗号分隔，如：<code>tcp:11010,udp:11010</code> 或 <code>12345</code>（基准端口）
+                  </span>
+                }
+              >
+                <Input placeholder="tcp:11010,udp:11010" />
               </Form.Item>
             </Col>
           </Row>
+
+          <Divider orientation="left" plain style={{ fontSize: 13 }}>
+            支持的协议及默认端口
+          </Divider>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 12, lineHeight: '22px' }}>
+            <code>tcp:11010</code> · <code>udp:11010</code> · <code>ws:11011</code> · <code>wss:11012</code> · <code>wg:11011</code> · <code>quic:11012</code>
+          </div>
 
           <Divider orientation="left" plain style={{ fontSize: 13 }}>网络配置（可选）</Divider>
           <Row gutter={16}>

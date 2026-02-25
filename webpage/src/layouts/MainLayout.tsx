@@ -57,6 +57,8 @@ const MainLayout: React.FC = () => {
         { key: 'stun', icon: <WifiOutlined />, label: t('menu.stun') },
         { key: 'frp/client', icon: <ApiOutlined />, label: t('menu.frpc') },
         { key: 'frp/server', icon: <CloudServerOutlined />, label: t('menu.frps') },
+        { key: 'nps/server', icon: <CloudServerOutlined />, label: t('menu.npsServer') },
+        { key: 'nps/client', icon: <ApiOutlined />, label: t('menu.npsClient') },
       ],
     },
     {
@@ -357,7 +359,7 @@ const MainLayout: React.FC = () => {
 }
 
 function getOpenKeys(pathname: string): string[] {
-  if (pathname.startsWith('/frp') || pathname.startsWith('/stun')) return ['tunnel']
+  if (pathname.startsWith('/frp') || pathname.startsWith('/stun') || pathname.startsWith('/nps')) return ['tunnel']
   if (pathname.startsWith('/easytier')) return ['network']
   if (pathname.startsWith('/domain')) return ['domain']
   if (pathname.startsWith('/callback')) return ['callback']

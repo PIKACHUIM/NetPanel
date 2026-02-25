@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -214,4 +216,40 @@ func (h *FrpsHandler) Stop(c *gin.Context) {
 	h.mgr.StopServer(uint(id))
 	h.db.Model(&model.FrpsConfig{}).Where("id = ?", id).Update("enable", false)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
+}
+
+// GetDashboardURL 返回 frps Dashboard 的访问地址
+func (h *FrpsHandler) GetDashboardURL(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	var cfg model.FrpsConfig
+	if err := h.db.First(&cfg, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
+
+	if cfg.DashboardPort == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "未配置 Dashboard 端口"})
+		return
+	}
+
+	status := h.mgr.GetServerStatus(uint(id))
+	if status != "running" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "FRP 服务端未运行"})
+		return
+	}
+
+	addr := cfg.DashboardAddr
+	if addr == "" || addr == "0.0.0.0" {
+		// 监听在所有网卡时，使用请求来源的 Host（去掉端口部分）
+		host := c.Request.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			addr = h
+		} else {
+			addr = host
+		}
+	}
+
+	url := fmt.Sprintf("http://%s:%d", addr, cfg.DashboardPort)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"url": url}})
 }

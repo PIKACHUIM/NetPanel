@@ -7,10 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fatedier/frp/assets"
+	"github.com/fatedier/frp/client"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
-	"github.com/fatedier/frp/client"
 	"github.com/fatedier/frp/server"
+	frpsassets "github.com/netpanel/netpanel/assets/frps"
 	"github.com/netpanel/netpanel/model"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -37,6 +39,8 @@ type Manager struct {
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
+	// 注册 frps Dashboard 静态资源，使 frp WebServer 能正常提供前端页面
+	assets.Register(frpsassets.StaticFiles)
 	return &Manager{db: db, log: log}
 }
 
@@ -95,7 +99,7 @@ func (m *Manager) StartClient(id uint) error {
 	}
 
 	// 验证配置
-	if _, err := validation.ValidateAllClientConfig(frpCfg, proxyCfgs, nil); err != nil {
+	if _, err := validation.ValidateAllClientConfig(frpCfg, proxyCfgs, nil, nil); err != nil {
 		m.setClientError(id, err.Error())
 		return fmt.Errorf("FRP 客户端配置验证失败: %w", err)
 	}
@@ -190,7 +194,9 @@ func (m *Manager) setClientError(id uint, errMsg string) {
 // buildClientConfig 将数据库配置转换为 frp v1 配置
 func buildClientConfig(cfg *model.FrpcConfig) (*v1.ClientCommonConfig, []v1.ProxyConfigurer, error) {
 	common := &v1.ClientCommonConfig{}
-	common.Complete()
+	if err := common.Complete(); err != nil {
+		return nil, nil, fmt.Errorf("初始化 FRP 客户端默认配置失败: %w", err)
+	}
 
 	common.ServerAddr = cfg.ServerAddr
 	common.ServerPort = cfg.ServerPort
@@ -200,6 +206,21 @@ func buildClientConfig(cfg *model.FrpcConfig) (*v1.ClientCommonConfig, []v1.Prox
 			Method: v1.AuthMethodToken,
 			Token:  cfg.Token,
 		}
+	}
+
+	// 设置传输协议（tcp/kcp/quic/websocket/wss）
+	if cfg.TransportProtocol != "" {
+		common.Transport.Protocol = cfg.TransportProtocol
+	}
+
+	// KCP 协议时覆盖连接端口
+	if cfg.TransportProtocol == "kcp" && cfg.KCPPort > 0 {
+		common.ServerPort = cfg.KCPPort
+	}
+
+	// QUIC 协议时覆盖连接端口
+	if cfg.TransportProtocol == "quic" && cfg.QUICPort > 0 {
+		common.ServerPort = cfg.QUICPort
 	}
 
 	if cfg.TLSEnable {
@@ -235,6 +256,17 @@ func buildProxyConfig(p *model.FrpcProxy) (v1.ProxyConfigurer, error) {
 			UseEncryption:  p.UseEncryption,
 			UseCompression: p.UseCompression,
 		},
+	}
+
+	// 解析 AllowUsers（逗号分隔）
+	var allowUsers []string
+	if p.AllowUsers != "" {
+		for _, u := range strings.Split(p.AllowUsers, ",") {
+			u = strings.TrimSpace(u)
+			if u != "" {
+				allowUsers = append(allowUsers, u)
+			}
+		}
 	}
 
 	switch strings.ToLower(p.Type) {
@@ -287,6 +319,8 @@ func buildProxyConfig(p *model.FrpcProxy) (v1.ProxyConfigurer, error) {
 	case "stcp":
 		cfg := &v1.STCPProxyConfig{
 			ProxyBaseConfig: base,
+			Secretkey:       p.SecretKey,
+			AllowUsers:      allowUsers,
 		}
 		cfg.LocalIP = p.LocalIP
 		cfg.LocalPort = p.LocalPort
@@ -295,6 +329,18 @@ func buildProxyConfig(p *model.FrpcProxy) (v1.ProxyConfigurer, error) {
 	case "xtcp":
 		cfg := &v1.XTCPProxyConfig{
 			ProxyBaseConfig: base,
+			Secretkey:       p.SecretKey,
+			AllowUsers:      allowUsers,
+		}
+		cfg.LocalIP = p.LocalIP
+		cfg.LocalPort = p.LocalPort
+		return cfg, nil
+
+	case "sudp":
+		cfg := &v1.SUDPProxyConfig{
+			ProxyBaseConfig: base,
+			Secretkey:       p.SecretKey,
+			AllowUsers:      allowUsers,
 		}
 		cfg.LocalIP = p.LocalIP
 		cfg.LocalPort = p.LocalPort
@@ -327,7 +373,7 @@ func (m *Manager) StartServer(id uint) error {
 	}
 
 	// 验证配置
-	if _, err := validation.ValidateServerConfig(frpCfg); err != nil {
+	if _, err := validation.NewConfigValidator(nil).ValidateServerConfig(frpCfg); err != nil {
 		m.setServerError(id, err.Error())
 		return fmt.Errorf("FRP 服务端配置验证失败: %w", err)
 	}
@@ -409,7 +455,9 @@ func (m *Manager) setServerError(id uint, errMsg string) {
 // buildServerConfig 将数据库配置转换为 frp v1 服务端配置
 func buildServerConfig(cfg *model.FrpsConfig) (*v1.ServerConfig, error) {
 	frpCfg := &v1.ServerConfig{}
-	frpCfg.Complete()
+	if err := frpCfg.Complete(); err != nil {
+		return nil, fmt.Errorf("初始化 FRP 服务端默认配置失败: %w", err)
+	}
 
 	bindAddr := cfg.BindAddr
 	if bindAddr == "" {
@@ -417,6 +465,31 @@ func buildServerConfig(cfg *model.FrpsConfig) (*v1.ServerConfig, error) {
 	}
 	frpCfg.BindAddr = bindAddr
 	frpCfg.BindPort = cfg.BindPort
+
+	// KCP 监听端口（UDP）
+	if cfg.KCPBindPort > 0 {
+		frpCfg.KCPBindPort = cfg.KCPBindPort
+	}
+
+	// QUIC 监听端口（UDP）
+	if cfg.QUICBindPort > 0 {
+		frpCfg.QUICBindPort = cfg.QUICBindPort
+	}
+
+	// HTTP 虚拟主机端口
+	if cfg.VhostHTTPPort > 0 {
+		frpCfg.VhostHTTPPort = cfg.VhostHTTPPort
+	}
+
+	// HTTPS 虚拟主机端口
+	if cfg.VhostHTTPSPort > 0 {
+		frpCfg.VhostHTTPSPort = cfg.VhostHTTPSPort
+	}
+
+	// 子域名根域名
+	if cfg.SubDomainHost != "" {
+		frpCfg.SubDomainHost = cfg.SubDomainHost
+	}
 
 	if cfg.Token != "" {
 		frpCfg.Auth = v1.AuthServerConfig{
@@ -433,6 +506,8 @@ func buildServerConfig(cfg *model.FrpsConfig) (*v1.ServerConfig, error) {
 		frpCfg.WebServer.Port = cfg.DashboardPort
 		frpCfg.WebServer.User = cfg.DashboardUser
 		frpCfg.WebServer.Password = cfg.DashboardPassword
+		// AssetsDir 为空时，frp 使用 assets.FileSystem（已通过 Register 注册），
+		// 可正常提供 Dashboard 静态页面
 	}
 
 	if cfg.MaxPortsPerClient > 0 {

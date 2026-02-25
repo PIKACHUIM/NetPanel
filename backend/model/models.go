@@ -68,18 +68,23 @@ type StunRule struct {
 // FrpcConfig FRP 客户端配置
 type FrpcConfig struct {
 	BaseModel
-	Name          string      `gorm:"size:100;not null" json:"name"`
-	Enable        bool        `gorm:"default:false" json:"enable"`
-	ServerAddr    string      `gorm:"size:255;not null" json:"server_addr"`
-	ServerPort    int         `gorm:"default:7000" json:"server_port"`
-	Token         string      `gorm:"size:255" json:"token"`
-	Protocol      string      `gorm:"size:20;default:'tcp'" json:"protocol"` // tcp/kcp/quic/websocket
-	TLSEnable     bool        `gorm:"default:false" json:"tls_enable"`
-	LogLevel      string      `gorm:"size:20;default:'info'" json:"log_level"`
-	Proxies       []FrpcProxy `gorm:"foreignKey:FrpcID" json:"proxies"`
-	Status        string      `gorm:"size:20;default:'stopped'" json:"status"`
-	LastError     string      `gorm:"type:text" json:"last_error"`
-	Remark        string      `gorm:"size:500" json:"remark"`
+	Name       string `gorm:"size:100;not null" json:"name"`
+	Enable     bool   `gorm:"default:false" json:"enable"`
+	ServerAddr string `gorm:"size:255;not null" json:"server_addr"`
+	ServerPort int    `gorm:"default:7000" json:"server_port"`
+	Token      string `gorm:"size:255" json:"token"`
+	// 传输协议：tcp/kcp/quic/websocket/wss
+	TransportProtocol string `gorm:"size:20;default:'tcp'" json:"transport_protocol"`
+	// KCP 连接端口（使用 KCP 协议时指定，0 表示与 ServerPort 相同）
+	KCPPort int `gorm:"default:0" json:"kcp_port"`
+	// QUIC 连接端口（使用 QUIC 协议时指定，0 表示与 ServerPort 相同）
+	QUICPort  int  `gorm:"default:0" json:"quic_port"`
+	TLSEnable bool `gorm:"default:false" json:"tls_enable"`
+	LogLevel  string      `gorm:"size:20;default:'info'" json:"log_level"`
+	Proxies   []FrpcProxy `gorm:"foreignKey:FrpcID" json:"proxies"`
+	Status    string      `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError string      `gorm:"type:text" json:"last_error"`
+	Remark    string      `gorm:"size:500" json:"remark"`
 }
 
 // FrpcProxy FRP 代理配置（子表）
@@ -87,13 +92,16 @@ type FrpcProxy struct {
 	BaseModel
 	FrpcID     uint   `gorm:"not null;index" json:"frpc_id"`
 	Name       string `gorm:"size:100;not null" json:"name"`
-	Type       string `gorm:"size:20;not null" json:"type"` // tcp/udp/http/https/stcp/xtcp
+	Type       string `gorm:"size:20;not null" json:"type"` // tcp/udp/http/https/stcp/xtcp/xudp
 	LocalIP    string `gorm:"size:100;default:'127.0.0.1'" json:"local_ip"`
 	LocalPort  int    `json:"local_port"`
 	RemotePort int    `json:"remote_port"`
 	// HTTP/HTTPS 专用
 	CustomDomains string `gorm:"size:500" json:"custom_domains"`
 	Subdomain     string `gorm:"size:255" json:"subdomain"`
+	// STCP/XTCP/XUDP 专用
+	SecretKey  string `gorm:"size:255" json:"secret_key"`
+	AllowUsers string `gorm:"size:500" json:"allow_users"` // 逗号分隔，允许访问的用户
 	// 加密压缩
 	UseEncryption  bool `gorm:"default:false" json:"use_encryption"`
 	UseCompression bool `gorm:"default:false" json:"use_compression"`
@@ -105,10 +113,20 @@ type FrpcProxy struct {
 // FrpsConfig FRP 服务端配置
 type FrpsConfig struct {
 	BaseModel
-	Name              string `gorm:"size:100;not null" json:"name"`
-	Enable            bool   `gorm:"default:false" json:"enable"`
-	BindAddr          string `gorm:"size:100;default:'0.0.0.0'" json:"bind_addr"`
-	BindPort          int    `gorm:"default:7000" json:"bind_port"`
+	Name     string `gorm:"size:100;not null" json:"name"`
+	Enable   bool   `gorm:"default:false" json:"enable"`
+	BindAddr string `gorm:"size:100;default:'0.0.0.0'" json:"bind_addr"`
+	BindPort int    `gorm:"default:7000" json:"bind_port"`
+	// KCP 监听端口（UDP），0 表示不启用
+	KCPBindPort int `gorm:"default:0" json:"kcp_bind_port"`
+	// QUIC 监听端口（UDP），0 表示不启用
+	QUICBindPort int `gorm:"default:0" json:"quic_bind_port"`
+	// HTTP 虚拟主机端口，0 表示不启用
+	VhostHTTPPort int `gorm:"default:0" json:"vhost_http_port"`
+	// HTTPS 虚拟主机端口，0 表示不启用
+	VhostHTTPSPort int `gorm:"default:0" json:"vhost_https_port"`
+	// 子域名根域名，用于 HTTP/HTTPS 代理的子域名功能
+	SubDomainHost     string `gorm:"size:255" json:"sub_domain_host"`
 	Token             string `gorm:"size:255" json:"token"`
 	DashboardAddr     string `gorm:"size:100" json:"dashboard_addr"`
 	DashboardPort     int    `json:"dashboard_port"`
@@ -121,6 +139,45 @@ type FrpsConfig struct {
 	Remark            string `gorm:"size:500" json:"remark"`
 }
 
+// ===== NPS 服务端 =====
+
+// NpsServerConfig NPS 服务端配置
+type NpsServerConfig struct {
+	BaseModel
+	Name              string `gorm:"size:100;not null" json:"name"`
+	Enable            bool   `gorm:"default:false" json:"enable"`
+	BindAddr          string `gorm:"size:100;default:'0.0.0.0'" json:"bind_addr"`
+	BridgePort        int    `gorm:"default:8024" json:"bridge_port"`   // 客户端连接端口
+	HTTPPort          int    `gorm:"default:80" json:"http_port"`       // HTTP 代理端口
+	HTTPSPort         int    `gorm:"default:443" json:"https_port"`     // HTTPS 代理端口
+	WebPort           int    `gorm:"default:8080" json:"web_port"`      // Web 管理端口
+	WebUsername       string `gorm:"size:100;default:'admin'" json:"web_username"`
+	WebPassword       string `gorm:"size:255;default:'123456'" json:"web_password"`
+	AuthKey           string `gorm:"size:255" json:"auth_key"`          // 连接认证密钥
+	LogLevel          string `gorm:"size:20;default:'info'" json:"log_level"`
+	Status            string `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError         string `gorm:"type:text" json:"last_error"`
+	Remark            string `gorm:"size:500" json:"remark"`
+}
+
+// ===== NPS 客户端 =====
+
+// NpsClientConfig NPS 客户端配置
+type NpsClientConfig struct {
+	BaseModel
+	Name       string `gorm:"size:100;not null" json:"name"`
+	Enable     bool   `gorm:"default:false" json:"enable"`
+	ServerAddr string `gorm:"size:255;not null" json:"server_addr"` // NPS 服务器地址
+	ServerPort int    `gorm:"default:8024" json:"server_port"`      // NPS 服务器桥接端口
+	ConnType   string `gorm:"size:20;default:'tcp'" json:"conn_type"` // 连接类型: tcp/tls/kcp/quic/ws/wss
+	AuthKey    string `gorm:"size:255" json:"auth_key"`             // 连接认证密钥
+	VkeyOrID   string `gorm:"size:255" json:"vkey_or_id"`           // 客户端唯一标识/vkey
+	LogLevel   string `gorm:"size:20;default:'info'" json:"log_level"`
+	Status     string `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError  string `gorm:"type:text" json:"last_error"`
+	Remark     string `gorm:"size:500" json:"remark"`
+}
+
 // ===== EasyTier 客户端 =====
 
 // EasytierClient EasyTier 客户端配置
@@ -128,12 +185,12 @@ type EasytierClient struct {
 	BaseModel
 	Name            string `gorm:"size:100;not null" json:"name"`
 	Enable          bool   `gorm:"default:false" json:"enable"`
-	ServerAddr      string `gorm:"size:500" json:"server_addr"` // 支持多个，逗号分隔
+	ServerAddr      string `gorm:"size:500" json:"server_addr"` // 支持多个，逗号分隔，格式：tcp://ip:port
 	NetworkName     string `gorm:"size:255" json:"network_name"`
 	NetworkPassword string `gorm:"size:255" json:"network_password"`
 	VirtualIP       string `gorm:"size:50" json:"virtual_ip"` // 留空自动分配
-	ListenProtocol  string `gorm:"size:20;default:'tcp'" json:"listen_protocol"`
-	ListenPort      int    `gorm:"default:11010" json:"listen_port"`
+	// 本地监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
+	ListenPorts string `gorm:"size:500" json:"listen_ports"`
 	// 高级选项
 	ExtraArgs string `gorm:"type:text" json:"extra_args"` // 额外命令行参数
 	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
@@ -149,7 +206,8 @@ type EasytierServer struct {
 	Name            string `gorm:"size:100;not null" json:"name"`
 	Enable          bool   `gorm:"default:false" json:"enable"`
 	ListenAddr      string `gorm:"size:100;default:'0.0.0.0'" json:"listen_addr"`
-	ListenPort      int    `gorm:"default:11010" json:"listen_port"`
+	// 监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
+	ListenPorts     string `gorm:"size:500" json:"listen_ports"`
 	NetworkName     string `gorm:"size:255" json:"network_name"`
 	NetworkPassword string `gorm:"size:255" json:"network_password"`
 	ExtraArgs       string `gorm:"type:text" json:"extra_args"`

@@ -45,24 +45,32 @@ func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 	}
 }
 
-// StartAll 启动 Caddy 引擎并加载所有已启用站点
+// StartAll 启动 Caddy 引擎并加载所有已启用站点（异步，不阻塞主进程）
 func (m *Manager) StartAll() {
-	var sites []model.CaddySite
-	m.db.Where("enable = ?", true).Find(&sites)
-	if len(sites) == 0 {
-		return
-	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				m.log.Errorf("[Caddy] StartAll panic: %v", r)
+			}
+		}()
 
-	if err := m.ensureCaddyRunning(); err != nil {
-		m.log.Errorf("[Caddy] 启动引擎失败: %v", err)
-		return
-	}
-
-	for _, s := range sites {
-		if err := m.Start(s.ID); err != nil {
-			m.log.Errorf("[Caddy] 站点 [%s] 启动失败: %v", s.Name, err)
+		var sites []model.CaddySite
+		m.db.Where("enable = ?", true).Find(&sites)
+		if len(sites) == 0 {
+			return
 		}
-	}
+
+		if err := m.ensureCaddyRunning(); err != nil {
+			m.log.Errorf("[Caddy] 启动引擎失败: %v", err)
+			return
+		}
+
+		for _, s := range sites {
+			if err := m.Start(s.ID); err != nil {
+				m.log.Errorf("[Caddy] 站点 [%s] 启动失败: %v", s.Name, err)
+			}
+		}
+	}()
 }
 
 // StopAll 停止所有站点并关闭 Caddy 引擎

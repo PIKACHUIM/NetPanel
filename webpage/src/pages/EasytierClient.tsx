@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Table, Button, Space, Switch, Modal, Form, Input, InputNumber,
-  Select, Popconfirm, message, Typography, Tag, Tooltip, Row, Col,
+  Table, Button, Space, Switch, Modal, Form, Input,
+  Popconfirm, message, Typography, Tag, Tooltip, Row, Col,
   Divider, Alert,
 } from 'antd'
 import {
@@ -12,8 +12,13 @@ import { useTranslation } from 'react-i18next'
 import { easytierClientApi } from '../api'
 import StatusTag from '../components/StatusTag'
 
-const { Option } = Select
 const { Text } = Typography
+
+// 解析 listen_ports 字符串为可读标签
+const parseListenPorts = (listenPorts: string): string[] => {
+  if (!listenPorts) return []
+  return listenPorts.split(',').map(p => p.trim()).filter(Boolean)
+}
 
 const EasytierClient: React.FC = () => {
   const { t } = useTranslation()
@@ -38,8 +43,6 @@ const EasytierClient: React.FC = () => {
     form.resetFields()
     form.setFieldsValue({
       enable: true,
-      listen_protocol: 'tcp',
-      listen_port: 11010,
     })
     setModalOpen(true)
   }
@@ -69,7 +72,6 @@ const EasytierClient: React.FC = () => {
   }
 
   // 检查是否有运行中的实例（用于判断二进制是否存在）
-  const hasRunning = data.some(d => d.status === 'running')
   const hasError = data.some(d => d.status === 'error' && d.last_error?.includes('not found'))
 
   const columns = [
@@ -109,10 +111,18 @@ const EasytierClient: React.FC = () => {
         : <Text type="secondary">自动分配</Text>,
     },
     {
-      title: '监听',
-      render: (_: any, r: any) => (
-        <Text code style={{ fontSize: 12 }}>{r.listen_protocol || 'tcp'}:{r.listen_port || 11010}</Text>
-      ),
+      title: '本地监听',
+      render: (_: any, r: any) => {
+        const ports = parseListenPorts(r.listen_ports)
+        if (ports.length === 0) return <Text type="secondary">-</Text>
+        return (
+          <Space size={4} wrap>
+            {ports.map((p, i) => (
+              <Tag key={i} color="cyan" style={{ fontSize: 11 }}>{p}</Tag>
+            ))}
+          </Space>
+        )
+      },
     },
     {
       title: t('common.action'), width: 160,
@@ -167,7 +177,7 @@ const EasytierClient: React.FC = () => {
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)}
-        width={580} destroyOnClose
+        width={600} destroyOnClose
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Row gutter={16}>
@@ -187,7 +197,11 @@ const EasytierClient: React.FC = () => {
             name="server_addr"
             label={t('easytier.serverAddr')}
             rules={[{ required: true }]}
-            extra="支持多个地址，用逗号分隔，如：tcp://server1:11010,tcp://server2:11010"
+            extra={
+              <span style={{ fontSize: 11 }}>
+                支持多个地址，逗号分隔。格式：<code>协议://IP:端口</code>，如 <code>tcp://1.2.3.4:11010</code>，<code>udp://1.2.3.4:11010</code>
+              </span>
+            }
           >
             <Input placeholder="tcp://server:11010" />
           </Form.Item>
@@ -213,24 +227,19 @@ const EasytierClient: React.FC = () => {
             <Input placeholder="留空自动分配" />
           </Form.Item>
 
-          <Divider orientation="left" plain style={{ fontSize: 13 }}>本地监听</Divider>
-          <Row gutter={16}>
-            <Col span={10}>
-              <Form.Item name="listen_protocol" label={t('easytier.listenProtocol')}>
-                <Select>
-                  <Option value="tcp">TCP</Option>
-                  <Option value="udp">UDP</Option>
-                  <Option value="ws">WebSocket</Option>
-                  <Option value="wss">WebSocket TLS</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={14}>
-              <Form.Item name="listen_port" label={t('easytier.listenPort')}>
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="11010" />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Divider orientation="left" plain style={{ fontSize: 13 }}>本地监听端口（可选）</Divider>
+          <Form.Item
+            name="listen_ports"
+            label="监听端口"
+            extra={
+              <span style={{ fontSize: 11 }}>
+                多个用逗号分隔，如：<code>tcp:11010,udp:11010</code> 或 <code>12345</code>（基准端口）。
+                支持协议：<code>tcp</code> · <code>udp</code> · <code>ws</code> · <code>wss</code> · <code>wg</code> · <code>quic</code>
+              </span>
+            }
+          >
+            <Input placeholder="tcp:11010,udp:11010（留空不监听）" />
+          </Form.Item>
 
           <Form.Item
             name="extra_args"
