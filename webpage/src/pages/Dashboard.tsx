@@ -1,13 +1,15 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { Row, Col, Card, Progress, Statistic, Badge, Typography, Space, Spin, Tag, Tooltip, Button } from 'antd'
+import { Row, Col, Card, Progress, Typography, Space, Spin, Tag, Tooltip, Button, theme as antTheme } from 'antd'
 import {
   DashboardOutlined, ReloadOutlined, CloudServerOutlined,
   ApiOutlined, WifiOutlined, GlobalOutlined, LinkOutlined,
   ThunderboltOutlined, ClockCircleOutlined, FolderOpenOutlined,
-  FilterOutlined, SwapOutlined, ApartmentOutlined,
+  FilterOutlined, SwapOutlined, ApartmentOutlined, CheckCircleFilled,
+  CloseCircleFilled, MinusCircleFilled,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { systemApi } from '../api'
+import { useAppStore } from '../store/appStore'
 
 const { Title, Text } = Typography
 
@@ -59,9 +61,9 @@ const formatUptime = (seconds: number) => {
 
 // 进度条颜色
 const progressColor = (val: number) => {
-  if (val >= 90) return '#ff4d4f'
-  if (val >= 70) return '#faad14'
-  return '#52c41a'
+  if (val >= 90) return { '0%': '#ff4d4f', '100%': '#ff7875' }
+  if (val >= 70) return { '0%': '#faad14', '100%': '#ffc53d' }
+  return { '0%': '#52c41a', '100%': '#73d13d' }
 }
 
 // 服务图标映射
@@ -80,16 +82,125 @@ const serviceIcons: Record<string, React.ReactNode> = {
   access: <FilterOutlined />,
 }
 
-const serviceColors: Record<string, string> = {
-  running: 'success',
-  stopped: 'default',
-  error: 'error',
+// 资源仪表盘卡片
+const ResourceGauge: React.FC<{
+  label: string
+  value: number
+  subtitle?: string
+  icon?: React.ReactNode
+}> = ({ label, value, subtitle, icon }) => {
+  const color = progressColor(value)
+  const strokeColor = value >= 90 ? '#ff4d4f' : value >= 70 ? '#faad14' : '#52c41a'
+
+  return (
+    <div style={{ textAlign: 'center', padding: '8px 0' }}>
+      <Progress
+        type="dashboard"
+        percent={Math.round(value)}
+        strokeColor={color}
+        trailColor="rgba(128,128,128,0.15)"
+        size={110}
+        strokeWidth={8}
+        format={p => (
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: strokeColor, lineHeight: 1 }}>{p}%</div>
+          </div>
+        )}
+      />
+      <div style={{ marginTop: 10 }}>
+        <Text strong style={{ fontSize: 13, display: 'block' }}>{label}</Text>
+        {subtitle && (
+          <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+            {subtitle}
+          </Text>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// 信息行组件
+const InfoRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '7px 0',
+    borderBottom: '1px solid rgba(128,128,128,0.08)',
+  }}>
+    <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>
+    <Text style={{ fontSize: 12, fontWeight: 500, maxWidth: '60%', textAlign: 'right' }}>{value}</Text>
+  </div>
+)
+
+// 服务卡片
+const ServiceCard: React.FC<{ svc: ServiceStatus }> = ({ svc }) => {
+  const isRunning = svc.running > 0
+  const hasConfig = svc.count > 0
+
+  return (
+    <Tooltip title={hasConfig ? `${svc.running}/${svc.count} 运行中` : '未配置'}>
+      <div style={{
+        padding: '14px 16px',
+        borderRadius: 10,
+        border: `1px solid ${isRunning ? 'rgba(82,196,26,0.25)' : 'rgba(128,128,128,0.12)'}`,
+        background: isRunning
+          ? 'linear-gradient(135deg, rgba(82,196,26,0.06) 0%, rgba(82,196,26,0.02) 100%)'
+          : 'rgba(128,128,128,0.04)',
+        cursor: 'default',
+        transition: 'all 0.25s',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = 'translateY(-2px)'
+          e.currentTarget.style.boxShadow = isRunning
+            ? '0 6px 20px rgba(82,196,26,0.15)'
+            : '0 6px 20px rgba(0,0,0,0.08)'
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.boxShadow = 'none'
+        }}
+      >
+        {/* 运行状态指示条 */}
+        {isRunning && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+            background: 'linear-gradient(90deg, #52c41a, #73d13d)',
+            borderRadius: '10px 10px 0 0',
+          }} />
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{
+            color: isRunning ? '#52c41a' : 'rgba(128,128,128,0.5)',
+            fontSize: 18,
+            transition: 'color 0.2s',
+          }}>
+            {serviceIcons[svc.type] || <ApiOutlined />}
+          </span>
+          {hasConfig ? (
+            isRunning
+              ? <CheckCircleFilled style={{ color: '#52c41a', fontSize: 13 }} />
+              : <MinusCircleFilled style={{ color: 'rgba(128,128,128,0.4)', fontSize: 13 }} />
+          ) : null}
+        </div>
+        <Text style={{ fontSize: 12, display: 'block', fontWeight: 500 }}>{svc.name}</Text>
+        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+          {hasConfig ? `${svc.running}/${svc.count} 运行` : '未配置'}
+        </Text>
+      </div>
+    </Tooltip>
+  )
 }
 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation()
+  const { theme } = useAppStore()
+  const { token } = antTheme.useToken()
   const [info, setInfo] = useState<SystemInfo | null>(null)
   const [loading, setLoading] = useState(true)
+const isGlass = theme === 'glass-light' || theme === 'glass-dark'
 
   const fetchInfo = useCallback(async () => {
     try {
@@ -120,34 +231,63 @@ const Dashboard: React.FC = () => {
   const memUsage = info?.mem_usage ?? 0
   const diskUsage = info?.disk_usage ?? 0
 
+  // 玻璃模式下的卡片样式
+  const cardStyle = isGlass ? {
+    background: 'rgba(255,255,255,0.06)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+  } : {}
+
   return (
     <div>
       {/* 标题栏 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <Space>
-          <DashboardOutlined style={{ fontSize: 20, color: '#1677ff' }} />
-          <Title level={4} style={{ margin: 0 }}>{t('dashboard.title')}</Title>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+      }}>
+        <Space align="center">
+          <div style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(22,119,255,0.35)',
+          }}>
+            <DashboardOutlined style={{ color: '#fff', fontSize: 17 }} />
+          </div>
+          <div>
+            <Title level={4} style={{ margin: 0, lineHeight: 1.2 }}>{t('dashboard.title')}</Title>
+            <Text type="secondary" style={{ fontSize: 12 }}>系统运行状态监控</Text>
+          </div>
         </Space>
-        <Button icon={<ReloadOutlined />} onClick={fetchInfo} size="small">
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={fetchInfo}
+          size="small"
+          style={{ borderRadius: 8 }}
+        >
           {t('common.refresh')}
         </Button>
       </div>
 
-      {/* 系统信息卡片 */}
       <Row gutter={[16, 16]}>
-        {/* 基本信息 */}
+        {/* 系统信息卡片 */}
         <Col xs={24} lg={8}>
           <Card
             title={
               <Space>
                 <CloudServerOutlined style={{ color: '#1677ff' }} />
-                <span>{t('dashboard.systemInfo')}</span>
+                <span style={{ fontSize: 14 }}>{t('dashboard.systemInfo')}</span>
               </Space>
             }
             size="small"
-            style={{ height: '100%' }}
+            style={{ height: '100%', borderRadius: 12, ...cardStyle }}
+            styles={{ body: { padding: '12px 16px' } }}
           >
-            <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <div>
               {[
                 { label: '主机名', value: info?.hostname || '-' },
                 { label: t('dashboard.os'), value: info?.os || '-' },
@@ -156,12 +296,9 @@ const Dashboard: React.FC = () => {
                 { label: 'Go 版本', value: info?.go_version || '-' },
                 { label: '运行时间', value: info?.uptime ? formatUptime(info.uptime) : '-' },
               ].map(({ label, value }) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text type="secondary" style={{ fontSize: 13 }}>{label}</Text>
-                  <Text strong style={{ fontSize: 13 }}>{value}</Text>
-                </div>
+                <InfoRow key={label} label={label} value={value} />
               ))}
-            </Space>
+            </div>
           </Card>
         </Col>
 
@@ -171,75 +308,35 @@ const Dashboard: React.FC = () => {
             title={
               <Space>
                 <DashboardOutlined style={{ color: '#1677ff' }} />
-                <span>资源使用率</span>
+                <span style={{ fontSize: 14 }}>资源使用率</span>
               </Space>
             }
             size="small"
+            style={{ borderRadius: 12, ...cardStyle }}
           >
-            <Row gutter={[24, 16]}>
-              {/* CPU */}
+            <Row gutter={[16, 16]}>
               <Col xs={24} md={8}>
-                <div style={{ textAlign: 'center' }}>
-                  <Progress
-                    type="dashboard"
-                    percent={Math.round(cpuUsage)}
-                    strokeColor={progressColor(cpuUsage)}
-                    size={100}
-                    format={p => <span style={{ fontSize: 16, fontWeight: 600 }}>{p}%</span>}
-                  />
-                  <div style={{ marginTop: 8 }}>
-                    <Text strong>{t('dashboard.cpuUsage')}</Text>
-                    {info?.load_avg && (
-                      <div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          负载: {info.load_avg.map(v => v.toFixed(2)).join(' / ')}
-                        </Text>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <ResourceGauge
+                  label={t('dashboard.cpuUsage')}
+                  value={cpuUsage}
+                  subtitle={info?.load_avg
+                    ? `负载: ${info.load_avg.map(v => v.toFixed(2)).join(' / ')}`
+                    : undefined}
+                />
               </Col>
-
-              {/* 内存 */}
               <Col xs={24} md={8}>
-                <div style={{ textAlign: 'center' }}>
-                  <Progress
-                    type="dashboard"
-                    percent={Math.round(memUsage)}
-                    strokeColor={progressColor(memUsage)}
-                    size={100}
-                    format={p => <span style={{ fontSize: 16, fontWeight: 600 }}>{p}%</span>}
-                  />
-                  <div style={{ marginTop: 8 }}>
-                    <Text strong>{t('dashboard.memUsage')}</Text>
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {formatBytes(info?.mem_used ?? 0)} / {formatBytes(info?.mem_total ?? 0)}
-                      </Text>
-                    </div>
-                  </div>
-                </div>
+                <ResourceGauge
+                  label={t('dashboard.memUsage')}
+                  value={memUsage}
+                  subtitle={`${formatBytes(info?.mem_used ?? 0)} / ${formatBytes(info?.mem_total ?? 0)}`}
+                />
               </Col>
-
-              {/* 磁盘 */}
               <Col xs={24} md={8}>
-                <div style={{ textAlign: 'center' }}>
-                  <Progress
-                    type="dashboard"
-                    percent={Math.round(diskUsage)}
-                    strokeColor={progressColor(diskUsage)}
-                    size={100}
-                    format={p => <span style={{ fontSize: 16, fontWeight: 600 }}>{p}%</span>}
-                  />
-                  <div style={{ marginTop: 8 }}>
-                    <Text strong>{t('dashboard.diskUsage')}</Text>
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {formatBytes(info?.disk_used ?? 0)} / {formatBytes(info?.disk_total ?? 0)}
-                      </Text>
-                    </div>
-                  </div>
-                </div>
+                <ResourceGauge
+                  label={t('dashboard.diskUsage')}
+                  value={diskUsage}
+                  subtitle={`${formatBytes(info?.disk_used ?? 0)} / ${formatBytes(info?.disk_total ?? 0)}`}
+                />
               </Col>
             </Row>
           </Card>
@@ -251,42 +348,22 @@ const Dashboard: React.FC = () => {
             title={
               <Space>
                 <ApiOutlined style={{ color: '#1677ff' }} />
-                <span>{t('dashboard.runningServices')}</span>
+                <span style={{ fontSize: 14 }}>{t('dashboard.runningServices')}</span>
+                <Tag
+                  color="blue"
+                  style={{ marginLeft: 4, fontSize: 11, borderRadius: 10 }}
+                >
+                  {(info?.services || defaultServices).filter(s => s.running > 0).length} 运行中
+                </Tag>
               </Space>
             }
             size="small"
+            style={{ borderRadius: 12, ...cardStyle }}
           >
-            <Row gutter={[12, 12]}>
+            <Row gutter={[10, 10]}>
               {(info?.services || defaultServices).map((svc) => (
                 <Col key={svc.type} xs={12} sm={8} md={6} lg={4}>
-                  <Tooltip title={`${svc.running}/${svc.count} 运行中`}>
-                    <div style={{
-                      padding: '12px 16px',
-                      borderRadius: 8,
-                      border: '1px solid #f0f0f0',
-                      background: svc.running > 0 ? '#f6ffed' : '#fafafa',
-                      cursor: 'default',
-                      transition: 'all 0.2s',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <span style={{ color: svc.running > 0 ? '#52c41a' : '#8c8c8c', fontSize: 16 }}>
-                          {serviceIcons[svc.type] || <ApiOutlined />}
-                        </span>
-                        <Badge
-                          count={svc.running}
-                          showZero
-                          style={{
-                            backgroundColor: svc.running > 0 ? '#52c41a' : '#d9d9d9',
-                            fontSize: 11,
-                          }}
-                        />
-                      </div>
-                      <Text style={{ fontSize: 12, display: 'block' }}>{svc.name}</Text>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        {svc.count > 0 ? `${svc.running}/${svc.count}` : '未配置'}
-                      </Text>
-                    </div>
-                  </Tooltip>
+                  <ServiceCard svc={svc} />
                 </Col>
               ))}
             </Row>

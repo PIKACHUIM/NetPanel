@@ -1,0 +1,15 @@
+{
+    "bundle": {
+        "externalBin": [],
+        "resources": [
+            "./wintun.dll",
+            "./Packet.dll",
+            "./*.sys"
+        ],
+        "windows": {
+            "webviewInstallMode": {
+                "type": "embedBootstrapper"
+            }
+        }
+    }
+}

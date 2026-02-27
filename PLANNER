@@ -1,0 +1,379 @@
+现在我已经充分了解了项目结构和参考代码，让我生成完整的开发计划。
+
+---
+
+# NetPanel 开发计划与清单
+
+## 一、项目概述
+
+**NetPanel** 是一个家用内网网络穿透与端口映射管理平台，技术栈为 Go 后端 + React+Antd 前端 + SQLite 数据库。
+
+---
+
+## 二、项目目录结构规划
+
+```
+netpanel/
+├── backend/                    # Go 后端
+│   ├── main.go
+│   ├── go.mod
+│   ├── api/                    # HTTP API 路由层
+│   │   ├── router.go
+│   │   ├── middleware/
+│   │   └── handlers/           # 各功能 handler
+│   ├── model/                  # 数据库模型（每功能一张表）
+│   │   ├── db.go               # SQLite 初始化（gorm）
+│   │   ├── portforward.go
+│   │   ├── stun.go
+│   │   ├── frpc.go             # FRP 客户端
+│   │   ├── frps.go             # FRP 服务端
+│   │   ├── easytier.go         # ET 客户端
+│   │   ├── easytier_server.go  # ET 服务端
+│   │   ├── ddns.go
+│   │   ├── caddy_site.go
+│   │   ├── coraza.go
+│   │   ├── wol.go
+│   │   ├── cert.go             # 域名证书
+│   │   ├── dns_account.go      # 域名账号
+│   │   ├── dns_record.go       # 域名解析
+│   │   ├── dnsmasq.go          # 解析服务
+│   │   ├── cron.go             # 计划任务
+│   │   ├── storage.go          # 网络存储
+│   │   ├── ipdb.go             # IP地址库
+│   │   ├── access_control.go   # 访问控制
+│   │   ├── callback_task.go    # 回调任务
+│   │   └── callback_account.go # 回调账号
+│   ├── service/                # 业务逻辑层
+│   │   ├── portforward/        # 复用 lucky 的 socketproxy
+│   │   ├── stun/               # 参考 lucky 实现 STUN
+│   │   ├── frp/                # 调用 frp lib
+│   │   ├── easytier/           # 命令行管理 ET 进程
+│   │   ├── ddns/               # 调用 ddns-go lib
+│   │   ├── caddy/              # 调用 caddy lib
+│   │   ├── coraza/             # 调用 coraza lib
+│   │   ├── wol/                # 参考 lucky 实现
+│   │   ├── cert/               # ACME 证书申请
+│   │   ├── dnsmasq/            # dnsmasq 进程管理
+│   │   ├── cron/               # cron 任务调度
+│   │   ├── storage/            # WebDAV/SFTP/SMB
+│   │   ├── ipdb/               # IP 地址库
+│   │   ├── access/             # 访问控制
+│   │   └── callback/           # 回调任务执行
+│   ├── pkg/                    # 公共工具包
+│   │   ├── config/             # 系统配置
+│   │   ├── logger/
+│   │   └── utils/
+│   └── embed/                  # 嵌入前端静态文件
+│
+├── frontend/                   # React 前端
+│   ├── package.json
+│   ├── src/
+│   │   ├── main.tsx
+│   │   ├── App.tsx
+│   │   ├── layouts/
+│   │   │   └── MainLayout.tsx  # 左右布局
+│   │   ├── components/         # 公共组件
+│   │   ├── pages/              # 各功能页面
+│   │   ├── api/                # API 请求封装
+│   │   ├── i18n/               # 国际化（zh/en）
+│   │   └── store/              # 状态管理
+│   └── public/
+│
+└── .github/
+    └── workflows/
+        └── build.yml           # CI/CD 构建脚本
+```
+
+---
+
+## 三、后端功能模块详细清单
+
+### 3.1 基础框架
+| 任务 | 说明 |
+|------|------|
+| 初始化 Go 模块 | `go.mod`，模块名 `github.com/xxx/netpanel` |
+| HTTP 框架 | 使用 **Gin** |
+| 数据库 | **GORM + SQLite**，每功能一张表，自动迁移 |
+| 认证 | JWT 登录认证，支持修改密码 |
+| 日志 | logrus，支持按模块分级 |
+| 配置 | 系统基础配置（端口、密码、语言等）存 SQLite |
+| 前端嵌入 | `embed.FS` 嵌入 React 构建产物 |
+
+### 3.2 端口转发（Port Forward）
+- **实现方式**：复用 `luck/module/portforward/socketproxy` 代码
+- **字段**：启用、名称、监听IP、监听端口、转发IP/域名、转发端口、协议（TCP/UDP/TCP+UDP）
+- **API**：CRUD + 启停控制 + 实时日志
+
+### 3.3 内网穿透 STUN
+- **实现方式**：参考 lucky 的 STUN 实现，使用 `pion/stun` 库
+- **字段**：启用、名称、转发IP/域名、转发端口、触发回调、使用UPnP、NATMAP选项
+- **功能**：NAT 类型检测、有效性检测、IP 变化触发回调
+
+### 3.4 内网穿透 FRP 客户端
+- **实现方式**：直接引用 `github.com/fatedier/frp` 库（`frp/client` 包）
+- **字段**：启用、名称、服务器地址、服务器端口、Token、代理列表（子表）
+- **代理类型**：TCP/UDP/HTTP/HTTPS/STCP/XTCP
+
+### 3.5 服务端 FRP（frps）
+- **实现方式**：引用 `frp/server` 包
+- **字段**：启用、名称、监听端口、Token、Dashboard端口/用户/密码、最大连接数
+
+### 3.6 异地组网 EasyTier 客户端
+- **实现方式**：**命令行运行**，下载对应平台 easytier-core 二进制
+- **字段**：启用、名称、服务器地址、网络名称、网络密码、本地监听协议/端口、虚拟IP、其他参数
+- **进程管理**：启动/停止/重启/状态监控
+
+### 3.7 服务端 EasyTier（standalone）
+- **实现方式**：命令行运行 easytier-core standalone 模式
+- **字段**：启用、名称、监听端口、网络名称、网络密码
+
+### 3.8 动态域名 DDNS
+- **实现方式**：引用 `github.com/jeessy2/ddns-go/v6` 库的 `dns` 包
+- **字段**：启用、名称、服务商（阿里/腾讯/CF/Dnspod等）、AccessKey/Secret、解析域名、IP来源（接口/网卡/自定义）、IPv4/IPv6
+- **支持服务商**：复用 ddnsgo/dns 目录下所有 provider
+
+### 3.9 网站服务 Caddy
+- **实现方式**：引用 `github.com/caddyserver/caddy/v2` 库，通过 JSON API 动态配置
+- **字段**：启用、名称、域名、端口、类型（反向代理/静态文件/重定向/URL跳转）、SSL证书
+- **功能**：动态生成 Caddy JSON 配置并热加载
+
+### 3.10 网络防护 Coraza WAF
+- **实现方式**：引用 `github.com/corazawaf/coraza/v3` 库
+- **字段**：启用、名称、规则集、拦截模式、白名单IP
+- **集成**：作为 Caddy 的中间件或独立 HTTP 代理
+
+### 3.11 网络唤醒 WOL
+- **实现方式**：参考 `luck/module/wol` 实现
+- **字段**：名称、MAC地址、IP地址、端口、备注
+- **功能**：发送 Magic Packet，支持定时唤醒
+
+### 3.12 域名证书（ACME）
+- **实现方式**：使用 `golang.org/x/crypto/acme` 或 `github.com/go-acme/lego`
+- **字段**：域名、邮箱、CA（Let's Encrypt/ZeroSSL）、DNS验证账号、证书状态、到期时间
+- **功能**：自动申请、自动续期
+
+### 3.13 域名账号
+- **字段**：名称、服务商、AccessKey/Secret、备注
+- **功能**：供 DDNS、证书、回调任务共用
+
+### 3.14 域名解析
+- **实现方式**：调用各 DNS 服务商 API
+- **字段**：域名账号、主机记录、记录类型、记录值、TTL
+- **功能**：增删改查 DNS 解析记录
+
+### 3.15 解析服务 DNSMasq
+- **实现方式**：管理 dnsmasq 进程（命令行），或使用 Go 实现简单 DNS 服务器（`miekg/dns`）
+- **字段**：启用、监听端口、上游DNS、自定义解析规则
+
+### 3.16 计划任务 CRON
+- **实现方式**：使用 `github.com/robfig/cron/v3`
+- **字段**：启用、名称、Cron表达式、任务类型（Shell命令/HTTP请求/内部任务）、最后执行时间
+
+### 3.17 网络存储
+- **实现方式**：
+  - WebDAV：`golang.org/x/net/webdav`
+  - SFTP：`github.com/pkg/sftp`
+  - SMB：`github.com/hirochachacha/go-smb2`（或 samba 命令行）
+- **字段**：启用、名称、协议、端口、路径、用户名/密码
+
+### 3.18 IP 地址库
+- **实现方式**：使用 `github.com/lionsoul2014/ip2region` 或 MaxMind GeoIP
+- **字段**：IP/CIDR、归属地、标签、备注
+- **功能**：批量导入、查询、导出
+
+### 3.19 访问控制
+- **实现方式**：参考 `luck/module/safe`
+- **字段**：模式（黑名单/白名单）、IP/CIDR列表、启用状态
+- **功能**：全局 HTTP 中间件拦截
+
+### 3.20 回调任务
+- **字段**：启用、名称、使用账号（回调账号/域名账号）、触发条件（STUN IP变化等）、执行动作
+- **功能**：STUN IP 变化时自动触发，更新 DDNS/端口映射等
+
+### 3.21 回调账号
+- **字段**：名称、类型（CF回源端口/阿里云ESA/腾讯云EO/WebHook）、配置参数
+- **类型说明**：
+  - CF 回源端口：修改 Cloudflare 回源规则端口
+  - 阿里云 ESA：调用 ESA API 更新规则
+  - 腾讯云 EO：调用 EO API 更新规则
+  - WebHook：发送 HTTP 请求
+
+---
+
+## 四、前端功能模块清单
+
+### 4.1 基础框架
+| 任务 | 说明 |
+|------|------|
+| 初始化 | Vite + React 18 + TypeScript |
+| UI 框架 | Ant Design 5.x |
+| 路由 | React Router v6 |
+| 状态管理 | Zustand 或 Jotai（轻量） |
+| HTTP 请求 | Axios + 统一拦截器 |
+| 国际化 | `react-i18next`，支持中文/英文切换 |
+| 布局 | 左右布局：左侧 Sider + 右侧 Header + Content |
+
+### 4.2 侧边栏菜单结构
+```
+📊 仪表盘
+🔌 端口转发
+🌐 内网穿透
+  ├── STUN 穿透
+  ├── FRP 客户端
+  └── FRP 服务端
+🔗 异地组网
+  ├── EasyTier 客户端
+  └── EasyTier 服务端
+🌍 动态域名 (DDNS)
+🌐 网站服务 (Caddy)
+🛡️ 网络防护 (WAF)
+💡 网络唤醒 (WOL)
+🔐 域名管理
+  ├── 域名账号
+  ├── 域名证书
+  └── 域名解析
+📡 解析服务 (DNSMasq)
+⏰ 计划任务
+💾 网络存储
+🗺️ IP 地址库
+🚫 访问控制
+🔔 回调管理
+  ├── 回调任务
+  └── 回调账号
+⚙️ 系统设置
+```
+
+### 4.3 通用页面模式
+每个功能页面统一采用：
+- **列表表格**：Ant Design Table，支持分页、搜索、排序
+- **新增/编辑**：Modal 弹窗表单
+- **启用/禁用**：Switch 开关，实时生效
+- **状态显示**：Badge 状态标识（运行中/已停止/错误）
+- **操作列**：编辑、删除、启停、查看日志
+
+---
+
+## 五、构建与 CI/CD
+
+### 5.1 GitHub Actions 构建矩阵
+
+| 平台 | 架构 | 说明 |
+|------|------|------|
+| Linux | amd64 | 主要平台 |
+| Linux | arm64 | 树莓派/NAS |
+| Windows | amd64 | Windows 桌面 |
+| Windows | arm64 | Windows ARM |
+| macOS | amd64 | Intel Mac |
+| macOS | arm64 | Apple Silicon |
+
+### 5.2 EasyTier 二进制下载
+构建时从 EasyTier GitHub Releases 自动下载对应平台二进制，打包进发布包。
+
+### 5.3 构建流程
+```
+1. 构建前端 (npm run build)
+2. 将前端产物嵌入 Go embed
+3. 交叉编译 Go 后端（6个平台）
+4. 下载对应平台 EasyTier 二进制
+5. 打包发布（zip/tar.gz）
+6. 上传 GitHub Release
+```
+
+---
+
+## 六、第三方库依赖清单
+
+### 后端 Go 依赖
+```
+github.com/gin-gonic/gin              # HTTP 框架
+gorm.io/gorm                          # ORM
+gorm.io/driver/sqlite                 # SQLite 驱动
+github.com/golang-jwt/jwt/v5          # JWT 认证
+github.com/sirupsen/logrus            # 日志
+github.com/fatedier/frp               # FRP 库（本地引用）
+github.com/jeessy2/ddns-go/v6         # DDNS 库（本地引用）
+github.com/caddyserver/caddy/v2       # Caddy 库（本地引用）
+github.com/corazawaf/coraza/v3        # Coraza WAF（本地引用）
+github.com/pion/stun/v2               # STUN 协议
+github.com/robfig/cron/v3             # 定时任务
+golang.org/x/net/webdav               # WebDAV
+github.com/pkg/sftp                   # SFTP
+github.com/miekg/dns                  # DNS 服务
+github.com/go-acme/lego/v4            # ACME 证书
+github.com/shirou/gopsutil/v3         # 系统信息（仪表盘）
+github.com/google/uuid                # UUID 生成
+```
+
+### 前端依赖
+```
+react / react-dom                     # React 18
+antd                                  # Ant Design 5
+@ant-design/icons                     # 图标
+react-router-dom                      # 路由
+axios                                 # HTTP 请求
+react-i18next / i18next               # 国际化
+zustand                               # 状态管理
+dayjs                                 # 日期处理
+```
+
+---
+
+## 七、开发阶段规划
+
+### Phase 1：基础框架（优先）
+- [ ] 后端：Go 项目初始化、Gin 路由、GORM+SQLite、JWT 认证
+- [ ] 前端：Vite+React 初始化、Antd 布局、路由、i18n 框架
+- [ ] 仪表盘页面（系统状态概览）
+
+### Phase 2：核心网络功能
+- [ ] 端口转发（复用 lucky socketproxy）
+- [ ] FRP 客户端（引用 frp lib）
+- [ ] FRP 服务端（引用 frp lib）
+- [ ] STUN 穿透（参考 lucky 实现）
+
+### Phase 3：组网与域名
+- [ ] EasyTier 客户端（命令行管理）
+- [ ] EasyTier 服务端（命令行管理）
+- [ ] DDNS（引用 ddns-go lib）
+- [ ] 域名账号、域名证书（ACME）、域名解析
+
+### Phase 4：网站与安全
+- [ ] Caddy 网站服务（引用 caddy lib）
+- [ ] Coraza WAF（引用 coraza lib）
+- [ ] 访问控制（黑白名单）
+
+### Phase 5：辅助功能
+- [ ] WOL 网络唤醒
+- [ ] DNSMasq 解析服务
+- [ ] 计划任务 CRON
+- [ ] 网络存储（WebDAV/SFTP/SMB）
+- [ ] IP 地址库
+
+### Phase 6：回调系统
+- [ ] 回调账号（CF/阿里ESA/腾讯EO/WebHook）
+- [ ] 回调任务（STUN触发）
+
+### Phase 7：构建与发布
+- [ ] GitHub Actions 多平台构建脚本
+- [ ] EasyTier 二进制自动下载打包
+- [ ] 发布包制作
+
+---
+
+## 八、关键技术决策说明
+
+| 问题 | 决策 |
+|------|------|
+| FRP 集成 | 直接 `import` frp 的 `client` 和 `server` 包，通过 Go API 控制，无需命令行 |
+| EasyTier 集成 | Rust 编写，只能命令行运行，通过 `os/exec` 管理进程，构建时下载对应平台二进制 |
+| Caddy 集成 | 引用 caddy 库，通过其 Admin API（JSON）动态配置，在进程内运行 |
+| DDNS 集成 | 引用 ddns-go 的 `dns` 包，直接调用各 provider 的 API |
+| Coraza 集成 | 引用 coraza 库，作为 HTTP 中间件嵌入 |
+| STUN 实现 | 使用 `pion/stun` 库，参考 lucky 的 STUN 逻辑自行实现 |
+| DNSMasq | 优先使用 `miekg/dns` 实现纯 Go DNS 服务器，避免依赖外部 dnsmasq 进程 |
+| 数据库 | 每个功能模块一张表，GORM AutoMigrate 自动建表 |
+| 配置存储 | 全部存 SQLite，不使用文件配置（除系统启动参数） |
+
+---
+
+请确认以上计划，确认后我将开始按阶段执行开发。建议从 **Phase 1 基础框架** 开始，您是否有需要调整的地方？

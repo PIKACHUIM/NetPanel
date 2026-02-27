@@ -188,11 +188,70 @@ type EasytierClient struct {
 	ServerAddr      string `gorm:"size:500" json:"server_addr"` // 支持多个，逗号分隔，格式：tcp://ip:port
 	NetworkName     string `gorm:"size:255" json:"network_name"`
 	NetworkPassword string `gorm:"size:255" json:"network_password"`
-	VirtualIP       string `gorm:"size:50" json:"virtual_ip"` // 留空自动分配
+	VirtualIP       string `gorm:"size:50" json:"virtual_ip"`   // 留空自动分配，格式：10.0.0.1/24
+	Hostname        string `gorm:"size:255" json:"hostname"`    // --hostname：自定义节点主机名
 	// 本地监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
-	ListenPorts string `gorm:"size:500" json:"listen_ports"`
-	// 高级选项
-	ExtraArgs string `gorm:"type:text" json:"extra_args"` // 额外命令行参数
+	ListenPorts   string `gorm:"size:500" json:"listen_ports"`
+	// 映射监听器（用于 NAT 后公告外部地址），逗号分隔，格式：tcp://1.2.3.4:11010
+	MappedListeners string `gorm:"size:500" json:"mapped_listeners"`
+	// 子网代理（将本机子网共享给虚拟网络），逗号分隔，格式：192.168.1.0/24 或 192.168.1.0/24->10.0.0.0/24
+	ProxyCidrs string `gorm:"size:500" json:"proxy_cidrs"`
+	// 出口节点（使用其他节点作为出口），逗号分隔，格式：10.0.0.1
+	ExitNodes string `gorm:"size:500" json:"exit_nodes"`
+
+	// ===== 网络行为选项 =====
+	NoTun               bool `gorm:"default:false" json:"no_tun"`                // --no-tun：不创建 TUN 虚拟网卡（无需 WinPcap/Npcap）
+	EnableDhcp          bool `gorm:"default:false" json:"enable_dhcp"`           // --dhcp：DHCP 自动分配虚拟 IP
+	DisableP2P          bool `gorm:"default:false" json:"disable_p2p"`           // --disable-p2p：禁用 P2P 直连，强制走中继
+	P2POnly             bool `gorm:"default:false" json:"p2p_only"`              // --p2p-only：仅 P2P，禁用中继
+	LatencyFirst        bool `gorm:"default:false" json:"latency_first"`         // --latency-first：延迟优先路由
+	EnableExitNode      bool `gorm:"default:false" json:"enable_exit_node"`      // --enable-exit-node：允许本节点作为出口节点
+	RelayAllPeerRpc     bool `gorm:"default:false" json:"relay_all_peer_rpc"`    // --relay-all-peer-rpc：中继所有对等 RPC
+
+	// ===== 打洞选项 =====
+	DisableUdpHolePunching bool `gorm:"default:false" json:"disable_udp_hole_punching"` // --disable-udp-hole-punching
+	DisableTcpHolePunching bool `gorm:"default:false" json:"disable_tcp_hole_punching"` // --disable-tcp-hole-punching
+	DisableSymHolePunching bool `gorm:"default:false" json:"disable_sym_hole_punching"` // --disable-sym-hole-punching（对称 NAT）
+
+	// ===== 协议加速选项 =====
+	EnableKcpProxy  bool `gorm:"default:false" json:"enable_kcp_proxy"`  // --enable-kcp-proxy：KCP 加速代理
+	EnableQuicProxy bool `gorm:"default:false" json:"enable_quic_proxy"` // --enable-quic-proxy：QUIC 加速代理
+
+	// ===== TUN/网卡选项 =====
+	DevName      string `gorm:"size:100" json:"dev_name"`       // --dev-name：自定义 TUN 设备名
+	UseSmoltcp   bool   `gorm:"default:false" json:"use_smoltcp"` // --use-smoltcp：使用 smoltcp 用户态协议栈
+	DisableIpv6  bool   `gorm:"default:false" json:"disable_ipv6"` // --disable-ipv6：禁用 IPv6
+	Mtu          int    `gorm:"default:0" json:"mtu"`            // --mtu：MTU 大小（0 表示使用默认值）
+	EnableMagicDns bool `gorm:"default:false" json:"enable_magic_dns"` // --enable-magic-dns：启用 Magic DNS
+
+	// ===== 安全选项 =====
+	DisableEncryption bool `gorm:"default:false" json:"disable_encryption"` // --disable-encryption：禁用加密（不推荐）
+	EnablePrivateMode bool `gorm:"default:false" json:"enable_private_mode"` // --enable-private-mode：私有模式（仅允许已知节点）
+
+	// ===== 中继选项 =====
+	RelayNetworkWhitelist string `gorm:"size:500" json:"relay_network_whitelist"` // --relay-network-whitelist：允许中继的网络白名单
+
+	// ===== VPN 门户 =====
+	EnableVpnPortal          bool   `gorm:"default:false" json:"enable_vpn_portal"`           // 启用 WireGuard VPN 门户
+	VpnPortalListenPort      int    `gorm:"default:0" json:"vpn_portal_listen_port"`          // VPN 门户 WireGuard 监听端口
+	VpnPortalClientNetwork   string `gorm:"size:100" json:"vpn_portal_client_network"`        // VPN 客户端网段，格式：10.14.14.0/24
+
+	// ===== SOCKS5 代理 =====
+	EnableSocks5 bool `gorm:"default:false" json:"enable_socks5"` // 启用 SOCKS5 代理
+	Socks5Port   int  `gorm:"default:0" json:"socks5_port"`       // SOCKS5 监听端口
+
+	// ===== 手动路由 =====
+	EnableManualRoutes bool   `gorm:"default:false" json:"enable_manual_routes"` // --manual-routes：启用手动路由
+	ManualRoutes       string `gorm:"type:text" json:"manual_routes"`            // 手动路由列表，逗号分隔，格式：10.0.0.0/24
+
+	// ===== 端口转发 =====
+	// 格式：proto:bind_ip:bind_port:dst_ip:dst_port，多条用换行分隔，如 tcp:0.0.0.0:8080:192.168.1.1:80
+	PortForwards string `gorm:"type:text" json:"port_forwards"`
+
+	// ===== 运行时选项 =====
+	MultiThread bool `gorm:"default:false" json:"multi_thread"` // --multi-thread：启用多线程运行时
+
+	ExtraArgs string `gorm:"type:text" json:"extra_args"` // 额外命令行参数（兜底）
 	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError string `gorm:"type:text" json:"last_error"`
 	Remark    string `gorm:"size:500" json:"remark"`
@@ -203,17 +262,54 @@ type EasytierClient struct {
 // EasytierServer EasyTier 服务端配置
 type EasytierServer struct {
 	BaseModel
-	Name            string `gorm:"size:100;not null" json:"name"`
-	Enable          bool   `gorm:"default:false" json:"enable"`
-	ListenAddr      string `gorm:"size:100;default:'0.0.0.0'" json:"listen_addr"`
+	Name   string `gorm:"size:100;not null" json:"name"`
+	Enable bool   `gorm:"default:false" json:"enable"`
+
+	// ServerMode 运行模式：standalone（独立部署，默认）或 config-server（节点模式，连接到 config-server）
+	// standalone 模式下可配置所有参数；config-server 模式下只需填写 ConfigServerAddr
+	ServerMode string `gorm:"size:20;default:'standalone'" json:"server_mode"`
+	// ConfigServerAddr config-server 地址，仅 config-server 模式下使用，格式：tcp://host:port
+	ConfigServerAddr string `gorm:"size:500" json:"config_server_addr"`
+
+	ListenAddr string `gorm:"size:100;default:'0.0.0.0'" json:"listen_addr"`
 	// 监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
 	ListenPorts     string `gorm:"size:500" json:"listen_ports"`
 	NetworkName     string `gorm:"size:255" json:"network_name"`
 	NetworkPassword string `gorm:"size:255" json:"network_password"`
-	ExtraArgs       string `gorm:"type:text" json:"extra_args"`
-	Status          string `gorm:"size:20;default:'stopped'" json:"status"`
-	LastError       string `gorm:"type:text" json:"last_error"`
-	Remark          string `gorm:"size:500" json:"remark"`
+	Hostname        string `gorm:"size:255" json:"hostname"` // --hostname：自定义节点主机名
+
+	// ===== 网络行为选项 =====
+	NoTun           bool `gorm:"default:false" json:"no_tun"`            // --no-tun：不创建 TUN 虚拟网卡
+	DisableP2P      bool `gorm:"default:false" json:"disable_p2p"`       // --disable-p2p：禁用 P2P 直连
+	RelayAllPeerRpc bool `gorm:"default:false" json:"relay_all_peer_rpc"` // --relay-all-peer-rpc：中继所有对等 RPC
+	EnableExitNode  bool `gorm:"default:false" json:"enable_exit_node"`  // --enable-exit-node：允许作为出口节点
+
+	// ===== 协议加速选项 =====
+	EnableKcpProxy  bool `gorm:"default:false" json:"enable_kcp_proxy"`  // --enable-kcp-proxy
+	EnableQuicProxy bool `gorm:"default:false" json:"enable_quic_proxy"` // --enable-quic-proxy
+
+	// ===== 安全选项 =====
+	DisableEncryption bool `gorm:"default:false" json:"disable_encryption"` // --disable-encryption
+	EnablePrivateMode bool `gorm:"default:false" json:"enable_private_mode"` // --enable-private-mode
+
+	// ===== 中继选项 =====
+	RelayNetworkWhitelist string `gorm:"size:500" json:"relay_network_whitelist"` // --relay-network-whitelist
+
+	// ===== 手动路由 =====
+	EnableManualRoutes bool   `gorm:"default:false" json:"enable_manual_routes"` // --manual-routes：启用手动路由
+	ManualRoutes       string `gorm:"type:text" json:"manual_routes"`            // 手动路由列表，逗号分隔，格式：10.0.0.0/24
+
+	// ===== 端口转发 =====
+	// 格式：proto:bind_ip:bind_port:dst_ip:dst_port，多条用换行分隔，如 tcp:0.0.0.0:8080:192.168.1.1:80
+	PortForwards string `gorm:"type:text" json:"port_forwards"`
+
+	// ===== 运行时选项 =====
+	MultiThread bool `gorm:"default:true" json:"multi_thread"` // --multi-thread：启用多线程运行时
+
+	ExtraArgs string `gorm:"type:text" json:"extra_args"`
+	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError string `gorm:"type:text" json:"last_error"`
+	Remark    string `gorm:"size:500" json:"remark"`
 }
 
 // ===== DDNS =====

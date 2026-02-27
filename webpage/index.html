@@ -5,6 +5,36 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NetPanel - 网络管理平台</title>
+    <!-- DM Sans 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+    <style>
+      /* 防止字体加载时的布局偏移 */
+      html { font-display: swap; }
+      /* 全局动画关键帧 */
+      @keyframes orbFloat1 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        33% { transform: translate(30px, -20px) scale(1.05); }
+        66% { transform: translate(-20px, 30px) scale(0.95); }
+      }
+      @keyframes orbFloat2 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-40px, -30px) scale(1.08); }
+      }
+      @keyframes orbFloat3 {
+        0%, 100% { transform: translate(0, 0); }
+        50% { transform: translate(20px, -40px); }
+      }
+      @keyframes pageEnter {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
