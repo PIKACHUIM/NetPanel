@@ -105,6 +105,58 @@ jobs:
             arch: aarch64
             bin: easytier-core
             ext: zip
+          # ── 额外 Linux 平台 ──
+          - os: linux
+            arch: aarch64
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: arm
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: armhf
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: armv7
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: armv7hf
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: loongarch64
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: mips
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: mipsel
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          - os: linux
+            arch: riscv64
+            bin: easytier-core
+            ext: zip
+            artifact_suffix: extra
+          # ── 额外 Windows 平台 ──
+          - os: windows
+            arch: i686
+            bin: easytier-core.exe
+            ext: zip
+            artifact_suffix: extra
     steps:
       - name: Download EasyTier binary
         run: |
@@ -130,9 +182,97 @@ jobs:
       - name: Upload EasyTier artifact
         uses: actions/upload-artifact@v4
         with:
-          name: easytier-${{ matrix.os }}-${{ matrix.arch }}
+          name: easytier-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.artifact_suffix && format('-{0}', matrix.artifact_suffix) || '' }}
           path: ${{ matrix.bin }}
           retention-days: 1
+
+  # ===== 构建后端（额外平台：仅打包 EasyTier，不编译 netpanel）=====
+  build-extra-platforms:
+    name: Package Extra (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: [validate, download-easytier]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: aarch64
+            et_bin: easytier-core
+            pkg_name: easytier-linux-aarch64
+          - os: linux
+            arch: arm
+            et_bin: easytier-core
+            pkg_name: easytier-linux-arm
+          - os: linux
+            arch: armhf
+            et_bin: easytier-core
+            pkg_name: easytier-linux-armhf
+          - os: linux
+            arch: armv7
+            et_bin: easytier-core
+            pkg_name: easytier-linux-armv7
+          - os: linux
+            arch: armv7hf
+            et_bin: easytier-core
+            pkg_name: easytier-linux-armv7hf
+          - os: linux
+            arch: loongarch64
+            et_bin: easytier-core
+            pkg_name: easytier-linux-loongarch64
+          - os: linux
+            arch: mips
+            et_bin: easytier-core
+            pkg_name: easytier-linux-mips
+          - os: linux
+            arch: mipsel
+            et_bin: easytier-core
+            pkg_name: easytier-linux-mipsel
+          - os: linux
+            arch: riscv64
+            et_bin: easytier-core
+            pkg_name: easytier-linux-riscv64
+          - os: windows
+            arch: i686
+            et_bin: easytier-core.exe
+            pkg_name: easytier-windows-i686
+
+    steps:
+      - name: Download EasyTier binary
+        uses: actions/download-artifact@v4
+        with:
+          name: easytier-${{ matrix.os }}-${{ matrix.arch }}-extra
+          path: easytier-bin/
+
+      - name: Prepare release package
+        run: |
+          PKG_NAME="${{ matrix.pkg_name }}"
+          PKG_DIR="release/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}/bin"
+
+          cp "easytier-bin/${{ matrix.et_bin }}" "${PKG_DIR}/bin/"
+          chmod +x "${PKG_DIR}/bin/${{ matrix.et_bin }}" 2>/dev/null || true
+
+          echo "EasyTier v${{ env.EASYTIER_VERSION }}" > "${PKG_DIR}/VERSION"
+          echo "Built: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "${PKG_DIR}/VERSION"
+          echo "Platform: ${{ matrix.os }}/${{ matrix.arch }}" >> "${PKG_DIR}/VERSION"
+          echo "NetPanel: ${{ needs.validate.outputs.version }}" >> "${PKG_DIR}/VERSION"
+
+          cd release
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            zip -r "${PKG_NAME}.zip" "${PKG_NAME}/"
+          else
+            tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}/"
+          fi
+          ls -lh
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-extra-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            release/*.tar.gz
+            release/*.zip
+          retention-days: 7
 
   # ===== 构建后端（Linux / Windows 交叉编译）=====
   build-linux-windows:
@@ -346,7 +486,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [validate, build-linux-windows, build-macos]
+    needs: [validate, build-linux-windows, build-macos, build-extra-platforms]
     permissions:
       contents: write
     steps:
@@ -388,4 +528,4 @@ jobs:
           generate_release_notes: ${{ github.event.inputs.release_notes == '' }}
           draft: false
           prerelease: ${{ contains(needs.validate.outputs.version, 'beta') || contains(needs.validate.outputs.version, 'alpha') || contains(needs.validate.outputs.version, 'rc') }}
-          body: ${{ github.event.inputs.release_notes != '' && format('## NetPanel {0}\n\n{1}\n\n### 下载说明\n\n| 平台 | 架构 | 文件 |\n|------|------|------|\n| Linux | x86_64 | `netpanel-linux-amd64.tar.gz` |\n| Linux | ARM64 | `netpanel-linux-arm64.tar.gz` |\n| Windows | x86_64 | `netpanel-windows-amd64.zip` |\n| Windows | ARM64 | `netpanel-windows-arm64.zip` |\n| macOS | Intel | `netpanel-darwin-amd64.tar.gz` |\n| macOS | Apple Silicon | `netpanel-darwin-arm64.tar.gz` |\n\n### 快速开始\n\n```bash\n# Linux/macOS\ntar -xzf netpanel-linux-amd64.tar.gz\ncd netpanel-linux-amd64\n./netpanel\n\n# Windows\n# 解压 netpanel-windows-amd64.zip 后运行 netpanel.exe\n```\n\n> 默认监听端口：`8080`，首次启动请访问 `http://localhost:8080` 完成初始化。\n\n### 校验文件完整性\n\n```bash\nsha256sum -c SHA256SUMS.txt\n```', needs.validate.outputs.version, github.event.inputs.release_notes) || '' }}
+          body: ${{ github.event.inputs.release_notes != '' && format('## NetPanel {0}\n\n{1}\n\n### 下载说明\n\n| 平台 | 架构 | 文件 |\n|------|------|------|\n| Linux | x86_64 | `netpanel-linux-amd64.tar.gz` |\n| Linux | ARM64 | `netpanel-linux-arm64.tar.gz` |\n| Windows | x86_64 | `netpanel-windows-amd64.zip` |\n| Windows | ARM64 | `netpanel-windows-arm64.zip` |\n| macOS | Intel | `netpanel-darwin-amd64.tar.gz` |\n| macOS | Apple Silicon | `netpanel-darwin-arm64.tar.gz` |\n| Linux | aarch64 (EasyTier only) | `easytier-linux-aarch64.tar.gz` |\n| Linux | arm (EasyTier only) | `easytier-linux-arm.tar.gz` |\n| Linux | armhf (EasyTier only) | `easytier-linux-armhf.tar.gz` |\n| Linux | armv7 (EasyTier only) | `easytier-linux-armv7.tar.gz` |\n| Linux | armv7hf (EasyTier only) | `easytier-linux-armv7hf.tar.gz` |\n| Linux | loongarch64 (EasyTier only) | `easytier-linux-loongarch64.tar.gz` |\n| Linux | mips (EasyTier only) | `easytier-linux-mips.tar.gz` |\n| Linux | mipsel (EasyTier only) | `easytier-linux-mipsel.tar.gz` |\n| Linux | riscv64 (EasyTier only) | `easytier-linux-riscv64.tar.gz` |\n| Windows | i686 (EasyTier only) | `easytier-windows-i686.zip` |\n\n### 快速开始\n\n```bash\n# Linux/macOS\ntar -xzf netpanel-linux-amd64.tar.gz\ncd netpanel-linux-amd64\n./netpanel\n\n# Windows\n# 解压 netpanel-windows-amd64.zip 后运行 netpanel.exe\n```\n\n> 默认监听端口：`8080`，首次启动请访问 `http://localhost:8080` 完成初始化。\n\n### 校验文件完整性\n\n```bash\nsha256sum -c SHA256SUMS.txt\n```', needs.validate.outputs.version, github.event.inputs.release_notes) || '' }}

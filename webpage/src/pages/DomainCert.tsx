@@ -405,7 +405,7 @@ const DomainCert: React.FC = () => {
                     {certAccounts.map(a => (
                       <Option key={a.id} value={a.id}>
                         <Space size={4}>
-                          <Tag color={{ letsencrypt: 'green', zerossl: 'blue', buypass: 'purple', google: 'red' }[a.type] || 'default'}
+                          <Tag color={({ letsencrypt: 'green', zerossl: 'blue', buypass: 'purple', google: 'red' } as Record<string, string>)[a.type] || 'default'}
                             style={{ margin: 0 }}>{a.type}</Tag>
                           {a.name}
                           {a.email && <Text type="secondary" style={{ fontSize: 11 }}>({a.email})</Text>}
