@@ -168,3 +168,42 @@ func (h *NpsClientHandler) Stop(c *gin.Context) {
 	h.db.Model(&model.NpsClientConfig{}).Where("id = ?", id).Update("enable", false)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
+
+// ===== NPS 隧道 =====
+
+func (h *NpsClientHandler) ListTunnels(c *gin.Context) {
+	clientID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var tunnels []model.NpsTunnel
+	h.db.Where("nps_client_id = ?", clientID).Order("id desc").Find(&tunnels)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tunnels})
+}
+
+func (h *NpsClientHandler) CreateTunnel(c *gin.Context) {
+	clientID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var tunnel model.NpsTunnel
+	if err := c.ShouldBindJSON(&tunnel); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	tunnel.NpsClientID = uint(clientID)
+	h.db.Create(&tunnel)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tunnel, "message": "创建成功"})
+}
+
+func (h *NpsClientHandler) UpdateTunnel(c *gin.Context) {
+	tid, _ := strconv.ParseUint(c.Param("tid"), 10, 64)
+	var req model.NpsTunnel
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	req.ID = uint(tid)
+	h.db.Save(&req)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
+}
+
+func (h *NpsClientHandler) DeleteTunnel(c *gin.Context) {
+	tid, _ := strconv.ParseUint(c.Param("tid"), 10, 64)
+	h.db.Delete(&model.NpsTunnel{}, tid)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
+}

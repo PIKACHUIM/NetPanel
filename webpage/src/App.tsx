@@ -19,8 +19,10 @@ const Ddns = lazy(() => import('./pages/Ddns'))
 const Caddy = lazy(() => import('./pages/Caddy'))
 const Wol = lazy(() => import('./pages/Wol'))
 const DomainAccount = lazy(() => import('./pages/DomainAccount'))
+const CertAccount = lazy(() => import('./pages/CertAccount'))
 const DomainCert = lazy(() => import('./pages/DomainCert'))
 const DomainRecord = lazy(() => import('./pages/DomainRecord'))
+const Waf = lazy(() => import('./pages/Waf'))
 const Dnsmasq = lazy(() => import('./pages/Dnsmasq'))
 const Cron = lazy(() => import('./pages/Cron'))
 const Storage = lazy(() => import('./pages/Storage'))
@@ -69,8 +71,10 @@ const App: React.FC = () => {
         <Route path="caddy" element={<Suspense fallback={<PageLoader />}><Caddy /></Suspense>} />
         <Route path="wol" element={<Suspense fallback={<PageLoader />}><Wol /></Suspense>} />
         <Route path="domain/account" element={<Suspense fallback={<PageLoader />}><DomainAccount /></Suspense>} />
+        <Route path="domain/cert-account" element={<Suspense fallback={<PageLoader />}><CertAccount /></Suspense>} />
         <Route path="domain/cert" element={<Suspense fallback={<PageLoader />}><DomainCert /></Suspense>} />
         <Route path="domain/record" element={<Suspense fallback={<PageLoader />}><DomainRecord /></Suspense>} />
+        <Route path="security/waf" element={<Suspense fallback={<PageLoader />}><Waf /></Suspense>} />
         <Route path="dnsmasq" element={<Suspense fallback={<PageLoader />}><Dnsmasq /></Suspense>} />
         <Route path="cron" element={<Suspense fallback={<PageLoader />}><Cron /></Suspense>} />
         <Route path="storage" element={<Suspense fallback={<PageLoader />}><Storage /></Suspense>} />

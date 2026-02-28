@@ -80,9 +80,13 @@ func (m *Manager) checkAndRenew() {
 		if c.ExpireAt == nil || c.ExpireAt.IsZero() {
 			continue
 		}
-		// 提前 30 天续期
-		if time.Until(*c.ExpireAt) < 30*24*time.Hour {
-			m.log.Infof("[证书][%s] 即将到期（%s），开始自动续期", c.Name, c.ExpireAt.Format("2006-01-02"))
+		// 提前 N 天续期（默认 7 天）
+		renewDays := c.RenewBeforeDays
+		if renewDays <= 0 {
+			renewDays = 7
+		}
+		if time.Until(*c.ExpireAt) < time.Duration(renewDays)*24*time.Hour {
+			m.log.Infof("[证书][%s] 即将到期（%s），提前 %d 天自动续期", c.Name, c.ExpireAt.Format("2006-01-02"), renewDays)
 			if err := m.Apply(c.ID); err != nil {
 				m.log.Errorf("[证书][%s] 自动续期失败: %v", c.Name, err)
 			}
@@ -96,7 +100,7 @@ func (m *Manager) Apply(id uint) error {
 	defer m.mu.Unlock()
 
 	var cert model.DomainCert
-	if err := m.db.Preload("DomainAccount").First(&cert, id).Error; err != nil {
+	if err := m.db.Preload("DomainAccount").Preload("CertAccount").First(&cert, id).Error; err != nil {
 		return fmt.Errorf("证书配置不存在: %w", err)
 	}
 
@@ -120,7 +124,14 @@ func (m *Manager) Apply(id uint) error {
 		return m.setError(id, fmt.Errorf("生成私钥失败: %w", err))
 	}
 
-	email := cert.Email
+	// 优先使用关联证书账号的邮箱，其次使用证书自身邮箱，最后使用默认值
+	email := ""
+	var eabKid, eabHmacKey string
+	if cert.CertAccountID > 0 && cert.CertAccount.ID > 0 {
+		email = cert.CertAccount.Email
+		eabKid = cert.CertAccount.EabKid
+		eabHmacKey = cert.CertAccount.EabHmacKey
+	}
 	if email == "" {
 		email = "admin@netpanel.local"
 	}
@@ -135,12 +146,17 @@ func (m *Manager) Apply(id uint) error {
 	config.Certificate.KeyType = certcrypto.RSA2048
 	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 
-	// 选择 CA
+	// 选择 CA 并确定是否需要 EAB
+	var needEAB bool
 	switch strings.ToLower(cert.CA) {
 	case "zerossl":
 		config.CADirURL = "https://acme.zerossl.com/v2/DV90"
+		needEAB = true
 	case "buypass":
 		config.CADirURL = "https://api.buypass.com/acme/directory"
+	case "google":
+		config.CADirURL = "https://dv.acme-v02.api.pki.goog/directory"
+		needEAB = true
 	default: // letsencrypt
 		config.CADirURL = lego.LEDirectoryProduction
 	}
@@ -176,12 +192,27 @@ func (m *Manager) Apply(id uint) error {
 		}
 	}
 
-	// 注册账号
-	reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
-	if err != nil {
-		return m.setError(id, fmt.Errorf("ACME 账号注册失败: %w", err))
+	// 注册账号（需要 EAB 的 CA 使用 EAB 注册）
+	if needEAB {
+		if eabKid == "" || eabHmacKey == "" {
+			return m.setError(id, fmt.Errorf("CA %s 需要 EAB 凭据，请在证书账号中配置 EAB Key ID 和 HMAC Key", cert.CA))
+		}
+		reg, err := client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
+			TermsOfServiceAgreed: true,
+			Kid:                  eabKid,
+			HmacEncoded:          eabHmacKey,
+		})
+		if err != nil {
+			return m.setError(id, fmt.Errorf("ACME EAB 账号注册失败: %w", err))
+		}
+		user.Registration = reg
+	} else {
+		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+		if err != nil {
+			return m.setError(id, fmt.Errorf("ACME 账号注册失败: %w", err))
+		}
+		user.Registration = reg
 	}
-	user.Registration = reg
 
 	// 申请证书
 	request := certificate.ObtainRequest{

@@ -9,6 +9,7 @@ export const portForwardApi = {
   start: (id: number) => request.post(`/v1/port-forward/${id}/start`),
   stop: (id: number) => request.post(`/v1/port-forward/${id}/stop`),
   getLogs: (id: number) => request.get(`/v1/port-forward/${id}/logs`),
+  listCerts: () => request.get('/v1/port-forward/certs'),
 }
 
 // ===== STUN =====
@@ -61,6 +62,11 @@ export const npsClientApi = {
   delete: (id: number) => request.delete(`/v1/nps/client/${id}`),
   start: (id: number) => request.post(`/v1/nps/client/${id}/start`),
   stop: (id: number) => request.post(`/v1/nps/client/${id}/stop`),
+  // 隧道管理（子表，参考 nps 隧道类型）
+  listTunnels: (clientId: number) => request.get(`/v1/nps/client/${clientId}/tunnels`),
+  createTunnel: (clientId: number, data: any) => request.post(`/v1/nps/client/${clientId}/tunnels`, data),
+  updateTunnel: (clientId: number, tunnelId: number, data: any) => request.put(`/v1/nps/client/${clientId}/tunnels/${tunnelId}`, data),
+  deleteTunnel: (clientId: number, tunnelId: number) => request.delete(`/v1/nps/client/${clientId}/tunnels/${tunnelId}`),
 }
 
 // ===== EasyTier 客户端 =====
@@ -93,6 +99,7 @@ export const ddnsApi = {
   start: (id: number) => request.post(`/v1/ddns/${id}/start`),
   stop: (id: number) => request.post(`/v1/ddns/${id}/stop`),
   runNow: (id: number) => request.post(`/v1/ddns/${id}/run`),
+  getHistory: (id: number) => request.get(`/v1/ddns/${id}/history`),
 }
 
 // ===== Caddy =====
@@ -121,6 +128,15 @@ export const domainAccountApi = {
   update: (id: number, data: any) => request.put(`/v1/domain/accounts/${id}`, data),
   delete: (id: number) => request.delete(`/v1/domain/accounts/${id}`),
   test: (id: number) => request.post(`/v1/domain/accounts/${id}/test`),
+}
+
+// ===== 证书账号 =====
+export const certAccountApi = {
+  list: () => request.get('/v1/domain/cert-accounts'),
+  create: (data: any) => request.post('/v1/domain/cert-accounts', data),
+  update: (id: number, data: any) => request.put(`/v1/domain/cert-accounts/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/domain/cert-accounts/${id}`),
+  verify: (id: number) => request.post(`/v1/domain/cert-accounts/${id}/verify`),
 }
 
 // ===== 域名证书 =====
@@ -180,8 +196,18 @@ export const ipdbApi = {
   create: (data: any) => request.post('/v1/ipdb', data),
   update: (id: number, data: any) => request.put(`/v1/ipdb/${id}`, data),
   delete: (id: number) => request.delete(`/v1/ipdb/${id}`),
-  batchImport: (data: any) => request.post('/v1/ipdb/import', data),
+  // 手动批量导入（文本格式，每行支持多个 IP/CIDR，空格/逗号/分号分隔）
+  batchImport: (data: { entries?: any[], text?: string, location?: string, tags?: string }) => request.post('/v1/ipdb/import', data),
+  // 从URL下载导入
+  importFromUrl: (data: { url: string, location?: string, tags?: string, clear_first?: boolean }) => request.post('/v1/ipdb/import-url', data),
+  // 查询IP归属地
   query: (ip: string) => request.get('/v1/ipdb/query', { params: { ip } }),
+  // 订阅管理
+  listSubscriptions: () => request.get('/v1/ipdb/subscriptions'),
+  createSubscription: (data: any) => request.post('/v1/ipdb/subscriptions', data),
+  updateSubscription: (id: number, data: any) => request.put(`/v1/ipdb/subscriptions/${id}`, data),
+  deleteSubscription: (id: number) => request.delete(`/v1/ipdb/subscriptions/${id}`),
+  refreshSubscription: (id: number) => request.post(`/v1/ipdb/subscriptions/${id}/refresh`),
 }
 
 // ===== 访问控制 =====
@@ -190,6 +216,18 @@ export const accessApi = {
   create: (data: any) => request.post('/v1/access', data),
   update: (id: number, data: any) => request.put(`/v1/access/${id}`, data),
   delete: (id: number) => request.delete(`/v1/access/${id}`),
+}
+
+// ===== WAF 防火墙 =====
+export const wafApi = {
+  list: () => request.get('/v1/security/waf'),
+  create: (data: any) => request.post('/v1/security/waf', data),
+  update: (id: number, data: any) => request.put(`/v1/security/waf/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/security/waf/${id}`),
+  start: (id: number) => request.post(`/v1/security/waf/${id}/start`),
+  stop: (id: number) => request.post(`/v1/security/waf/${id}/stop`),
+  getLogs: (id: number, params?: any) => request.get(`/v1/security/waf/${id}/logs`, { params }),
+  testRule: (id: number, data: any) => request.post(`/v1/security/waf/${id}/test`, data),
 }
 
 // ===== 回调账号 =====

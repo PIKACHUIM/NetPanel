@@ -126,7 +126,7 @@ func (p *TCPProxy) handleConn(src net.Conn) {
 
 	dst, err := net.Dial("tcp", fmt.Sprintf("%s:%d", p.targetAddr, p.targetPort))
 	if err != nil {
-		p.log.Errorf("[TCP] 连接目标 %s:%d 失败: %v", p.targetAddr, p.targetPort, err)
+		p.log.Errorf("连接目标[TCP] %s:%d 失败: %v", p.targetAddr, p.targetPort, err)
 		return
 	}
 	defer dst.Close()
@@ -359,31 +359,50 @@ func (m *Manager) Start(id uint) error {
 	}
 
 	entry := &ruleEntry{}
-	protocols := parseProtocols(rule.Protocol)
 
-	for _, proto := range protocols {
-		var p Proxy
-		switch proto {
-		case "tcp":
-			p = newTCPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, rule.MaxConnections, m.log)
-		case "udp":
-			p = newUDPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, m.log)
-		default:
-			continue
+	// 根据 ListenPortType 决定使用哪种代理
+	var p Proxy
+	switch strings.ToLower(rule.ListenPortType) {
+	case "udp":
+		p = newUDPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, m.log)
+	case "http", "websocket":
+		// HTTP 和 WebSocket 统一用反向代理，ReverseProxy 自动处理 Upgrade
+		p = newHTTPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, "http", "", "", m.log)
+	case "https":
+		// HTTPS：本地监听端口做 TLS 终止，转发到目标
+		// 默认转发到 http://，如果目标端口类型也是 https 则转发到 https://
+		targetScheme := "http"
+		if strings.ToLower(rule.TargetPortType) == "https" {
+			targetScheme = "https"
 		}
-		if err := p.Start(); err != nil {
-			// 停止已启动的
-			for _, started := range entry.proxies {
-				started.Stop()
+		var certFile, keyFile string
+		if rule.DomainCertID > 0 {
+			var dc model.DomainCert
+			if err := m.db.First(&dc, rule.DomainCertID).Error; err != nil {
+				return fmt.Errorf("HTTPS 监听要求证书 ID=%d，但查询失败: %w", rule.DomainCertID, err)
 			}
-			m.db.Model(&model.PortForwardRule{}).Where("id = ?", id).Updates(map[string]interface{}{
-				"status":     "error",
-				"last_error": err.Error(),
-			})
-			return err
+			if dc.CertFile == "" || dc.KeyFile == "" {
+				return fmt.Errorf("HTTPS 监听要求证书 ID=%d，但证书文件路径为空（证书可能尚未签发）", rule.DomainCertID)
+			}
+			certFile = dc.CertFile
+			keyFile = dc.KeyFile
 		}
-		entry.proxies = append(entry.proxies, p)
+		p = newHTTPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, targetScheme, certFile, keyFile, m.log)
+	case "socks", "socks5":
+		// SOCKS5 代理服务器：本地监听端口作为 SOCKS5 入口
+		p = newSOCKS5Proxy(rule.ListenIP, rule.ListenPort, rule.MaxConnections, m.log)
+	default:
+		// tcp 及其他未知类型均走透明 TCP 转发
+		p = newTCPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, rule.MaxConnections, m.log)
 	}
+	if err := p.Start(); err != nil {
+		m.db.Model(&model.PortForwardRule{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"status":     "error",
+			"last_error": err.Error(),
+		})
+		return err
+	}
+	entry.proxies = append(entry.proxies, p)
 
 	m.entries.Store(id, entry)
 	m.db.Model(&model.PortForwardRule{}).Where("id = ?", id).Updates(map[string]interface{}{
@@ -428,18 +447,4 @@ func (m *Manager) GetLogs(id uint) []string {
 		return result
 	}
 	return nil
-}
-
-// parseProtocols 解析协议字符串
-func parseProtocols(protocol string) []string {
-	switch strings.ToLower(protocol) {
-	case "tcp":
-		return []string{"tcp"}
-	case "udp":
-		return []string{"udp"}
-	case "tcp+udp", "both":
-		return []string{"tcp", "udp"}
-	default:
-		return []string{"tcp"}
-	}
 }

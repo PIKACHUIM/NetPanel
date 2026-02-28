@@ -21,14 +21,14 @@ import (
 type NATType string
 
 const (
-	NATTypeUnknown          NATType = "Unknown"
-	NATTypeOpenInternet     NATType = "Open Internet"
-	NATTypeFullCone         NATType = "Full Cone NAT"
-	NATTypeRestrictedCone   NATType = "Restricted Cone NAT"
-	NATTypePortRestricted   NATType = "Port Restricted Cone NAT"
-	NATTypeSymmetric        NATType = "Symmetric NAT"
+	NATTypeUnknown           NATType = "Unknown"
+	NATTypeOpenInternet      NATType = "Open Internet"
+	NATTypeFullCone          NATType = "Full Cone NAT"
+	NATTypeRestrictedCone    NATType = "Restricted Cone NAT"
+	NATTypePortRestricted    NATType = "Port Restricted Cone NAT"
+	NATTypeSymmetric         NATType = "Symmetric NAT"
 	NATTypeSymmetricFirewall NATType = "Symmetric UDP Firewall"
-	NATTypeBlocked          NATType = "UDP Blocked"
+	NATTypeBlocked           NATType = "UDP Blocked"
 )
 
 // NATInfo STUN 检测结果
@@ -45,9 +45,10 @@ type CallbackNotifier interface {
 
 // stunEntry 单个 STUN 任务运行实例
 type stunEntry struct {
-	cancel  context.CancelFunc
-	info    *NATInfo
-	mu      sync.RWMutex
+	cancel     context.CancelFunc
+	info       *NATInfo
+	stunStatus string // penetrating / timeout / failed
+	mu         sync.RWMutex
 }
 
 // Manager STUN 管理器
@@ -72,7 +73,7 @@ func (m *Manager) StartAll() {
 	m.db.Where("enable = ?", true).Find(&rules)
 	for _, rule := range rules {
 		if err := m.Start(rule.ID); err != nil {
-			m.log.Errorf("[STUN][%s] 启动失败: %v", rule.Name, err)
+			m.log.Errorf("[STUN服务][%s] 启动失败: %v", rule.Name, err)
 		}
 	}
 }
@@ -106,7 +107,7 @@ func (m *Manager) Start(id uint) error {
 	})
 
 	go m.runLoop(ctx, id, entry)
-	m.log.Infof("[STUN][%s] 已启动", rule.Name)
+	m.log.Infof("[STUN服务][%s] 已启动", rule.Name)
 	return nil
 }
 
@@ -145,6 +146,17 @@ func (m *Manager) GetCurrentInfo(id uint) *NATInfo {
 	return nil
 }
 
+// GetStunStatus 获取 STUN 穿透细化状态
+func (m *Manager) GetStunStatus(id uint) string {
+	if val, ok := m.entries.Load(id); ok {
+		entry := val.(*stunEntry)
+		entry.mu.RLock()
+		defer entry.mu.RUnlock()
+		return entry.stunStatus
+	}
+	return ""
+}
+
 // runLoop 主循环：定时检测 + 指数退避重试
 func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 	defer func() {
@@ -160,14 +172,25 @@ func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 		// 重新读取最新配置
 		var rule model.StunRule
 		if err := m.db.First(&rule, id).Error; err != nil {
-			m.log.Errorf("[STUN][%d] 读取配置失败: %v", id, err)
+			m.log.Errorf("[STUN服务][%d] 读取配置失败: %v", id, err)
 			return
 		}
 
 		changed, err := m.doCheck(ctx, id, &rule, entry)
 		if err != nil {
-			m.log.Warnf("[STUN][%s] 检测失败 (退避 %v): %v", rule.Name, backoff, err)
-			m.db.Model(&model.StunRule{}).Where("id = ?", id).Update("last_error", err.Error())
+			m.log.Warnf("[STUN服务][%s] 检测失败 (退避 %v): %v", rule.Name, backoff, err)
+			// 区分超时和失败
+			stunStatus := "failed"
+			if strings.Contains(err.Error(), "超时") || strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
+				stunStatus = "timeout"
+			}
+			entry.mu.Lock()
+			entry.stunStatus = stunStatus
+			entry.mu.Unlock()
+			m.db.Model(&model.StunRule{}).Where("id = ?", id).Updates(map[string]interface{}{
+				"last_error":  err.Error(),
+				"stun_status": stunStatus,
+			})
 
 			select {
 			case <-ctx.Done():
@@ -186,7 +209,7 @@ func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 			info := m.GetCurrentInfo(id)
 			if info != nil {
 				if err := m.callback.TriggerBySTUN(rule.CallbackTaskID, info.IP, info.Port); err != nil {
-					m.log.Warnf("[STUN][%s] 触发回调失败: %v", rule.Name, err)
+					m.log.Warnf("[STUN服务][%s] 触发回调失败: %v", rule.Name, err)
 				}
 			}
 		}
@@ -206,8 +229,16 @@ func (m *Manager) doCheck(ctx context.Context, id uint, rule *model.StunRule, en
 		stunServer = "stun.l.google.com:19302"
 	}
 
-	// 执行 NAT 类型检测
-	info, err := detectNATType(stunServer)
+	var info *NATInfo
+	var err error
+
+	if rule.DisableValidation {
+		// 禁用有效性检测：只做基础 Binding Request，不做 NAT 类型判断
+		info, err = detectBasicSTUN(stunServer)
+	} else {
+		// 执行完整 NAT 类型检测
+		info, err = detectNATType(stunServer)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -215,17 +246,18 @@ func (m *Manager) doCheck(ctx context.Context, id uint, rule *model.StunRule, en
 	// UPnP 端口映射
 	if rule.UseUPnP && rule.TargetPort > 0 {
 		if upnpIP, upnpPort, err := tryUPnPMapping(rule.TargetPort); err == nil {
-			m.log.Infof("[STUN][%s] UPnP 映射成功: %s:%d", rule.Name, upnpIP, upnpPort)
+			m.log.Infof("[STUN服务][%s] UPnP 映射成功: %s:%d", rule.Name, upnpIP, upnpPort)
 			info.IP = upnpIP
 			info.Port = upnpPort
 		} else {
-			m.log.Warnf("[STUN][%s] UPnP 映射失败，使用 STUN 结果: %v", rule.Name, err)
+			m.log.Warnf("[STUN服务][%s] UPnP 映射失败，使用 STUN 结果: %v", rule.Name, err)
 		}
 	}
 
 	entry.mu.Lock()
 	oldInfo := entry.info
 	entry.info = info
+	entry.stunStatus = "penetrating"
 	entry.mu.Unlock()
 
 	// 判断是否变化
@@ -237,14 +269,44 @@ func (m *Manager) doCheck(ctx context.Context, id uint, rule *model.StunRule, en
 		"current_port": info.Port,
 		"nat_type":     string(info.NATType),
 		"last_error":   "",
+		"stun_status":  "penetrating",
 	}
 	m.db.Model(&model.StunRule{}).Where("id = ?", id).Updates(updates)
 
 	if changed {
-		m.log.Infof("[STUN][%s] 地址变化: %s:%d (NAT: %s)", rule.Name, info.IP, info.Port, info.NATType)
+		m.log.Infof("[STUN服务][%s] 地址变化: %s:%d (NAT: %s)", rule.Name, info.IP, info.Port, info.NATType)
 	}
 
 	return changed, nil
+}
+
+// detectBasicSTUN 仅做基础 Binding Request，不做 NAT 类型判断（禁用有效性检测时使用）
+func detectBasicSTUN(stunServer string) (*NATInfo, error) {
+	serverAddr, err := net.ResolveUDPAddr("udp4", stunServer)
+	if err != nil {
+		return nil, fmt.Errorf("解析 STUN 服务器地址失败: %w", err)
+	}
+
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 0})
+	if err != nil {
+		return nil, fmt.Errorf("创建 UDP socket 失败: %w", err)
+	}
+	defer conn.Close()
+
+	resp, err := sendSTUN(conn, serverAddr, false, false)
+	if err != nil {
+		return nil, fmt.Errorf("STUN 请求失败: %w", err)
+	}
+	if resp.msgType != msgTypeBindingResponse {
+		return nil, fmt.Errorf("STUN 返回非成功响应")
+	}
+
+	ip, port, err := getMappedAddress(resp)
+	if err != nil {
+		return nil, fmt.Errorf("解析映射地址失败: %w", err)
+	}
+
+	return &NATInfo{IP: ip, Port: port, NATType: NATTypeUnknown}, nil
 }
 
 // ===== STUN 协议实现 =====
@@ -538,14 +600,14 @@ func tryUPnPMapping(internalPort int) (string, int, error) {
 
 // upnpGateway UPnP 网关
 type upnpGateway struct {
-	controlURL string
+	controlURL  string
 	serviceType string
 }
 
 const (
-	upnpSSDPAddr    = "239.255.255.250:1900"
-	upnpSearchMsg   = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\r\n"
-	upnpWANIPService = "urn:schemas-upnp-org:service:WANIPConnection:1"
+	upnpSSDPAddr      = "239.255.255.250:1900"
+	upnpSearchMsg     = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\r\n"
+	upnpWANIPService  = "urn:schemas-upnp-org:service:WANIPConnection:1"
 	upnpWANPPPService = "urn:schemas-upnp-org:service:WANPPPConnection:1"
 )
 

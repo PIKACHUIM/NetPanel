@@ -127,7 +127,7 @@ const LoginPage: React.FC = () => {
       justifyContent: 'center',
       position: 'relative',
       overflow: 'hidden',
-      fontFamily: "'DM Sans', -apple-system, sans-serif",
+fontFamily: "'MapleMono', monospace",
     }}>
       <AnimatedBackground />
 

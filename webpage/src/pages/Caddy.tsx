@@ -163,13 +163,13 @@ const Caddy: React.FC = () => {
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)}
-        width={600} destroyOnClose
+        width={600} destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Row gutter={16}>
             <Col span={16}>
               <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}>
-                <Input placeholder="站点名称" />
+                <Input placeholder="站点名称" style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -185,7 +185,7 @@ const Caddy: React.FC = () => {
             <Col span={16}>
               <Form.Item name="domain" label="域名 / 主机名"
                 extra="留空监听所有域名，可填 :8080 仅监听端口">
-                <Input placeholder="example.com 或留空" />
+                <Input placeholder="example.com 或留空" style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -206,14 +206,14 @@ const Caddy: React.FC = () => {
           {siteType === 'reverse_proxy' && (
             <Form.Item name="upstream_addr" label={t('caddy.upstreamAddr')} rules={[{ required: true }]}
               extra="支持多个上游，用空格分隔，如：http://127.0.0.1:3000 http://127.0.0.1:3001">
-              <Input placeholder="http://127.0.0.1:3000" />
+              <Input placeholder="http://127.0.0.1:3000" style={{ width: '100%' }} />
             </Form.Item>
           )}
 
           {siteType === 'static_file' && (
             <>
               <Form.Item name="root_path" label={t('caddy.rootPath')} rules={[{ required: true }]}>
-                <Input placeholder="/var/www/html" />
+                <Input placeholder="/var/www/html" style={{ width: '100%' }} />
               </Form.Item>
               <Form.Item name="file_list" label={t('caddy.fileList')} valuePropName="checked">
                 <Switch checkedChildren="开启" unCheckedChildren="关闭" />
@@ -225,7 +225,7 @@ const Caddy: React.FC = () => {
             <Row gutter={16}>
               <Col span={16}>
                 <Form.Item name="redirect_to" label={t('caddy.redirectTo')} rules={[{ required: true }]}>
-                  <Input placeholder="https://new.example.com{uri}" />
+                  <Input placeholder="https://new.example.com{uri}" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col span={8}>
@@ -244,7 +244,7 @@ const Caddy: React.FC = () => {
           {siteType === 'rewrite' && (
             <Form.Item name="rewrite_to" label="重写目标" rules={[{ required: true }]}
               extra="支持占位符，如：/new{path}">
-              <Input placeholder="/new{path}" />
+              <Input placeholder="/new{path}" style={{ width: '100%' }} />
             </Form.Item>
           )}
 
@@ -270,12 +270,12 @@ const Caddy: React.FC = () => {
                   <Row gutter={16}>
                     <Col span={12}>
                       <Form.Item name="tls_cert_file" label={t('caddy.certFile')}>
-                        <Input placeholder="/path/to/cert.pem" />
+                        <Input placeholder="/path/to/cert.pem" style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
                     <Col span={12}>
                       <Form.Item name="tls_key_file" label={t('caddy.keyFile')}>
-                        <Input placeholder="/path/to/key.pem" />
+                        <Input placeholder="/path/to/key.pem" style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
                   </Row>
@@ -292,7 +292,7 @@ const Caddy: React.FC = () => {
           </Form.Item>
 
           <Form.Item name="remark" label={t('common.remark')}>
-            <Input.TextArea rows={2} />
+            <Input.TextArea rows={2} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>

@@ -135,11 +135,11 @@ const Wol: React.FC = () => {
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)}
-        width={480} destroyOnClose
+        width={480} destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}>
-            <Input placeholder="设备名称，如：家里的台式机" />
+            <Input placeholder="设备名称，如：家里的台式机" style={{ width: '100%' }} />
           </Form.Item>
 
           <Form.Item
@@ -151,14 +151,14 @@ const Wol: React.FC = () => {
               message: '请输入有效的MAC地址，如：AA:BB:CC:DD:EE:FF',
             }]}
           >
-            <Input placeholder="AA:BB:CC:DD:EE:FF" style={{ fontFamily: 'monospace' }} />
+            <Input placeholder="AA:BB:CC:DD:EE:FF" style={{ fontFamily: 'monospace', width: '100%' }} />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={16}>
               <Form.Item name="broadcast_ip" label={t('wol.broadcastIP')}
                 extra="局域网广播：255.255.255.255，定向广播：192.168.1.255">
-                <Input placeholder="255.255.255.255" />
+                <Input placeholder="255.255.255.255" style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -170,11 +170,11 @@ const Wol: React.FC = () => {
 
           <Form.Item name="net_interface" label={t('wol.netInterface')}
             extra="留空使用系统默认网卡">
-            <Input placeholder="如：eth0、ens33（可选）" />
+            <Input placeholder="如：eth0、ens33（可选）" style={{ width: '100%' }} />
           </Form.Item>
 
           <Form.Item name="remark" label={t('common.remark')}>
-            <Input.TextArea rows={2} placeholder="备注（可选）" />
+            <Input.TextArea rows={2} placeholder="备注（可选）" style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>

@@ -143,3 +143,151 @@ download-easytier:
 run: build
 	@echo ">>> 启动 NetPanel..."
 	./$(DIST_DIR)/netpanel$(if $(filter windows,$(shell go env GOOS)),.exe,)
+
+# ===== OpenWrt / Android 构建 =====
+
+## build-openwrt-amd64: 构建 OpenWrt x86_64（静态链接，无 CGO）
+build-openwrt-amd64:
+	@mkdir -p $(DIST_DIR)
+	cd $(BACKEND_DIR) && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+		-ldflags="$(LDFLAGS) -extldflags '-static'" \
+		-o ../$(DIST_DIR)/netpanel-openwrt-amd64 .
+	@echo ">>> OpenWrt amd64 构建完成"
+
+## build-openwrt-arm64: 构建 OpenWrt arm64（静态链接，无 CGO）
+build-openwrt-arm64:
+	@mkdir -p $(DIST_DIR)
+	cd $(BACKEND_DIR) && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
+		-ldflags="$(LDFLAGS) -extldflags '-static'" \
+		-o ../$(DIST_DIR)/netpanel-openwrt-arm64 .
+	@echo ">>> OpenWrt arm64 构建完成"
+
+## build-openwrt-mipsle: 构建 OpenWrt MIPS little-endian（常见路由器）
+build-openwrt-mipsle:
+	@mkdir -p $(DIST_DIR)
+	cd $(BACKEND_DIR) && GOOS=linux GOARCH=mipsle GOMIPS=softfloat CGO_ENABLED=0 go build \
+		-ldflags="$(LDFLAGS) -extldflags '-static'" \
+		-o ../$(DIST_DIR)/netpanel-openwrt-mipsle .
+	@echo ">>> OpenWrt mipsle 构建完成"
+
+## build-android-arm64: 构建 Android arm64（需要 Android NDK）
+build-android-arm64:
+	@mkdir -p $(DIST_DIR)
+	@if [ -z "$(ANDROID_NDK_HOME)" ]; then \
+		echo "错误: 请设置 ANDROID_NDK_HOME 环境变量指向 Android NDK 路径"; exit 1; \
+	fi
+	cd $(BACKEND_DIR) && GOOS=android GOARCH=arm64 CGO_ENABLED=1 \
+		CC=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang \
+		go build -ldflags="$(LDFLAGS)" \
+		-o ../$(DIST_DIR)/netpanel-android-arm64 .
+	@echo ">>> Android arm64 构建完成"
+
+## build-android-amd64: 构建 Android x86_64（模拟器/x86设备）
+build-android-amd64:
+	@mkdir -p $(DIST_DIR)
+	@if [ -z "$(ANDROID_NDK_HOME)" ]; then \
+		echo "错误: 请设置 ANDROID_NDK_HOME 环境变量指向 Android NDK 路径"; exit 1; \
+	fi
+	cd $(BACKEND_DIR) && GOOS=android GOARCH=amd64 CGO_ENABLED=1 \
+		CC=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android21-clang \
+		go build -ldflags="$(LDFLAGS)" \
+		-o ../$(DIST_DIR)/netpanel-android-amd64 .
+	@echo ">>> Android amd64 构建完成"
+
+## build-openwrt-all: 构建所有 OpenWrt 目标
+build-openwrt-all: build-openwrt-amd64 build-openwrt-arm64 build-openwrt-mipsle
+	@echo ">>> 所有 OpenWrt 目标构建完成"
+
+# ===== Docker 构建 =====
+
+DOCKER_IMAGE  ?= ghcr.io/$(shell git remote get-url origin 2>/dev/null | sed 's/.*github.com[:/]\(.*\)\.git/\1/' | tr '[:upper:]' '[:lower:]' || echo "netpanel/netpanel")
+DOCKER_TAG    ?= $(VERSION)
+
+## docker-build: 构建 Docker 镜像（当前平台）
+docker-build:
+	@echo ">>> 构建 Docker 镜像 $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) -t $(DOCKER_IMAGE):latest .
+	@echo ">>> Docker 镜像构建完成"
+
+## docker-build-multiarch: 构建多架构 Docker 镜像（需要 buildx）
+docker-build-multiarch:
+	@echo ">>> 构建多架构 Docker 镜像 (linux/amd64, linux/arm64)..."
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
+		-t $(DOCKER_IMAGE):latest \
+		--push .
+	@echo ">>> 多架构 Docker 镜像推送完成"
+
+## docker-push: 推送 Docker 镜像
+docker-push:
+	@echo ">>> 推送 Docker 镜像..."
+	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker push $(DOCKER_IMAGE):latest
+
+## docker-up: 使用 docker-compose 启动服务
+docker-up:
+	@echo ">>> 启动 Docker Compose 服务..."
+	docker compose up -d
+	@echo ">>> 服务已启动，访问 http://localhost:8080"
+
+## docker-down: 停止 docker-compose 服务
+docker-down:
+	@echo ">>> 停止 Docker Compose 服务..."
+	docker compose down
+
+## docker-logs: 查看 docker-compose 日志
+docker-logs:
+	docker compose logs -f netpanel
+
+# ===== 系统服务管理 =====
+
+## service-install: 注册系统服务（需要管理员/root 权限）
+service-install:
+	@echo ">>> 注册 NetPanel 系统服务..."
+	./$(DIST_DIR)/netpanel$(if $(filter windows,$(shell go env GOOS)),.exe,) --install-service
+	@echo ">>> 服务注册完成，使用 'make service-start' 启动"
+
+## service-uninstall: 卸载系统服务（需要管理员/root 权限）
+service-uninstall:
+	@echo ">>> 卸载 NetPanel 系统服务..."
+	./$(DIST_DIR)/netpanel$(if $(filter windows,$(shell go env GOOS)),.exe,) --uninstall-service
+
+## service-start: 启动系统服务
+service-start:
+	@echo ">>> 启动 NetPanel 服务..."
+	./$(DIST_DIR)/netpanel$(if $(filter windows,$(shell go env GOOS)),.exe,) --start-service
+
+## service-stop: 停止系统服务
+service-stop:
+	@echo ">>> 停止 NetPanel 服务..."
+	./$(DIST_DIR)/netpanel$(if $(filter windows,$(shell go env GOOS)),.exe,) --stop-service
+
+# ===== Inno Setup 打包（仅 Windows）=====
+
+INNO_COMPILER ?= C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+
+## inno-build: 使用 Inno Setup 打包 Windows 安装程序
+inno-build: build-windows-amd64
+	@echo ">>> 使用 Inno Setup 打包 Windows 安装程序..."
+	@if [ ! -f "$(INNO_COMPILER)" ]; then \
+		echo "错误: 未找到 Inno Setup 编译器，请安装 Inno Setup 6 或设置 INNO_COMPILER 变量"; exit 1; \
+	fi
+	"$(INNO_COMPILER)" scripts/setup.iss
+	@echo ">>> Windows 安装程序打包完成，输出到 dist/"
+
+# ===== 完整发布构建 =====
+
+## release-all: 构建所有平台 + OpenWrt + Docker（完整发布）
+release-all: build-frontend build-all build-openwrt-all docker-build
+	@echo ""
+	@echo "✅ 所有平台构建完成:"
+	@ls -lh $(DIST_DIR)/
+	@echo ""
+	@echo "Docker 镜像: $(DOCKER_IMAGE):$(DOCKER_TAG)"
+
+.PHONY: build-openwrt-amd64 build-openwrt-arm64 build-openwrt-mipsle \
+        build-android-arm64 build-android-amd64 build-openwrt-all \
+        docker-build docker-build-multiarch docker-push docker-up docker-down docker-logs \
+        service-install service-uninstall service-start service-stop \
+        inno-build release-all

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { Table, Button, Space, Switch, Modal, Form, Input, Select, Popconfirm, message, Typography, Tag } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { cronApi } from '../api'
 import StatusTag from '../components/StatusTag'
+import CronExprInput from '../components/CronExprInput'
 import dayjs from 'dayjs'
 
 const { Option } = Select
@@ -55,21 +56,23 @@ const Cron: React.FC = () => {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); form.setFieldsValue({ enable: true, task_type: 'shell' }); setTaskType('shell'); setModalOpen(true) }}>{t('common.create')}</Button>
       </div>
       <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={{ background: '#fff', borderRadius: 8 }} pagination={{ pageSize: 20 }} />
-      <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={520} destroyOnClose>
+      <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={520} destroyOnHidden>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}><Input style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="enable" label={t('common.enable')} valuePropName="checked"><Switch /></Form.Item>
-          <Form.Item name="cron_expr" label={t('cron.cronExpr')} rules={[{ required: true }]}><Input placeholder="0 */5 * * * * (每5分钟)" /></Form.Item>
+          <Form.Item name="cron_expr" label={t('cron.cronExpr')} rules={[{ required: true }]}>
+            <CronExprInput />
+          </Form.Item>
           <Form.Item name="task_type" label={t('cron.taskType')} rules={[{ required: true }]}>
-            <Select onChange={(v) => setTaskType(v)}><Option value="shell">Shell命令</Option><Option value="http">HTTP请求</Option></Select>
+            <Select onChange={(v) => setTaskType(v)} style={{ width: '100%' }}><Option value="shell">Shell命令</Option><Option value="http">HTTP请求</Option></Select>
           </Form.Item>
           {taskType === 'shell' && <Form.Item name="command" label={t('cron.command')} rules={[{ required: true }]}><Input.TextArea rows={3} placeholder="shell命令" /></Form.Item>}
           {taskType === 'http' && <>
-            <Form.Item name="http_url" label={t('cron.httpUrl')} rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="http_method" label={t('cron.httpMethod')}><Select><Option value="GET">GET</Option><Option value="POST">POST</Option></Select></Form.Item>
-            <Form.Item name="http_body" label={t('cron.httpBody')}><Input.TextArea rows={2} /></Form.Item>
+            <Form.Item name="http_url" label={t('cron.httpUrl')} rules={[{ required: true }]}><Input style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="http_method" label={t('cron.httpMethod')}><Select style={{ width: '100%' }}><Option value="GET">GET</Option><Option value="POST">POST</Option></Select></Form.Item>
+            <Form.Item name="http_body" label={t('cron.httpBody')}><Input.TextArea rows={2} style={{ width: '100%' }} /></Form.Item>
           </>}
-          <Form.Item name="remark" label={t('common.remark')}><Input.TextArea rows={2} /></Form.Item>
+          <Form.Item name="remark" label={t('common.remark')}><Input.TextArea rows={2} style={{ width: '100%' }} /></Form.Item>
         </Form>
       </Modal>
     </div>

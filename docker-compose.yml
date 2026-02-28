@@ -1,0 +1,26 @@
+services:
+  netpanel:
+    image: ghcr.io/netpanel/netpanel:latest
+    container_name: netpanel
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+    # EasyTier / TUN 设备需要特权模式或 NET_ADMIN 能力
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    networks:
+      - netpanel-net
+
+networks:
+  netpanel-net:
+    driver: bridge

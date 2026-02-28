@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react'
 import {
   Table, Button, Space, Switch, Modal, Form, Input, InputNumber,
   Select, Popconfirm, message, Typography, Tag, Tooltip, Divider, Row, Col,
+  Tabs, Badge, Descriptions,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
   PlayCircleOutlined, StopOutlined, SyncOutlined, GlobalOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { ddnsApi, domainAccountApi } from '../api'
@@ -35,6 +37,12 @@ const Ddns: React.FC = () => {
   const [ipGetType, setIpGetType] = useState('url')
   const [form] = Form.useForm()
 
+  // 历史记录
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyData, setHistoryData] = useState<any[]>([])
+  const [historyRecord, setHistoryRecord] = useState<any>(null)
+
   const fetchData = async () => {
     setLoading(true)
     try {
@@ -62,6 +70,7 @@ const Ddns: React.FC = () => {
         enable: true, task_type: 'IPv4', ip_get_type: 'url',
         interval: 300, ttl: 'auto',
         ip_get_urls: 'https://api.ipify.org\nhttps://api4.ipify.org',
+        webhook_method: 'POST', http_timeout: 10,
       })
     }
     setModalOpen(true)
@@ -91,6 +100,47 @@ const Ddns: React.FC = () => {
     else await ddnsApi.stop(record.id)
     fetchData()
   }
+
+  const handleViewHistory = async (record: any) => {
+    setHistoryRecord(record)
+    setHistoryOpen(true)
+    setHistoryLoading(true)
+    try {
+      const res: any = await ddnsApi.getHistory(record.id)
+      setHistoryData(res.data?.list || res.data || [])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const historyColumns = [
+    {
+      title: '时间', dataIndex: 'created_at', width: 150,
+      render: (v: string) => dayjs(v).format('MM-DD HH:mm:ss'),
+    },
+    {
+      title: '域名', dataIndex: 'domain',
+      render: (v: string) => <Tag icon={<GlobalOutlined />}>{v}</Tag>,
+    },
+    {
+      title: t('ddns.oldIP'), dataIndex: 'old_ip',
+      render: (v: string) => v ? <Text code style={{ fontSize: 12 }}>{v}</Text> : <Text type="secondary">-</Text>,
+    },
+    {
+      title: t('ddns.newIP'), dataIndex: 'new_ip',
+      render: (v: string) => <Text code style={{ fontSize: 12, color: '#52c41a' }}>{v}</Text>,
+    },
+    {
+      title: '结果', dataIndex: 'success', width: 80,
+      render: (v: boolean) => v
+        ? <Badge status="success" text={<Text style={{ color: '#52c41a', fontSize: 12 }}>成功</Text>} />
+        : <Badge status="error" text={<Text type="danger" style={{ fontSize: 12 }}>失败</Text>} />,
+    },
+    {
+      title: '消息', dataIndex: 'message',
+      render: (v: string) => v ? <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text> : '-',
+    },
+  ]
 
   const columns = [
     {
@@ -138,7 +188,7 @@ const Ddns: React.FC = () => {
       render: (v: string) => v ? dayjs(v).format('MM-DD HH:mm') : '-',
     },
     {
-      title: t('common.action'), width: 160,
+      title: t('common.action'), width: 200,
       render: (_: any, r: any) => (
         <Space size={4}>
           {r.status === 'running'
@@ -147,6 +197,9 @@ const Ddns: React.FC = () => {
           }
           <Tooltip title={t('ddns.runNow')}>
             <Button size="small" icon={<SyncOutlined />} onClick={async () => { await ddnsApi.runNow(r.id); message.success('已触发更新') }} />
+          </Tooltip>
+          <Tooltip title={t('ddns.viewHistory')}>
+            <Button size="small" icon={<HistoryOutlined />} onClick={() => handleViewHistory(r)} />
           </Tooltip>
           <Tooltip title={t('common.edit')}>
             <Button size="small" icon={<EditOutlined />} onClick={() => handleOpen(r)} />
@@ -179,110 +232,204 @@ const Ddns: React.FC = () => {
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)}
-        width={600} destroyOnClose
+        width={640} destroyOnHidden
+        styles={{ body: { padding: '4px 24px 0' } }}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}>
-                <Input placeholder="DDNS任务名称" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="enable" label={t('common.enable')} valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="task_type" label={t('ddns.taskType')} rules={[{ required: true }]}>
-                <Select>
-                  <Option value="IPv4">IPv4 (A记录)</Option>
-                  <Option value="IPv6">IPv6 (AAAA记录)</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="interval" label={t('ddns.interval')}>
-                <InputNumber min={60} max={86400} style={{ width: '100%' }} addonAfter="秒" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Divider orientation="left" plain style={{ fontSize: 13 }}>DNS 服务商</Divider>
-
-          <Form.Item name="provider" label={t('ddns.provider')} rules={[{ required: true }]}>
-            <Select placeholder="选择DNS服务商">
-              {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            noStyle
-            shouldUpdate={(prev, cur) => prev.provider !== cur.provider}
-          >
-            {({ getFieldValue }) => {
-              const provider = getFieldValue('provider')
-              if (provider === 'callback') return null
-              return (
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item name="access_id" label={t('ddns.accessID')}>
-                      <Input placeholder="Access Key ID" />
+        <Form form={form} layout="vertical" style={{ paddingTop: 4 }}>
+          <Tabs size="small" items={[
+            {
+              key: 'basic', label: '基本配置',
+              children: (
+                <>
+                  <Row gutter={16}>
+                    <Col span={16}>
+                      <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}>
+                        <Input placeholder="DDNS任务名称" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item name="enable" label={t('common.enable')} valuePropName="checked">
+                        <Switch />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="task_type" label={t('ddns.taskType')} rules={[{ required: true }]}>
+                        <Select>
+                          <Option value="IPv4">IPv4 (A记录)</Option>
+                          <Option value="IPv6">IPv6 (AAAA记录)</Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="interval" label={t('ddns.interval')}>
+                        <InputNumber min={60} max={86400} style={{ width: '100%' }} addonAfter="秒" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Divider orientation="left" plain style={{ fontSize: 13 }}>DNS 服务商</Divider>
+                  <Form.Item name="provider" label={t('ddns.provider')} rules={[{ required: true }]}>
+                    <Select placeholder="选择DNS服务商">
+                      {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
+                    </Select>
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider}>
+                    {({ getFieldValue }) => {
+                      const provider = getFieldValue('provider')
+                      if (provider === 'callback') return null
+                      return (
+                        <Row gutter={16}>
+                          <Col span={12}>
+                            <Form.Item name="access_id" label={t('ddns.accessID')}>
+                              <Input placeholder="Access Key ID" style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item name="access_secret" label={t('ddns.accessSecret')}>
+                              <Input.Password placeholder="Access Key Secret" style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      )
+                    }}
+                  </Form.Item>
+                  <Form.Item name="domains" label={t('ddns.domains')} rules={[{ required: true }]}
+                    extra="每行一个域名，如：home.example.com 或 *.example.com">
+                    <Input.TextArea rows={3} placeholder={'home.example.com\nwww.example.com'} />
+                  </Form.Item>
+                  <Form.Item name="ttl" label={t('ddns.ttl')}>
+                    <Input placeholder="auto（留空自动）" style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Divider orientation="left" plain style={{ fontSize: 13 }}>IP 获取方式</Divider>
+                  <Form.Item name="ip_get_type" label={t('ddns.ipGetType')}>
+                    <Select onChange={setIpGetType}>
+                      <Option value="url">URL 查询</Option>
+                      <Option value="interface">网络接口</Option>
+                      <Option value="custom">自定义命令</Option>
+                    </Select>
+                  </Form.Item>
+                  {ipGetType === 'url' && (
+                    <Form.Item name="ip_get_urls" label={t('ddns.ipGetURLs')}
+                      extra="每行一个URL，依次尝试直到成功">
+                      <Input.TextArea rows={3} placeholder={'https://api.ipify.org\nhttps://api4.ipify.org'} />
                     </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="access_secret" label={t('ddns.accessSecret')}>
-                      <Input.Password placeholder="Access Key Secret" />
+                  )}
+                  {ipGetType === 'interface' && (
+                    <Form.Item name="net_interface" label="网络接口">
+                      <Input placeholder="如：eth0、ens33（留空自动检测）" style={{ width: '100%' }} />
                     </Form.Item>
-                  </Col>
-                </Row>
-              )
-            }}
-          </Form.Item>
-
-          <Form.Item name="domains" label={t('ddns.domains')} rules={[{ required: true }]}
-            extra="每行一个域名，如：home.example.com 或 *.example.com">
-            <Input.TextArea rows={3} placeholder={'home.example.com\nwww.example.com'} />
-          </Form.Item>
-
-          <Form.Item name="ttl" label={t('ddns.ttl')}>
-            <Input placeholder="auto（留空自动）" />
-          </Form.Item>
-
-          <Divider orientation="left" plain style={{ fontSize: 13 }}>IP 获取方式</Divider>
-
-          <Form.Item name="ip_get_type" label={t('ddns.ipGetType')}>
-            <Select onChange={setIpGetType}>
-              <Option value="url">URL 查询</Option>
-              <Option value="interface">网络接口</Option>
-              <Option value="custom">自定义命令</Option>
-            </Select>
-          </Form.Item>
-
-          {ipGetType === 'url' && (
-            <Form.Item name="ip_get_urls" label={t('ddns.ipGetURLs')}
-              extra="每行一个URL，依次尝试直到成功">
-              <Input.TextArea rows={3} placeholder={'https://api.ipify.org\nhttps://api4.ipify.org'} />
-            </Form.Item>
-          )}
-          {ipGetType === 'interface' && (
-            <Form.Item name="net_interface" label="网络接口">
-              <Input placeholder="如：eth0、ens33（留空自动检测）" />
-            </Form.Item>
-          )}
-          {ipGetType === 'custom' && (
-            <Form.Item name="ip_regex" label="IP 正则过滤">
-              <Input placeholder="可选，用于从命令输出中提取IP" />
-            </Form.Item>
-          )}
-
-          <Form.Item name="remark" label={t('common.remark')}>
-            <Input.TextArea rows={2} />
-          </Form.Item>
+                  )}
+                  {ipGetType === 'custom' && (
+                    <Form.Item name="ip_regex" label="IP 正则过滤">
+                      <Input placeholder="可选，用于从命令输出中提取IP" style={{ width: '100%' }} />
+                    </Form.Item>
+                  )}
+                  <Form.Item name="remark" label={t('common.remark')}>
+                    <Input.TextArea rows={2} style={{ width: '100%' }} />
+                  </Form.Item>
+                </>
+              ),
+            },
+            {
+              key: 'webhook', label: 'Webhook 通知',
+              children: (
+                <>
+                  <Form.Item name="webhook_enable" label={t('ddns.webhookEnable')} valuePropName="checked">
+                    <Switch checkedChildren="已启用" unCheckedChildren="已禁用" />
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.webhook_enable !== cur.webhook_enable}>
+                    {({ getFieldValue }) => getFieldValue('webhook_enable') ? (
+                      <>
+                        <Row gutter={16}>
+                          <Col span={16}>
+                            <Form.Item name="webhook_url" label={t('ddns.webhookURL')} rules={[{ required: true }]}>
+                              <Input placeholder="https://example.com/webhook" style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item name="webhook_method" label={t('ddns.webhookMethod')}>
+                              <Select>
+                                <Option value="GET">GET</Option>
+                                <Option value="POST">POST</Option>
+                                <Option value="PUT">PUT</Option>
+                              </Select>
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Form.Item name="webhook_headers" label={t('ddns.webhookHeaders')}
+                          extra='JSON数组格式，如：[{"key":"X-Token","value":"abc"}]'>
+                          <Input.TextArea rows={3} placeholder='[{"key":"Authorization","value":"Bearer xxx"}]' />
+                        </Form.Item>
+                        <Form.Item name="webhook_body" label={t('ddns.webhookBody')}
+                          extra="支持变量：{ip} {domain} {type}">
+                          <Input.TextArea rows={4} placeholder='{"ip":"{ip}","domain":"{domain}","type":"{type}"}' />
+                        </Form.Item>
+                        <Divider orientation="left" plain style={{ fontSize: 13 }}>高级选项</Divider>
+                        <Row gutter={16}>
+                          <Col span={12}>
+                            <Form.Item name="force_interval" label={t('ddns.forceInterval')}
+                              extra="0=禁用，强制定期更新（即使IP未变化）">
+                              <InputNumber min={0} style={{ width: '100%' }} addonAfter="秒" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item name="http_timeout" label={t('ddns.httpTimeout')}>
+                              <InputNumber min={1} max={60} style={{ width: '100%' }} addonAfter="秒" />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </>
+                    ) : (
+                      <div style={{ color: '#999', fontSize: 13, padding: '8px 0' }}>
+                        启用 Webhook 后，每次 IP 更新成功将向指定地址发送通知请求。
+                      </div>
+                    )}
+                  </Form.Item>
+                </>
+              ),
+            },
+          ]} />
         </Form>
+      </Modal>
+
+      {/* 历史记录弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <HistoryOutlined />
+            <span>IP 变化历史</span>
+            {historyRecord && <Tag color="blue">{historyRecord.name}</Tag>}
+          </Space>
+        }
+        open={historyOpen}
+        onCancel={() => setHistoryOpen(false)}
+        footer={null}
+        width={800}
+        destroyOnHidden
+      >
+        {historyRecord && (
+          <Descriptions size="small" style={{ marginBottom: 12 }} column={3}>
+            <Descriptions.Item label="当前IP">
+              <Text code>{historyRecord.current_ip || '-'}</Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="服务商">
+              {PROVIDERS.find(p => p.value === historyRecord.provider)?.label || historyRecord.provider}
+            </Descriptions.Item>
+            <Descriptions.Item label="最后更新">
+              {historyRecord.last_update_time ? dayjs(historyRecord.last_update_time).format('YYYY-MM-DD HH:mm:ss') : '-'}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+        <Table
+          dataSource={historyData}
+          columns={historyColumns}
+          rowKey="id"
+          loading={historyLoading}
+          size="small"
+          pagination={{ pageSize: 10, showSizeChanger: false }}
+          locale={{ emptyText: '暂无历史记录' }}
+        />
       </Modal>
     </div>
   )

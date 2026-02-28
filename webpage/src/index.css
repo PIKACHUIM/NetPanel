@@ -1,3 +1,12 @@
+/* ===== 字体导入 ===== */
+@font-face {
+  font-family: 'MapleMono';
+  src: url('/MapleMono.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ===== CSS 变量系统 ===== */
 :root {
   /* 主色调 */
@@ -70,7 +79,7 @@ html {
 }
 
 body {
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'MapleMono', monospace;
   background: var(--bg-body);
   color: var(--text-primary);
   transition: background var(--transition-slow), color var(--transition-normal);

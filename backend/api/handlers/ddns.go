@@ -92,3 +92,21 @@ func (h *DDNSHandler) RunNow(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已触发更新"})
 }
+
+func (h *DDNSHandler) GetHistory(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	var histories []model.DDNSHistory
+	var total int64
+	h.db.Model(&model.DDNSHistory{}).Where("task_id = ?", id).Count(&total)
+	h.db.Where("task_id = ?", id).Order("id desc").
+		Offset((page - 1) * pageSize).Limit(pageSize).Find(&histories)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{
+		"list":      histories,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	}})
+}

@@ -31,6 +31,9 @@ func (h *StunHandler) List(c *gin.Context) {
 			rules[i].CurrentPort = info.Port
 			rules[i].NATType = string(info.NATType)
 		}
+		if s := h.mgr.GetStunStatus(rules[i].ID); s != "" {
+			rules[i].StunStatus = s
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rules})
 }

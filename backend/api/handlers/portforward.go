@@ -125,3 +125,32 @@ func (h *PortForwardHandler) GetLogs(c *gin.Context) {
 	logs := h.mgr.GetLogs(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": logs})
 }
+
+// certOption 证书选项（供前端下拉框使用）
+type certOption struct {
+	ID      uint   `json:"id"`
+	Name    string `json:"name"`
+	Domains string `json:"domains"`
+	Status  string `json:"status"`
+}
+
+// ListCerts 获取可用的域名证书列表（供 HTTPS 监听时选择）
+func (h *PortForwardHandler) ListCerts(c *gin.Context) {
+	var certs []model.DomainCert
+	// 只返回已签发（valid）的证书，且证书文件路径不为空
+	if err := h.db.Where("status = ? AND cert_file != '' AND key_file != ''", "valid").
+		Order("id desc").Find(&certs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	opts := make([]certOption, 0, len(certs))
+	for _, dc := range certs {
+		opts = append(opts, certOption{
+			ID:      dc.ID,
+			Name:    dc.Name,
+			Domains: dc.Domains,
+			Status:  dc.Status,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": opts})
+}

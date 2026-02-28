@@ -72,6 +72,10 @@ jobs:
             arch: aarch64
             bin: easytier-core
             ext: zip
+          - os: android
+            arch: aarch64
+            bin: easytier-core
+            ext: zip
     steps:
       - name: Download EasyTier binary
         run: |
@@ -311,11 +315,206 @@ jobs:
           path: release/*.tar.gz
           retention-days: 3
 
+  # ===== 构建后端（OpenWrt musl 静态编译）=====
+  build-openwrt:
+    name: Build (openwrt-${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: [build-frontend, download-easytier]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            et_arch: x86_64
+            cc: x86_64-linux-musl-gcc
+            musl_target: x86_64-linux-musl
+            output: netpanel
+          - goarch: arm64
+            et_arch: aarch64
+            cc: aarch64-linux-musl-gcc
+            musl_target: aarch64-linux-musl
+            output: netpanel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Download webpage dist
+        uses: actions/download-artifact@v4
+        with:
+          name: webpage-dist
+          path: backend/embed/dist/
+
+      - name: Download EasyTier binary
+        uses: actions/download-artifact@v4
+        with:
+          name: easytier-linux-${{ matrix.et_arch }}
+          path: easytier-bin/
+
+      - name: Install musl cross-compile toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y curl xz-utils
+          MUSL_TARGET="${{ matrix.musl_target }}"
+          # 使用 musl.cc 提供的预编译工具链
+          MUSL_VER="11.2.1"
+          MUSL_URL="https://musl.cc/${MUSL_TARGET}-cross.tgz"
+          echo "Downloading musl toolchain: ${MUSL_URL}"
+          curl -fsSL --retry 3 "${MUSL_URL}" -o /tmp/musl-cross.tgz
+          sudo tar -xzf /tmp/musl-cross.tgz -C /opt/
+          echo "/opt/${MUSL_TARGET}-cross/bin" >> $GITHUB_PATH
+
+      - name: Build backend (OpenWrt / musl static)
+        working-directory: backend
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+          CC: ${{ matrix.cc }}
+          # 静态链接，适配 OpenWrt 无 glibc 环境
+          CGO_LDFLAGS: "-static"
+        run: |
+          BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          VERSION="beta-$(echo ${{ github.sha }} | cut -c1-7)"
+          go build \
+            -ldflags="-s -w -extldflags '-static' -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
+            -tags netgo \
+            -o ../dist/${{ matrix.output }} .
+
+      - name: Prepare release package
+        run: |
+          PKG_NAME="netpanel-openwrt-${{ matrix.goarch }}"
+          PKG_DIR="release/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}/bin"
+
+          cp "dist/${{ matrix.output }}" "${PKG_DIR}/"
+          cp "easytier-bin/easytier-core" "${PKG_DIR}/bin/"
+          chmod +x "${PKG_DIR}/bin/easytier-core"
+
+          echo "NetPanel beta-$(echo ${{ github.sha }} | cut -c1-7)" > "${PKG_DIR}/VERSION"
+          echo "Built: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "${PKG_DIR}/VERSION"
+          echo "Commit: ${{ github.sha }}" >> "${PKG_DIR}/VERSION"
+          echo "Platform: openwrt/${{ matrix.goarch }} (musl static)" >> "${PKG_DIR}/VERSION"
+          echo "EasyTier: v${{ env.EASYTIER_VERSION }}" >> "${PKG_DIR}/VERSION"
+
+          cd release
+          tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}/"
+          ls -lh
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-openwrt-${{ matrix.goarch }}
+          path: release/*.tar.gz
+          retention-days: 3
+
+  # ===== 构建后端（Android NDK 交叉编译）=====
+  build-android:
+    name: Build (android-${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: [build-frontend, download-easytier]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: arm64
+            et_arch: aarch64
+            ndk_abi: arm64-v8a
+            ndk_triple: aarch64-linux-android
+            android_api: 21
+            output: netpanel
+          - goarch: amd64
+            et_arch: x86_64
+            ndk_abi: x86_64
+            ndk_triple: x86_64-linux-android
+            android_api: 21
+            output: netpanel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Download webpage dist
+        uses: actions/download-artifact@v4
+        with:
+          name: webpage-dist
+          path: backend/embed/dist/
+
+      - name: Download EasyTier binary
+        uses: actions/download-artifact@v4
+        with:
+          name: easytier-android-${{ matrix.et_arch }}
+          path: easytier-bin/
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+          add-to-path: true
+
+      - name: Build backend (Android)
+        working-directory: backend
+        env:
+          GOOS: android
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+          CC: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.ndk_triple }}${{ matrix.android_api }}-clang
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          VERSION="beta-$(echo ${{ github.sha }} | cut -c1-7)"
+          go build \
+            -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
+            -o ../dist/${{ matrix.output }} .
+
+      - name: Prepare release package
+        run: |
+          PKG_NAME="netpanel-android-${{ matrix.goarch }}"
+          PKG_DIR="release/${PKG_NAME}"
+          mkdir -p "${PKG_DIR}/bin"
+
+          cp "dist/${{ matrix.output }}" "${PKG_DIR}/"
+          # Android EasyTier 二进制（若存在）
+          if [ -f "easytier-bin/easytier-core" ]; then
+            cp "easytier-bin/easytier-core" "${PKG_DIR}/bin/"
+            chmod +x "${PKG_DIR}/bin/easytier-core"
+          fi
+
+          echo "NetPanel beta-$(echo ${{ github.sha }} | cut -c1-7)" > "${PKG_DIR}/VERSION"
+          echo "Built: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "${PKG_DIR}/VERSION"
+          echo "Commit: ${{ github.sha }}" >> "${PKG_DIR}/VERSION"
+          echo "Platform: android/${{ matrix.goarch }} (API ${{ matrix.android_api }}+)" >> "${PKG_DIR}/VERSION"
+          echo "EasyTier: v${{ env.EASYTIER_VERSION }}" >> "${PKG_DIR}/VERSION"
+          echo "" >> "${PKG_DIR}/VERSION"
+          echo "注意: Android 版本需要 root 权限或在 Termux 中运行" >> "${PKG_DIR}/VERSION"
+
+          cd release
+          tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}/"
+          ls -lh
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android-${{ matrix.goarch }}
+          path: release/*.tar.gz
+          retention-days: 3
+
   # ===== 发布 Beta Release（滚动更新）=====
   release-beta:
     name: Publish Beta Release
     runs-on: ubuntu-latest
-    needs: [build-linux-windows, build-macos]
+    needs: [build-linux-windows, build-macos, build-openwrt, build-android]
     permissions:
       contents: write
     steps:
@@ -361,14 +560,18 @@ jobs:
 
             ### 下载说明
 
-            | 平台 | 架构 | 文件 |
-            |------|------|------|
-            | Linux | x86_64 | `netpanel-linux-amd64.tar.gz` |
-            | Linux | ARM64 | `netpanel-linux-arm64.tar.gz` |
-            | Windows | x86_64 | `netpanel-windows-amd64.zip` |
-            | Windows | ARM64 | `netpanel-windows-arm64.zip` |
-            | macOS | Intel | `netpanel-darwin-amd64.tar.gz` |
-            | macOS | Apple Silicon | `netpanel-darwin-arm64.tar.gz` |
+            | 平台 | 架构 | 文件 | 说明 |
+            |------|------|------|------|
+            | Linux | x86_64 | `netpanel-linux-amd64.tar.gz` | glibc 动态链接 |
+            | Linux | ARM64 | `netpanel-linux-arm64.tar.gz` | glibc 动态链接 |
+            | Windows | x86_64 | `netpanel-windows-amd64.zip` | 需管理员权限 |
+            | Windows | ARM64 | `netpanel-windows-arm64.zip` | 需管理员权限 |
+            | macOS | Intel | `netpanel-darwin-amd64.tar.gz` | 需管理员权限 |
+            | macOS | Apple Silicon | `netpanel-darwin-arm64.tar.gz` | 需管理员权限 |
+            | OpenWrt | x86_64 | `netpanel-openwrt-amd64.tar.gz` | musl 静态链接 |
+            | OpenWrt | ARM64 | `netpanel-openwrt-arm64.tar.gz` | musl 静态链接 |
+            | Android | ARM64 | `netpanel-android-arm64.tar.gz` | API 21+，需 root/Termux |
+            | Android | x86_64 | `netpanel-android-amd64.tar.gz` | API 21+，需 root/Termux |
 
             ### 校验文件完整性
 

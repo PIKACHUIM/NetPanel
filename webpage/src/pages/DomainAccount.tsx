@@ -141,7 +141,7 @@ const DomainAccount: React.FC = () => {
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)}
-        width={480} destroyOnClose
+        width={480} destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}>

@@ -30,7 +30,7 @@ const Root: React.FC = () => {
           borderRadius: 8,
           borderRadiusLG: 12,
           borderRadiusSM: 6,
-          fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          fontFamily: "'MapleMono', monospace",
           // 暗黑/玻璃模式下的颜色调整
           ...(isDark ? {
             colorBgContainer: '#1a1a1a',

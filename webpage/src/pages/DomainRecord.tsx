@@ -161,7 +161,7 @@ const DomainRecord: React.FC = () => {
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)}
-        width={480} destroyOnClose
+        width={480} destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="account_id" label="域名账号" rules={[{ required: true }]}>

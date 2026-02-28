@@ -1,0 +1,32 @@
+[Unit]
+Description=NetPanel - Network Management Panel
+Documentation=https://github.com/netpanel/netpanel
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/netpanel
+ExecStart=/opt/netpanel/netpanel --port 8080 --data /opt/netpanel/data
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 安全加固（可选，如需使用 TUN 设备请注释掉 PrivateTmp）
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netpanel
+
+# 允许绑定低端口（如 80/443）
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"os"
 	"runtime"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
@@ -10,6 +12,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -26,46 +29,70 @@ func NewSystemHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config) *Syst
 	return &SystemHandler{db: db, log: log, config: cfg}
 }
 
+// startTime 记录程序启动时间
+var startTime = time.Now()
+
 // GetInfo 获取系统信息
 func (h *SystemHandler) GetInfo(c *gin.Context) {
+	hostname, _ := os.Hostname()
+	hostInfo, _ := host.Info()
+
+	uptime := uint64(time.Since(startTime).Seconds())
+	if hostInfo != nil && hostInfo.Uptime > 0 {
+		uptime = hostInfo.Uptime
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"version":  h.config.Version,
-			"os":       runtime.GOOS,
-			"arch":     runtime.GOARCH,
+			"hostname":   hostname,
+			"version":    h.config.Version,
+			"os":         runtime.GOOS,
+			"arch":       runtime.GOARCH,
 			"go_version": runtime.Version(),
+			"uptime":     uptime,
 		},
 	})
 }
 
 // GetStats 获取系统资源统计
 func (h *SystemHandler) GetStats(c *gin.Context) {
-	// CPU 使用率
+	// CPU 使用率 & 核心数
 	cpuPercent, _ := cpu.Percent(0, false)
 	cpuUsage := 0.0
 	if len(cpuPercent) > 0 {
 		cpuUsage = cpuPercent[0]
 	}
+	cpuCores, _ := cpu.Counts(true) // 逻辑核心数
 
 	// 内存使用
 	memInfo, _ := mem.VirtualMemory()
 
+	// 交换内存
+	swapInfo, _ := mem.SwapMemory()
+
 	// 磁盘使用
 	diskInfo, _ := disk.Usage("/")
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"data": gin.H{
-			"cpu_usage":    cpuUsage,
-			"mem_total":    memInfo.Total,
-			"mem_used":     memInfo.Used,
-			"mem_percent":  memInfo.UsedPercent,
-			"disk_total":   diskInfo.Total,
-			"disk_used":    diskInfo.Used,
-			"disk_percent": diskInfo.UsedPercent,
-		},
-	})
+	data := gin.H{
+		"cpu_usage":    cpuUsage,
+		"cpu_cores":    cpuCores,
+		"mem_total":    memInfo.Total,
+		"mem_used":     memInfo.Used,
+		"mem_free":     memInfo.Available,
+		"mem_percent":  memInfo.UsedPercent,
+		"disk_total":   diskInfo.Total,
+		"disk_used":    diskInfo.Used,
+		"disk_free":    diskInfo.Free,
+		"disk_percent": diskInfo.UsedPercent,
+	}
+	if swapInfo != nil {
+		data["swap_total"] = swapInfo.Total
+		data["swap_used"] = swapInfo.Used
+		data["swap_percent"] = swapInfo.UsedPercent
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": data})
 }
 
 // GetConfig 获取系统配置

@@ -80,6 +80,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/port-forward/:id/start", pfHandler.Start)
 	auth.POST("/port-forward/:id/stop", pfHandler.Stop)
 	auth.GET("/port-forward/:id/logs", pfHandler.GetLogs)
+	auth.GET("/port-forward/certs", pfHandler.ListCerts)
 
 	// STUN 穿透
 	stunHandler := handlers.NewStunHandler(opts.DB, opts.Log, opts.StunMgr)
@@ -132,6 +133,11 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/nps/client/:id", npsClientHandler.Delete)
 	auth.POST("/nps/client/:id/start", npsClientHandler.Start)
 	auth.POST("/nps/client/:id/stop", npsClientHandler.Stop)
+	// NPS 隧道（子表，参考 nps 隧道类型）
+	auth.GET("/nps/client/:id/tunnels", npsClientHandler.ListTunnels)
+	auth.POST("/nps/client/:id/tunnels", npsClientHandler.CreateTunnel)
+	auth.PUT("/nps/client/:id/tunnels/:tid", npsClientHandler.UpdateTunnel)
+	auth.DELETE("/nps/client/:id/tunnels/:tid", npsClientHandler.DeleteTunnel)
 
 	// EasyTier 客户端
 	auth.GET("/frps/:id/dashboard", frpsHandler.GetDashboardURL)
@@ -164,6 +170,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/ddns/:id/start", ddnsHandler.Start)
 	auth.POST("/ddns/:id/stop", ddnsHandler.Stop)
 	auth.POST("/ddns/:id/run", ddnsHandler.RunNow)
+	auth.GET("/ddns/:id/history", ddnsHandler.GetHistory)
 
 	// Caddy 网站服务
 	caddyHandler := handlers.NewCaddyHandler(opts.DB, opts.Log, opts.CaddyMgr)
@@ -188,6 +195,15 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/domain/accounts", daHandler.Create)
 	auth.PUT("/domain/accounts/:id", daHandler.Update)
 	auth.DELETE("/domain/accounts/:id", daHandler.Delete)
+	auth.POST("/domain/accounts/:id/test", daHandler.Test)
+
+	// 证书账号（ACME CA 账号，参考 dnsmgr cert_account）
+	certAccountHandler := handlers.NewCertAccountHandler(opts.DB, opts.Log)
+	auth.GET("/domain/cert-accounts", certAccountHandler.List)
+	auth.POST("/domain/cert-accounts", certAccountHandler.Create)
+	auth.PUT("/domain/cert-accounts/:id", certAccountHandler.Update)
+	auth.DELETE("/domain/cert-accounts/:id", certAccountHandler.Delete)
+	auth.POST("/domain/cert-accounts/:id/verify", certAccountHandler.Verify)
 
 	// 域名证书
 	certHandler := handlers.NewCertHandler(opts.DB, opts.Log, opts.Config)
@@ -242,7 +258,14 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/ipdb/:id", ipdbHandler.Update)
 	auth.DELETE("/ipdb/:id", ipdbHandler.Delete)
 	auth.POST("/ipdb/import", ipdbHandler.Import)
-	auth.POST("/ipdb/query", ipdbHandler.Query)
+	auth.POST("/ipdb/import-url", ipdbHandler.ImportFromURL)
+	auth.GET("/ipdb/query", ipdbHandler.Query)
+	// IP 地址库订阅
+	auth.GET("/ipdb/subscriptions", ipdbHandler.ListSubscriptions)
+	auth.POST("/ipdb/subscriptions", ipdbHandler.CreateSubscription)
+	auth.PUT("/ipdb/subscriptions/:id", ipdbHandler.UpdateSubscription)
+	auth.DELETE("/ipdb/subscriptions/:id", ipdbHandler.DeleteSubscription)
+	auth.POST("/ipdb/subscriptions/:id/refresh", ipdbHandler.RefreshSubscription)
 
 	// 访问控制
 	accessHandler := handlers.NewAccessHandler(opts.DB, opts.Log, opts.AccessMgr)
@@ -250,6 +273,17 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/access", accessHandler.Create)
 	auth.PUT("/access/:id", accessHandler.Update)
 	auth.DELETE("/access/:id", accessHandler.Delete)
+
+	// WAF 防火墙（Coraza，参考 coraza WAF 和 lucky 安全模块）
+	wafHandler := handlers.NewWafHandler(opts.DB, opts.Log)
+	auth.GET("/security/waf", wafHandler.List)
+	auth.POST("/security/waf", wafHandler.Create)
+	auth.PUT("/security/waf/:id", wafHandler.Update)
+	auth.DELETE("/security/waf/:id", wafHandler.Delete)
+	auth.POST("/security/waf/:id/start", wafHandler.Start)
+	auth.POST("/security/waf/:id/stop", wafHandler.Stop)
+	auth.GET("/security/waf/:id/logs", wafHandler.GetLogs)
+	auth.POST("/security/waf/:id/test", wafHandler.TestRule)
 
 	// 回调账号
 	cbAccountHandler := handlers.NewCallbackAccountHandler(opts.DB, opts.Log, opts.CallbackMgr)

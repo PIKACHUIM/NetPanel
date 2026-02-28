@@ -82,7 +82,7 @@ const FormModal: React.FC<FormModalProps> = ({
       open={open}
       onCancel={onCancel}
       width={width}
-      destroyOnClose
+      destroyOnHidden
       footer={null}
       closable={false}
       centered

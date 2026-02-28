@@ -69,9 +69,9 @@ const Dnsmasq: React.FC = () => {
       >
         <Form form={configForm} layout="vertical">
           <Row gutter={16}>
-            <Col span={8}><Form.Item name="listen_addr" label={t('dnsmasq.listenAddr')}><Input placeholder="0.0.0.0" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="listen_addr" label={t('dnsmasq.listenAddr')}><Input placeholder="0.0.0.0" style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={8}><Form.Item name="listen_port" label={t('dnsmasq.listenPort')}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="upstream_dns" label={t('dnsmasq.upstreamDNS')}><Input placeholder="8.8.8.8,114.114.114.114" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="upstream_dns" label={t('dnsmasq.upstreamDNS')}><Input placeholder="8.8.8.8,114.114.114.114" style={{ width: '100%' }} /></Form.Item></Col>
           </Row>
           <Button type="primary" onClick={handleSaveConfig}>{t('common.save')}</Button>
         </Form>
@@ -83,10 +83,10 @@ const Dnsmasq: React.FC = () => {
       </div>
       <Table dataSource={records} columns={recordColumns} rowKey="id" loading={loading} size="small" style={{ background: '#fff', borderRadius: 8 }} pagination={{ pageSize: 20 }} />
 
-      <Modal title={editRecord ? t('common.edit') : '添加解析记录'} open={recordModalOpen} onOk={handleRecordSubmit} onCancel={() => setRecordModalOpen(false)} width={400} destroyOnClose>
+      <Modal title={editRecord ? t('common.edit') : '添加解析记录'} open={recordModalOpen} onOk={handleRecordSubmit} onCancel={() => setRecordModalOpen(false)} width={400} destroyOnHidden>
         <Form form={recordForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="domain" label="域名" rules={[{ required: true }]}><Input placeholder="example.local" /></Form.Item>
-          <Form.Item name="ip" label="IP地址" rules={[{ required: true }]}><Input placeholder="192.168.1.100" /></Form.Item>
+          <Form.Item name="domain" label="域名" rules={[{ required: true }]}><Input placeholder="example.local" style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="ip" label="IP地址" rules={[{ required: true }]}><Input placeholder="192.168.1.100" style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="enable" label={t('common.enable')} valuePropName="checked"><Switch /></Form.Item>
         </Form>
       </Modal>

@@ -25,11 +25,13 @@ type processEntry struct {
 
 // Manager EasyTier 管理器（命令行进程管理）
 type Manager struct {
-	db      *gorm.DB
-	log     *logrus.Logger
-	dataDir string
-	clients sync.Map // map[uint]*processEntry
-	servers sync.Map // map[uint]*processEntry
+	db       *gorm.DB
+	log      *logrus.Logger
+	dataDir  string
+	clients  sync.Map // map[uint]*processEntry
+	servers  sync.Map // map[uint]*processEntry
+	stopping bool     // 标记是否正在关闭，关闭期间禁止自动重启
+	mu       sync.Mutex
 }
 
 // isWinPcapPanic 检测 stderr 输出中是否包含 WinPcap/Npcap 接口枚举失败的 panic 信息
@@ -89,16 +91,41 @@ func (m *Manager) StartAll() {
 }
 
 func (m *Manager) StopAll() {
+	// 设置关闭标志，阻止自动重启
+	m.mu.Lock()
+	m.stopping = true
+	m.mu.Unlock()
+
+	var wg sync.WaitGroup
+
 	m.clients.Range(func(key, value interface{}) bool {
 		entry := value.(*processEntry)
-		entry.cancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			entry.cancel()
+			if entry.cmd.Process != nil {
+				_ = entry.cmd.Process.Kill()
+			}
+			_ = entry.cmd.Wait()
+		}()
 		return true
 	})
 	m.servers.Range(func(key, value interface{}) bool {
 		entry := value.(*processEntry)
-		entry.cancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			entry.cancel()
+			if entry.cmd.Process != nil {
+				_ = entry.cmd.Process.Kill()
+			}
+			_ = entry.cmd.Wait()
+		}()
 		return true
 	})
+
+	wg.Wait()
 }
 
 // ===== 客户端 =====
@@ -148,6 +175,13 @@ func (m *Manager) StartClient(id uint) error {
 			})
 			// 自动重启（延迟5秒，避免快速循环崩溃）
 			time.Sleep(5 * time.Second)
+			// 关闭期间不自动重启
+			m.mu.Lock()
+			isStopping := m.stopping
+			m.mu.Unlock()
+			if isStopping {
+				return
+			}
 			var cur model.EasytierClient
 			if m.db.First(&cur, id).Error == nil && cur.Enable {
 				// 检测 WinPcap/Npcap 崩溃（通过 stderr 输出判断），自动开启 no_tun 选项
@@ -197,28 +231,23 @@ func (m *Manager) GetClientStatus(id uint) string {
 func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	var args []string
 
-	// 多线程运行时
+	// ===== 运行时选项 =====
 	if cfg.MultiThread {
 		args = append(args, "--multi-thread")
-	}
-
-	// 自定义主机名
-	if cfg.Hostname != "" {
-		args = append(args, "--hostname", cfg.Hostname)
-	}
-
-	// 服务器地址（支持多个）
-	if cfg.ServerAddr != "" {
-		servers := strings.Split(cfg.ServerAddr, ",")
-		for _, s := range servers {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				args = append(args, "-p", s)
-			}
+		if cfg.MultiThreadCount > 2 {
+			args = append(args, "--multi-thread-count", fmt.Sprintf("%d", cfg.MultiThreadCount))
 		}
 	}
 
-	// 网络名称和密码
+	// ===== 基本设置 =====
+	if cfg.Hostname != "" {
+		args = append(args, "--hostname", cfg.Hostname)
+	}
+	if cfg.InstanceName != "" {
+		args = append(args, "--instance-name", cfg.InstanceName)
+	}
+
+	// ===== 网络设置 =====
 	if cfg.NetworkName != "" {
 		args = append(args, "--network-name", cfg.NetworkName)
 	}
@@ -232,29 +261,40 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	} else if cfg.VirtualIP != "" {
 		args = append(args, "--ipv4", cfg.VirtualIP)
 	}
-
-	// 不创建 TUN 虚拟网卡（无需 WinPcap/Npcap，适用于仅中继场景）
-	if cfg.NoTun {
-		args = append(args, "--no-tun")
+	if cfg.IPv6 != "" {
+		args = append(args, "--ipv6", cfg.IPv6)
 	}
 
-	// 自定义 TUN 设备名
-	if cfg.DevName != "" {
-		args = append(args, "--dev-name", cfg.DevName)
+	// 服务器地址（支持多个）
+	if cfg.ServerAddr != "" {
+		for _, s := range strings.Split(cfg.ServerAddr, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				args = append(args, "-p", s)
+			}
+		}
+	}
+	// 外部节点（公共共享节点）
+	if cfg.ExternalNodes != "" {
+		for _, s := range strings.Split(cfg.ExternalNodes, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				args = append(args, "-e", s)
+			}
+		}
 	}
 
-	// 本地监听端口（支持多个）
-	if cfg.ListenPorts != "" {
-		ports := strings.Split(cfg.ListenPorts, ",")
-		for _, p := range ports {
+	// ===== 监听器设置 =====
+	if cfg.NoListener {
+		args = append(args, "--no-listener")
+	} else if cfg.ListenPorts != "" {
+		for _, p := range strings.Split(cfg.ListenPorts, ",") {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				args = append(args, "-l", p)
 			}
 		}
 	}
-
-	// 映射监听器（公告外部地址，用于 NAT 后）
 	if cfg.MappedListeners != "" {
 		for _, ml := range strings.Split(cfg.MappedListeners, ",") {
 			ml = strings.TrimSpace(ml)
@@ -264,7 +304,15 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		}
 	}
 
-	// 子网代理（将本机子网共享给虚拟网络）
+	// ===== RPC 设置 =====
+	if cfg.RpcPortal != "" {
+		args = append(args, "--rpc-portal", cfg.RpcPortal)
+	}
+	if cfg.RpcPortalWhitelist != "" {
+		args = append(args, "--rpc-portal-whitelist", cfg.RpcPortalWhitelist)
+	}
+
+	// ===== 子网代理 =====
 	if cfg.ProxyCidrs != "" {
 		for _, cidr := range strings.Split(cfg.ProxyCidrs, ",") {
 			cidr = strings.TrimSpace(cidr)
@@ -274,7 +322,7 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		}
 	}
 
-	// 出口节点
+	// ===== 出口节点 =====
 	if cfg.ExitNodes != "" {
 		for _, node := range strings.Split(cfg.ExitNodes, ",") {
 			node = strings.TrimSpace(node)
@@ -285,30 +333,26 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	}
 
 	// ===== 网络行为选项 =====
-
-	// 延迟优先路由
 	if cfg.LatencyFirst {
 		args = append(args, "--latency-first")
 	}
-
-	// 禁用 P2P 直连，强制走中继
 	if cfg.DisableP2P {
 		args = append(args, "--disable-p2p")
 	}
-
-	// 仅 P2P，禁用中继
 	if cfg.P2POnly {
 		args = append(args, "--p2p-only")
 	}
-
-	// 允许本节点作为出口节点
 	if cfg.EnableExitNode {
 		args = append(args, "--enable-exit-node")
 	}
-
-	// 中继所有对等 RPC
 	if cfg.RelayAllPeerRpc {
 		args = append(args, "--relay-all-peer-rpc")
+	}
+	if cfg.ProxyForwardBySystem {
+		args = append(args, "--proxy-forward-by-system")
+	}
+	if cfg.DefaultProtocol != "" {
+		args = append(args, "--default-protocol", cfg.DefaultProtocol)
 	}
 
 	// ===== 打洞选项 =====
@@ -326,11 +370,26 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	if cfg.EnableKcpProxy {
 		args = append(args, "--enable-kcp-proxy")
 	}
+	if cfg.DisableKcpInput {
+		args = append(args, "--disable-kcp-input")
+	}
 	if cfg.EnableQuicProxy {
 		args = append(args, "--enable-quic-proxy")
 	}
+	if cfg.DisableQuicInput {
+		args = append(args, "--disable-quic-input")
+	}
+	if cfg.QuicListenPort > 0 {
+		args = append(args, "--quic-listen-port", fmt.Sprintf("%d", cfg.QuicListenPort))
+	}
 
 	// ===== TUN/网卡选项 =====
+	if cfg.NoTun {
+		args = append(args, "--no-tun")
+	}
+	if cfg.DevName != "" {
+		args = append(args, "--dev-name", cfg.DevName)
+	}
 	if cfg.UseSmoltcp {
 		args = append(args, "--use-smoltcp")
 	}
@@ -340,21 +399,68 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	if cfg.Mtu > 0 {
 		args = append(args, "--mtu", fmt.Sprintf("%d", cfg.Mtu))
 	}
-	if cfg.EnableMagicDns {
-		args = append(args, "--enable-magic-dns")
+	if cfg.AcceptDns {
+		args = append(args, "--accept-dns")
+		if cfg.TldDnsZone != "" {
+			args = append(args, "--tld-dns-zone", cfg.TldDnsZone)
+		}
+	}
+	if cfg.BindDevice != "" {
+		args = append(args, "--bind-device", cfg.BindDevice)
 	}
 
 	// ===== 安全选项 =====
 	if cfg.DisableEncryption {
 		args = append(args, "--disable-encryption")
 	}
-	if cfg.EnablePrivateMode {
-		args = append(args, "--enable-private-mode")
+	if cfg.EncryptionAlgorithm != "" {
+		args = append(args, "--encryption-algorithm", cfg.EncryptionAlgorithm)
+	}
+	if cfg.PrivateMode {
+		args = append(args, "--private-mode")
 	}
 
 	// ===== 中继选项 =====
 	if cfg.RelayNetworkWhitelist != "" {
 		args = append(args, "--relay-network-whitelist", cfg.RelayNetworkWhitelist)
+	}
+	if cfg.ForeignRelayBpsLimit > 0 {
+		args = append(args, "--foreign-relay-bps-limit", fmt.Sprintf("%d", cfg.ForeignRelayBpsLimit))
+	}
+	if cfg.DisableRelayKcp {
+		args = append(args, "--disable-relay-kcp")
+	}
+	if cfg.EnableRelayForeignNetworkKcp {
+		args = append(args, "--enable-relay-foreign-network-kcp")
+	}
+
+	// ===== 流量控制 =====
+	if cfg.TcpWhitelist != "" {
+		args = append(args, "--tcp-whitelist", cfg.TcpWhitelist)
+	}
+	if cfg.UdpWhitelist != "" {
+		args = append(args, "--udp-whitelist", cfg.UdpWhitelist)
+	}
+	if cfg.Compression != "" && cfg.Compression != "none" {
+		args = append(args, "--compression", cfg.Compression)
+	}
+
+	// ===== STUN 服务器 =====
+	if cfg.StunServers != "" {
+		for _, s := range strings.Split(cfg.StunServers, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				args = append(args, "--stun-servers", s)
+			}
+		}
+	}
+	if cfg.StunServersV6 != "" {
+		for _, s := range strings.Split(cfg.StunServersV6, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				args = append(args, "--stun-servers-v6", s)
+			}
+		}
 	}
 
 	// ===== VPN 门户 =====
@@ -365,7 +471,7 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 
 	// ===== SOCKS5 代理 =====
 	if cfg.EnableSocks5 && cfg.Socks5Port > 0 {
-		args = append(args, "--socks5", fmt.Sprintf("socks5://0.0.0.0:%d", cfg.Socks5Port))
+		args = append(args, "--socks5", fmt.Sprintf("%d", cfg.Socks5Port))
 	}
 
 	// ===== 手动路由 =====
@@ -379,7 +485,6 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	}
 
 	// ===== 端口转发 =====
-	// 格式：proto:bind_ip:bind_port:dst_ip:dst_port，多条用换行分隔
 	if cfg.PortForwards != "" {
 		for _, pf := range strings.Split(cfg.PortForwards, "\n") {
 			pf = strings.TrimSpace(pf)
@@ -387,6 +492,23 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 				args = append(args, "--port-forward", pf)
 			}
 		}
+	}
+
+	// ===== 日志选项 =====
+	if cfg.ConsoleLogLevel != "" {
+		args = append(args, "--console-log-level", cfg.ConsoleLogLevel)
+	}
+	if cfg.FileLogLevel != "" {
+		args = append(args, "--file-log-level", cfg.FileLogLevel)
+	}
+	if cfg.FileLogDir != "" {
+		args = append(args, "--file-log-dir", cfg.FileLogDir)
+	}
+	if cfg.FileLogSize > 0 {
+		args = append(args, "--file-log-size", fmt.Sprintf("%d", cfg.FileLogSize))
+	}
+	if cfg.FileLogCount > 0 {
+		args = append(args, "--file-log-count", fmt.Sprintf("%d", cfg.FileLogCount))
 	}
 
 	// 额外参数（兜底，用于不常用的高级参数）
@@ -445,6 +567,13 @@ func (m *Manager) StartServer(id uint) error {
 			})
 			// 自动重启（延迟5秒，避免快速循环崩溃）
 			time.Sleep(5 * time.Second)
+			// 关闭期间不自动重启
+			m.mu.Lock()
+			isStopping := m.stopping
+			m.mu.Unlock()
+			if isStopping {
+				return
+			}
 			var cur model.EasytierServer
 			if m.db.First(&cur, id).Error == nil && cur.Enable {
 				// 检测 WinPcap/Npcap 崩溃（通过 stderr 输出判断），自动开启 no_tun 选项
@@ -494,9 +623,12 @@ func (m *Manager) GetServerStatus(id uint) string {
 func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 	var args []string
 
-	// 多线程运行时（服务端默认开启）
+	// ===== 运行时选项 =====
 	if cfg.MultiThread {
 		args = append(args, "--multi-thread")
+		if cfg.MultiThreadCount > 2 {
+			args = append(args, "--multi-thread-count", fmt.Sprintf("%d", cfg.MultiThreadCount))
+		}
 	}
 
 	// ===== config-server 节点模式 =====
@@ -508,6 +640,9 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 				args = append(args, "--config-server", addr)
 			}
 		}
+		if cfg.MachineID != "" {
+			args = append(args, "--machine-id", cfg.MachineID)
+		}
 		// 额外参数（兜底）
 		if cfg.ExtraArgs != "" {
 			extraParts := strings.Fields(cfg.ExtraArgs)
@@ -518,9 +653,11 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 
 	// ===== 以下为 standalone 独立模式参数 =====
 
-	// 自定义主机名
 	if cfg.Hostname != "" {
 		args = append(args, "--hostname", cfg.Hostname)
+	}
+	if cfg.InstanceName != "" {
+		args = append(args, "--instance-name", cfg.InstanceName)
 	}
 
 	listenAddr := cfg.ListenAddr
@@ -529,21 +666,16 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 	}
 
 	// 监听端口（支持多个）
-	// 格式：12345（基准端口）或 tcp:11010,udp:11011（多协议多端口）
 	if cfg.ListenPorts != "" {
-		ports := strings.Split(cfg.ListenPorts, ",")
-		for _, p := range ports {
+		for _, p := range strings.Split(cfg.ListenPorts, ",") {
 			p = strings.TrimSpace(p)
 			if p == "" {
 				continue
 			}
-			// 如果包含协议前缀（如 tcp:11010），拼接地址
 			if strings.Contains(p, ":") {
-				// 格式如 tcp:11010 → tcp://0.0.0.0:11010
 				parts := strings.SplitN(p, ":", 2)
 				args = append(args, "-l", fmt.Sprintf("%s://%s:%s", parts[0], listenAddr, parts[1]))
 			} else {
-				// 纯数字基准端口，直接传入
 				args = append(args, "-l", p)
 			}
 		}
@@ -556,12 +688,18 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 		args = append(args, "--network-secret", cfg.NetworkPassword)
 	}
 
-	// 不创建 TUN 虚拟网卡（服务端通常不需要 TUN，但保留选项）
-	if cfg.NoTun {
-		args = append(args, "--no-tun")
+	// ===== RPC 设置 =====
+	if cfg.RpcPortal != "" {
+		args = append(args, "--rpc-portal", cfg.RpcPortal)
+	}
+	if cfg.RpcPortalWhitelist != "" {
+		args = append(args, "--rpc-portal-whitelist", cfg.RpcPortalWhitelist)
 	}
 
 	// ===== 网络行为选项 =====
+	if cfg.NoTun {
+		args = append(args, "--no-tun")
+	}
 	if cfg.DisableP2P {
 		args = append(args, "--disable-p2p")
 	}
@@ -571,26 +709,82 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 	if cfg.RelayAllPeerRpc {
 		args = append(args, "--relay-all-peer-rpc")
 	}
+	if cfg.DefaultProtocol != "" {
+		args = append(args, "--default-protocol", cfg.DefaultProtocol)
+	}
+	if cfg.ProxyForwardBySystem {
+		args = append(args, "--proxy-forward-by-system")
+	}
 
 	// ===== 协议加速选项 =====
 	if cfg.EnableKcpProxy {
 		args = append(args, "--enable-kcp-proxy")
 	}
+	if cfg.DisableKcpInput {
+		args = append(args, "--disable-kcp-input")
+	}
 	if cfg.EnableQuicProxy {
 		args = append(args, "--enable-quic-proxy")
+	}
+	if cfg.DisableQuicInput {
+		args = append(args, "--disable-quic-input")
+	}
+	if cfg.QuicListenPort > 0 {
+		args = append(args, "--quic-listen-port", fmt.Sprintf("%d", cfg.QuicListenPort))
 	}
 
 	// ===== 安全选项 =====
 	if cfg.DisableEncryption {
 		args = append(args, "--disable-encryption")
 	}
-	if cfg.EnablePrivateMode {
-		args = append(args, "--enable-private-mode")
+	if cfg.EncryptionAlgorithm != "" {
+		args = append(args, "--encryption-algorithm", cfg.EncryptionAlgorithm)
+	}
+	if cfg.PrivateMode {
+		args = append(args, "--private-mode")
 	}
 
 	// ===== 中继选项 =====
 	if cfg.RelayNetworkWhitelist != "" {
 		args = append(args, "--relay-network-whitelist", cfg.RelayNetworkWhitelist)
+	}
+	if cfg.ForeignRelayBpsLimit > 0 {
+		args = append(args, "--foreign-relay-bps-limit", fmt.Sprintf("%d", cfg.ForeignRelayBpsLimit))
+	}
+	if cfg.DisableRelayKcp {
+		args = append(args, "--disable-relay-kcp")
+	}
+	if cfg.EnableRelayForeignNetworkKcp {
+		args = append(args, "--enable-relay-foreign-network-kcp")
+	}
+
+	// ===== 流量控制 =====
+	if cfg.TcpWhitelist != "" {
+		args = append(args, "--tcp-whitelist", cfg.TcpWhitelist)
+	}
+	if cfg.UdpWhitelist != "" {
+		args = append(args, "--udp-whitelist", cfg.UdpWhitelist)
+	}
+	if cfg.Compression != "" && cfg.Compression != "none" {
+		args = append(args, "--compression", cfg.Compression)
+	}
+
+	// ===== STUN 服务器 =====
+	if cfg.StunServers != "" {
+		for _, s := range strings.Split(cfg.StunServers, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				args = append(args, "--stun-servers", s)
+			}
+		}
+	}
+	if cfg.StunServersV6 != "" {
+		for _, s := range strings.Split(cfg.StunServersV6, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				args = append(args, "--stun-servers-v6", s)
+			}
+		}
 	}
 
 	// ===== 手动路由 =====
@@ -611,6 +805,23 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 				args = append(args, "--port-forward", pf)
 			}
 		}
+	}
+
+	// ===== 日志选项 =====
+	if cfg.ConsoleLogLevel != "" {
+		args = append(args, "--console-log-level", cfg.ConsoleLogLevel)
+	}
+	if cfg.FileLogLevel != "" {
+		args = append(args, "--file-log-level", cfg.FileLogLevel)
+	}
+	if cfg.FileLogDir != "" {
+		args = append(args, "--file-log-dir", cfg.FileLogDir)
+	}
+	if cfg.FileLogSize > 0 {
+		args = append(args, "--file-log-size", fmt.Sprintf("%d", cfg.FileLogSize))
+	}
+	if cfg.FileLogCount > 0 {
+		args = append(args, "--file-log-count", fmt.Sprintf("%d", cfg.FileLogCount))
 	}
 
 	// 额外参数（兜底）
