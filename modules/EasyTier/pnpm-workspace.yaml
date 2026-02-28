@@ -1,5 +1,0 @@
-packages:
-  - 'easytier-web/frontend'
-  - 'easytier-web/frontend-lib'
-  - 'easytier-gui'
-  - 'tauri-plugin-vpnservice'

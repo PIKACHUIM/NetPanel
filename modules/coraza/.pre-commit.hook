@@ -1,2 +1,0 @@
-echo "Executing precommit checks"
-go run mage.go check

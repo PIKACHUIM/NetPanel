@@ -1,3 +1,0 @@
-This is a file with more content than the other files in this directory
-such that tests using the largest_size policy pick this file, or the
-smallest_size policy avoids this file.

@@ -5,6 +5,7 @@
 # 构建产物
 dist/
 release/
+modules/
 
 # 后端
 backend/embed/dist/
