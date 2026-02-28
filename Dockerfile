@@ -13,7 +13,7 @@ RUN npm run build
 # ─────────────────────────────────────────────
 # 阶段 2：构建后端
 # ─────────────────────────────────────────────
-FROM golang:1.22-alpine AS backend-builder
+FROM golang:1.24-alpine AS backend-builder
 
 # 安装 CGO 依赖（sqlite 需要 gcc）
 RUN apk add --no-cache gcc musl-dev
