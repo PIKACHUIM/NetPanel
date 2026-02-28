@@ -1,6 +1,6 @@
 module github.com/djylb/nps
 
-go 1.25
+go 1.24.0
 
 require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
