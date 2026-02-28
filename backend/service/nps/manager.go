@@ -296,7 +296,7 @@ func (m *Manager) StartClient(id uint) error {
 			m.log.Infof("[NPS客户端][%s] 连接服务器 %s vkey: %s type: %s",
 				cfg.Name, fullAddr, vkey, connType)
 
-			rpClient := npsClient.NewRPClient(fullAddr, vkey, connType, "", "", "", nil, 60, nil)
+			rpClient := npsClient.NewRPClient(fullAddr, vkey, connType, "", "", nil, 60, nil)
 			rpClient.Start(ctx)
 
 			select {
