@@ -22,7 +22,6 @@ WORKDIR /app
 
 # 复制 go.mod / go.sum 先缓存依赖
 COPY backend/go.mod backend/go.sum ./backend/
-COPY modules/ ./modules/
 
 WORKDIR /app/backend
 RUN go mod download
