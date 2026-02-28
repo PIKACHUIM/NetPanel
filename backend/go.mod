@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/beego/beego v1.12.14
 	github.com/caddyserver/caddy/v2 v2.11.1
-	github.com/djylb/nps v0.0.0
+	github.com/djylb/nps v0.34.1
 	github.com/fatedier/frp v0.67.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/glebarez/sqlite v1.11.0
@@ -226,7 +226,3 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
-
-replace github.com/djylb/nps => ../modules/nps
-
-replace github.com/fatedier/frp => ../modules/frp
