@@ -187,6 +187,10 @@ jobs:
           fi
           sudo apt-get install -y ${PKGS}
 
+      - name: Tidy Go modules
+        working-directory: backend
+        run: GONOSUMCHECK=* GOFLAGS=-mod=mod go mod tidy
+
       - name: Build backend
         working-directory: backend
         env:
@@ -195,7 +199,6 @@ jobs:
           CGO_ENABLED: 1
           CC: ${{ matrix.cc }}
         run: |
-          GONOSUMCHECK=* GOFLAGS=-mod=mod go mod tidy
           BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           VERSION="beta-$(echo ${{ github.sha }} | cut -c1-7)"
           go build \
@@ -272,6 +275,10 @@ jobs:
           name: easytier-macos-${{ matrix.et_arch }}
           path: easytier-bin/
 
+      - name: Tidy Go modules
+        working-directory: backend
+        run: GONOSUMCHECK=* GOFLAGS=-mod=mod go mod tidy
+
       - name: Build backend
         working-directory: backend
         env:
@@ -279,7 +286,6 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
-          GONOSUMCHECK=* GOFLAGS=-mod=mod go mod tidy
           BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           VERSION="beta-$(echo ${{ github.sha }} | cut -c1-7)"
           go build \
