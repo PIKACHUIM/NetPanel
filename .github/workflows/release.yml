@@ -93,10 +93,11 @@ jobs:
             arch: x86_64
             bin: easytier-core.exe
             ext: zip
-          - os: windows
-            arch: arm64
-            bin: easytier-core.exe
-            ext: zip
+          # windows/arm64 暂时禁用（.syso 交叉编译重定位问题待解决）
+          # - os: windows
+          #   arch: arm64
+          #   bin: easytier-core.exe
+          #   ext: zip
           - os: macos
             arch: x86_64
             bin: easytier-core
