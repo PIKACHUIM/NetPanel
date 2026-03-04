@@ -13,6 +13,7 @@ import {
     DashboardOutlined,
     DatabaseOutlined,
     FilterOutlined,
+    FireOutlined,
     FolderOpenOutlined,
     GlobalOutlined,
     KeyOutlined,
@@ -24,10 +25,12 @@ import {
     SafetyOutlined,
     SettingOutlined,
     SwapOutlined,
+    TeamOutlined,
     ThunderboltOutlined,
     TranslationOutlined,
     UserOutlined,
     WifiOutlined,
+    FileTextOutlined,
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {useAppStore} from '../store/appStore'
@@ -125,6 +128,7 @@ const MainLayout: React.FC = () => {
             label: t('menu.security'),
             children: [
                 {key: 'ipdb', icon: <DatabaseOutlined/>, label: t('menu.ipdb')},
+                {key: 'security/firewall', icon: <FireOutlined/>, label: t('menu.firewall')},
                 {key: 'access', icon: <FilterOutlined/>, label: t('menu.access')},
                 {key: 'security/waf', icon: <BugOutlined/>, label: t('menu.waf')},
             ],
@@ -133,7 +137,7 @@ const MainLayout: React.FC = () => {
         {
             key: 'intranet',
             icon: <ControlOutlined/>,
-            label: '内网工具',
+            label: '本地工具',
             children: [
                 {key: 'dnsmasq', icon: <ControlOutlined/>, label: t('menu.dnsmasq')},
                 {key: 'wol', icon: <ThunderboltOutlined/>, label: t('menu.wol')},
@@ -149,7 +153,7 @@ const MainLayout: React.FC = () => {
             children: [
 
                 {key: 'domain/account', icon: <UserOutlined/>, label: t('menu.domainAccount')},
-                {key: 'domain/record', icon: <DatabaseOutlined/>, label: t('menu.domainRecord')},
+                {key: 'domain/info', icon: <DatabaseOutlined/>, label: t('menu.domainInfo')},
                 {key: 'domain/cert-account', icon: <SafetyOutlined/>, label: t('menu.certAccount')},
                 {key: 'domain/cert', icon: <KeyOutlined/>, label: t('menu.domainCert')},
 
@@ -165,10 +169,16 @@ const MainLayout: React.FC = () => {
                 {key: 'callback/task', icon: <ClockCircleOutlined/>, label: t('menu.callbackTask')},
             ],
         },
+        // ── 系统管理 ──
         {
-            key: 'settings',
+            key: 'admin',
             icon: <SettingOutlined/>,
-            label: t('menu.settings'),
+            label: t('menu.admin'),
+            children: [
+                {key: 'admin/logs', icon: <FileTextOutlined/>, label: t('menu.adminLogs')},
+                {key: 'admin/users', icon: <TeamOutlined/>, label: t('menu.adminUsers')},
+                {key: 'settings', icon: <SettingOutlined/>, label: t('menu.settings')},
+            ],
         },
     ]
 
@@ -490,6 +500,7 @@ function getOpenKeys(pathname: string): string[] {
     if (pathname.startsWith('/dnsmasq') || pathname.startsWith('/wol') || pathname.startsWith('/storage') || pathname.startsWith('/cron')) return ['intranet']
     if (pathname.startsWith('/domain')) return ['domain']
     if (pathname.startsWith('/callback')) return ['callback']
+    if (pathname.startsWith('/admin') || pathname.startsWith('/settings')) return ['admin']
     return []
 }
 

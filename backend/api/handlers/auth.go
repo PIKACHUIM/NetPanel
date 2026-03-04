@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -26,6 +27,7 @@ type LoginRequest struct {
 }
 
 // Login 登录
+// 支持多用户登录：优先从 User 表验证，兼容旧版 SystemConfig 明文密码
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -33,16 +35,33 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// 从数据库获取密码
-	var cfg model.SystemConfig
-	if err := h.db.Where("key = ?", "admin_password").First(&cfg).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "系统错误"})
-		return
-	}
-
-	if req.Username != "admin" || req.Password != cfg.Value {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
-		return
+	// 优先从 User 表查找用户
+	var user model.User
+	if err := h.db.Where("username = ?", req.Username).First(&user).Error; err == nil {
+		// 用户存在：验证密码和状态
+		if !user.Enable {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "账号已被禁用"})
+			return
+		}
+		if !utils.CheckPassword(req.Password, user.Password) {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
+			return
+		}
+	} else {
+		// User 表中不存在，兼容旧版：仅允许 admin 用户通过 SystemConfig 验证
+		if req.Username != "admin" {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
+			return
+		}
+		var cfg model.SystemConfig
+		if err := h.db.Where("key = ?", "admin_password").First(&cfg).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "系统错误"})
+			return
+		}
+		if !utils.CheckPassword(req.Password, cfg.Value) {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
+			return
+		}
 	}
 
 	token, err := middleware.GenerateToken(req.Username)

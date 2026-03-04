@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -28,11 +29,13 @@ import (
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
+	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -53,10 +56,24 @@ var (
 	serviceMode      = flag.Bool("service", false, "以系统服务模式运行（由 SCM/systemd 调用，勿手动使用）")
 	installService   = flag.Bool("install-service", false, "注册系统服务（需要管理员/root 权限）")
 	uninstallService = flag.Bool("uninstall-service", false, "卸载系统服务（需要管理员/root 权限）")
+	// NPS 服务端子进程模式（由主进程通过 exec.Cmd 调用，勿手动使用）
+	npsServerMode = flag.Bool("nps-server", false, "以 NPS 服务端子进程模式运行（由主进程调用，勿手动使用）")
+	npsConfDir    = flag.String("nps-conf", "", "NPS 服务端配置目录（子进程模式专用）")
 )
 
 func main() {
 	flag.Parse()
+
+	// ── NPS 服务端子进程模式 ────────────────────────────────────────────
+	// NPS 库内部大量调用 os.Exit()，必须在独立子进程中运行，避免影响主进程
+	if *npsServerMode {
+		if *npsConfDir == "" {
+			fmt.Fprintln(os.Stderr, "--nps-conf 参数不能为空")
+			os.Exit(1)
+		}
+		nps.RunServerProcess(*npsConfDir)
+		return
+	}
 
 	// ── 服务管理命令（install / uninstall）──────────────────────────────
 	if *installService {
@@ -145,21 +162,48 @@ func startServer() *http.Server {
 		log.Fatalf("数据库初始化失败: %v", err)
 	}
 
-	// 初始化各服务管理器
-	portforwardMgr := portforward.NewManager(db, log)
-	stunMgr := stun.NewManager(db, log)
-	frpMgr := frp.NewManager(db, log)
-	npsMgr := nps.NewManager(db, log, *dataDir)
-	easytierMgr := easytier.NewManager(db, log, *dataDir)
-	ddnsMgr := ddns.NewManager(db, log)
-	caddyMgr := caddy.NewManager(db, log, *dataDir)
-	cronMgr := cron.NewManager(db, log)
-	storageMgr := storage.NewManager(db, log, *dataDir)
-	accessMgr := access.NewManager(db, log)
-	dnsmasqMgr := dnsmasq.NewManager(db, log)
-	wolMgr := wol.NewManager(db, log)
-	certMgr := cert.NewManager(db, log, *dataDir)
-	callbackMgr := callback.NewManager(db, log)
+	// 初始化系统日志管理器，并注入全局日志写入器
+	// 必须在各服务 logger 创建之前完成，确保 DBHook 能正常写入
+	syslogMgr := syslog.NewManager(db, log)
+	logger.SetDBWriter(syslogMgr)
+
+	// 给全局 log 添加 system 服务的 DBHook，使系统核心日志也写入数据库
+	log.AddHook(&logger.DBHook{Service: "system"})
+
+	// 为每个服务创建带 DB Hook 的专属 logger
+	// 各服务的所有 m.log.Xxx 调用将自动写入数据库，无需修改服务代码
+	logPortforward := logger.NewDBLogger(log, "portforward")
+	logStun := logger.NewDBLogger(log, "stun")
+	logFrp := logger.NewDBLogger(log, "frp")
+	logNps := logger.NewDBLogger(log, "nps")
+	logEasytier := logger.NewDBLogger(log, "easytier")
+	logDdns := logger.NewDBLogger(log, "ddns")
+	logCaddy := logger.NewDBLogger(log, "caddy")
+	logCron := logger.NewDBLogger(log, "cron")
+	logStorage := logger.NewDBLogger(log, "storage")
+	logAccess := logger.NewDBLogger(log, "access")
+	logDnsmasq := logger.NewDBLogger(log, "dnsmasq")
+	logWol := logger.NewDBLogger(log, "wol")
+	logCert := logger.NewDBLogger(log, "cert")
+	logCallback := logger.NewDBLogger(log, "callback")
+	logFirewall := logger.NewDBLogger(log, "firewall")
+
+	// 初始化各服务管理器（使用带 DB Hook 的专属 logger）
+	portforwardMgr := portforward.NewManager(db, logPortforward)
+	stunMgr := stun.NewManager(db, logStun)
+	frpMgr := frp.NewManager(db, logFrp)
+	npsMgr := nps.NewManager(db, logNps, *dataDir)
+	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
+	ddnsMgr := ddns.NewManager(db, logDdns)
+	caddyMgr := caddy.NewManager(db, logCaddy, *dataDir)
+	cronMgr := cron.NewManager(db, logCron)
+	storageMgr := storage.NewManager(db, logStorage, *dataDir)
+	accessMgr := access.NewManager(db, logAccess)
+	dnsmasqMgr := dnsmasq.NewManager(db, logDnsmasq)
+	wolMgr := wol.NewManager(db, logWol)
+	certMgr := cert.NewManager(db, logCert, *dataDir)
+	callbackMgr := callback.NewManager(db, logCallback)
+	firewallMgr := firewall.NewManager(db, logFirewall)
 
 	// 非管理员时：将数据库中所有 EasyTier 客户端/服务端的 no_tun 强制置为 true
 	if !isAdmin {
@@ -202,10 +246,12 @@ func startServer() *http.Server {
 		CronMgr:        cronMgr,
 		StorageMgr:     storageMgr,
 		AccessMgr:      accessMgr,
+		FirewallMgr:    firewallMgr,
 		DnsmasqMgr:     dnsmasqMgr,
 		WolMgr:         wolMgr,
 		CertMgr:        certMgr,
 		CallbackMgr:    callbackMgr,
+		SyslogMgr:      syslogMgr,
 	})
 
 	// 挂载前端静态文件（SPA 模式：所有非 /api 路径均返回 index.html）
@@ -235,7 +281,9 @@ func startServer() *http.Server {
 	// 访问控制中间件注入
 	accessMgr.SetGinEngine(router)
 
-	addr := fmt.Sprintf(":%d", *port)
+	// 尝试绑定端口，若失败则自动寻找可用端口
+	listenPort := findAvailablePort(*port, log)
+	addr := fmt.Sprintf(":%d", listenPort)
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: router,
@@ -247,7 +295,7 @@ func startServer() *http.Server {
 			log.Infof("[系统核心] 运行模式：非管理员（EasyTier 已降级为 --no-tun）")
 		}
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP 服务启动失败: %v", err)
+			log.Errorf("HTTP 服务启动失败: %v", err)
 		}
 	}()
 
@@ -256,6 +304,30 @@ func startServer() *http.Server {
 		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr)
 
 	return srv
+}
+
+// findAvailablePort 尝试绑定指定端口，若失败则在 preferredPort+1 ~ preferredPort+100 范围内
+// 自动寻找可用端口并返回。找不到时程序退出。
+func findAvailablePort(preferredPort int, log *logrus.Logger) int {
+	// 先尝试首选端口
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", preferredPort))
+	if err == nil {
+		ln.Close()
+		return preferredPort
+	}
+	log.Warnf("端口 %d 不可用（%v），正在自动寻找可用端口...", preferredPort, err)
+
+	// 依次尝试后续端口
+	for p := preferredPort + 1; p <= preferredPort+100; p++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
+		if err == nil {
+			ln.Close()
+			log.Infof("将使用端口 %d 替代 %d", p, preferredPort)
+			return p
+		}
+	}
+	log.Fatalf("无法在 %d~%d 范围内找到可用端口，请手动指定端口（-port <端口号>）", preferredPort, preferredPort+100)
+	return 0 // unreachable
 }
 
 // applyNoTunFallback 在非管理员模式下，将数据库中所有 EasyTier 实例的 no_tun 字段置为 true，

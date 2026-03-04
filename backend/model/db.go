@@ -71,6 +71,7 @@ func autoMigrate(db *gorm.DB) error {
 		&CaddySite{},
 		&WolDevice{},
 		&DomainAccount{},
+		&DomainInfo{},
 		&CertAccount{},
 		&DomainCert{},
 		&DomainRecord{},
@@ -82,8 +83,11 @@ func autoMigrate(db *gorm.DB) error {
 		&AccessRule{},
 		&WafConfig{},
 		&WafLog{},
+		&FirewallRule{},
 		&CallbackAccount{},
 		&CallbackTask{},
+		&SystemLog{},
+		&User{},
 	)
 }
 
@@ -103,6 +107,25 @@ func initDefaultData(db *gorm.DB) {
 		db.Create(&SystemConfig{
 			Key:   "theme",
 			Value: "light",
+		})
+	}
+
+	// 初始化默认 admin 用户（若不存在）
+	var userCount int64
+	db.Model(&User{}).Where("username = ?", "admin").Count(&userCount)
+	if userCount == 0 {
+		// 从 SystemConfig 读取密码
+		var cfg SystemConfig
+		password := "admin123"
+		if err := db.Where("key = ?", "admin_password").First(&cfg).Error; err == nil {
+			password = cfg.Value
+		}
+		db.Create(&User{
+			Username: "admin",
+			Password: password,
+			Enable:   true,
+			IsAdmin:  true,
+			Remark:   "系统管理员",
 		})
 	}
 }

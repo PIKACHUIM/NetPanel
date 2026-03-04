@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { Row, Col, Typography, Spin, Tooltip, Button, theme as antTheme, Tag } from 'antd'
+import { Row, Col, Typography, Spin, Tooltip, Button, theme as antTheme, Tag, Badge } from 'antd'
 import {
   ReloadOutlined, CloudServerOutlined,
   ApiOutlined, WifiOutlined, GlobalOutlined, LinkOutlined,
   ThunderboltOutlined, ClockCircleOutlined, FolderOpenOutlined,
   FilterOutlined, SwapOutlined, ApartmentOutlined, CheckCircleFilled,
   MinusCircleFilled, DesktopOutlined, HddOutlined, DatabaseOutlined,
-  RocketOutlined, PlayCircleOutlined,
+  RocketOutlined, PlayCircleOutlined, FireOutlined, SafetyOutlined,
+  CheckOutlined, StopOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import {
@@ -17,6 +18,7 @@ import {
   easytierClientApi, easytierServerApi,
   ddnsApi, caddyApi,
   cronApi, storageApi, accessApi, wolApi,
+  firewallApi,
 } from '../api'
 import { useAppStore } from '../store/appStore'
 
@@ -50,6 +52,15 @@ interface SystemStats {
   disk_used: number
   disk_free: number
   disk_percent: number
+}
+
+interface FirewallStats {
+  backend: string
+  total: number
+  enabled: number
+  applied: number
+  pending: number
+  error: number
 }
 
 interface ServiceStatus {
@@ -441,6 +452,7 @@ const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [services, setServices] = useState<ServiceStatus[]>(defaultServices)
   const [netInterfaces, setNetInterfaces] = useState<NetInterface[]>([])
+  const [firewallStats, setFirewallStats] = useState<FirewallStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -479,6 +491,24 @@ const Dashboard: React.FC = () => {
       try {
         const ifaceRes = await systemApi.getInterfaces()
         setNetInterfaces((ifaceRes as any).data || [])
+      } catch { /* ignore */ }
+
+      // 获取防火墙状态
+      try {
+        const [backendRes, rulesRes] = await Promise.allSettled([
+          firewallApi.detectBackend(),
+          firewallApi.list(),
+        ])
+        const backend = backendRes.status === 'fulfilled' ? (backendRes.value as any).data?.backend || 'unknown' : 'unknown'
+        const rules: any[] = rulesRes.status === 'fulfilled' ? (rulesRes.value as any).data || [] : []
+        setFirewallStats({
+          backend,
+          total: rules.length,
+          enabled: rules.filter((r: any) => r.enable).length,
+          applied: rules.filter((r: any) => r.apply_status === 'applied').length,
+          pending: rules.filter((r: any) => r.apply_status === 'pending').length,
+          error: rules.filter((r: any) => r.apply_status === 'error').length,
+        })
       } catch { /* ignore */ }
 
       // 服务列表顺序与上面 svcResults 对应
@@ -713,6 +743,128 @@ const Dashboard: React.FC = () => {
                     })}
                   </div>
                 </>
+              )}
+            </div>
+
+            {/* 防火墙状态 */}
+            <div style={cardBase}>
+              {sectionTitle('防火墙状态', '#ff4d4f')}
+              {firewallStats ? (
+                <>
+                  {/* 后端类型 */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 14px', borderRadius: 10, marginBottom: 10,
+                    background: isDark ? 'rgba(255,77,79,0.08)' : 'rgba(255,77,79,0.05)',
+                    border: '1px solid rgba(255,77,79,0.2)',
+                  }}>
+                    <FireOutlined style={{ color: '#ff4d4f', fontSize: 18 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>当前防火墙后端</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ff4d4f', textTransform: 'uppercase' }}>
+                        {firewallStats.backend === 'unknown' ? '未检测到' : firewallStats.backend}
+                      </div>
+                    </div>
+                    <SafetyOutlined style={{
+                      fontSize: 22,
+                      color: firewallStats.backend === 'unknown'
+                        ? (isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)')
+                        : 'rgba(255,77,79,0.3)',
+                    }} />
+                  </div>
+                  {/* 规则统计 */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {/* 总规则 */}
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 8,
+                      background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'}`,
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}>
+                      <FilterOutlined style={{ color: '#1677ff', fontSize: 16 }} />
+                      <div>
+                        <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>规则总数</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#1677ff', lineHeight: 1.2 }}>{firewallStats.total}</div>
+                      </div>
+                    </div>
+                    {/* 已启用 */}
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 8,
+                      background: firewallStats.enabled > 0
+                        ? (isDark ? 'rgba(82,196,26,0.08)' : 'rgba(82,196,26,0.05)')
+                        : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'),
+                      border: `1px solid ${firewallStats.enabled > 0 ? 'rgba(82,196,26,0.2)' : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)')}`,
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}>
+                      <CheckOutlined style={{ color: '#52c41a', fontSize: 16 }} />
+                      <div>
+                        <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>已启用</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a', lineHeight: 1.2 }}>{firewallStats.enabled}</div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* 应用状态条 */}
+                  {firewallStats.total > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                        <span style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>应用状态</span>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {firewallStats.applied > 0 && (
+                            <span style={{ fontSize: 11, color: '#52c41a' }}>
+                              <CheckCircleFilled style={{ marginRight: 3 }} />{firewallStats.applied} 已应用
+                            </span>
+                          )}
+                          {firewallStats.pending > 0 && (
+                            <span style={{ fontSize: 11, color: '#faad14' }}>
+                              <ExclamationCircleOutlined style={{ marginRight: 3 }} />{firewallStats.pending} 待应用
+                            </span>
+                          )}
+                          {firewallStats.error > 0 && (
+                            <span style={{ fontSize: 11, color: '#ff4d4f' }}>
+                              <StopOutlined style={{ marginRight: 3 }} />{firewallStats.error} 错误
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{
+                        height: 6, borderRadius: 3,
+                        background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)',
+                        overflow: 'hidden', display: 'flex',
+                      }}>
+                        <div style={{
+                          height: '100%',
+                          width: `${(firewallStats.applied / firewallStats.total) * 100}%`,
+                          background: '#52c41a',
+                          transition: 'width 0.6s ease',
+                        }} />
+                        <div style={{
+                          height: '100%',
+                          width: `${(firewallStats.pending / firewallStats.total) * 100}%`,
+                          background: '#faad14',
+                          transition: 'width 0.6s ease',
+                        }} />
+                        <div style={{
+                          height: '100%',
+                          width: `${(firewallStats.error / firewallStats.total) * 100}%`,
+                          background: '#ff4d4f',
+                          transition: 'width 0.6s ease',
+                        }} />
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '14px', borderRadius: 10,
+                  background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'}`,
+                  color: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
+                  fontSize: 12,
+                }}>
+                  <FireOutlined style={{ fontSize: 16 }} />
+                  防火墙数据加载中...
+                </div>
               )}
             </div>
 

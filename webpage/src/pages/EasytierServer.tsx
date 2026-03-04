@@ -273,9 +273,17 @@ const EasytierServer: React.FC = () => {
             name="config_server_addr"
             label="Config-Server 地址"
             rules={[{ required: true, message: '请填写 config-server 地址' }]}
-            extra={<span style={{ fontSize: 11 }}>格式：<code>tcp://host:port</code>，如 <code>tcp://1.2.3.4:11010</code></span>}
+            extra={<span style={{ fontSize: 11 }}>格式：<code>tcp://host:port</code>，如 <code>tcp://1.2.3.4:11010</code>；使用官方服务器填 <code>tcp://public.easytier.cn:11010</code></span>}
           >
             <Input placeholder="tcp://config-server:11010" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="config_server_token"
+            label="Token（用户名）"
+            rules={[{ required: true, message: '请填写 Token，不能为空' }]}
+            extra={<span style={{ fontSize: 11 }}>Config-Server 认证 token（即用户名），将拼接到地址末尾，如 <code>tcp://host:port/<b>your_token</b></code></span>}
+          >
+            <Input placeholder="your_token" style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item
             name="machine_id"

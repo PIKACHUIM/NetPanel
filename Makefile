@@ -98,6 +98,8 @@ build-linux-arm64:
 ## build-windows-amd64: 构建 Windows amd64
 build-windows-amd64:
 	@mkdir -p $(DIST_DIR)
+	@echo ">>> 生成 Windows 资源文件（UAC manifest）..."
+	cd $(BACKEND_DIR) && GOOS=windows GOARCH=amd64 go generate ./...
 	cd $(BACKEND_DIR) && GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build \
 		-ldflags="$(LDFLAGS)" -o ../$(DIST_DIR)/netpanel-windows-amd64.exe .
 

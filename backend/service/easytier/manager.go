@@ -21,6 +21,7 @@ import (
 type processEntry struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
+	done   chan struct{} // 进程退出后关闭，用于等待进程完全退出
 }
 
 // Manager EasyTier 管理器（命令行进程管理）
@@ -46,6 +47,10 @@ func isWinPcapPanic(stderr string) bool {
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
+	// 将 dataDir 转为绝对路径，避免相对路径在工作目录变化时找不到二进制文件
+	if absDir, err := filepath.Abs(dataDir); err == nil {
+		dataDir = absDir
+	}
 	return &Manager{db: db, log: log, dataDir: dataDir}
 }
 
@@ -145,9 +150,12 @@ func (m *Manager) StartClient(id uint) error {
 	args := m.buildClientArgs(&cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, m.getBinaryPath(), args...)
-	cmd.Stdout = os.Stdout
-	// 使用 bytes.Buffer 捕获 stderr，同时保留输出到控制台
+	// 设置工作目录为二进制文件所在目录，确保能找到 wintun.dll 等依赖文件
+	cmd.Dir = filepath.Dir(m.getBinaryPath())
+	// 使用 bytes.Buffer 捕获 stdout/stderr，同时保留输出到控制台
+	var stdoutBuf bytes.Buffer
 	var stderrBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
 	if err := cmd.Start(); err != nil {
@@ -159,16 +167,21 @@ func (m *Manager) StartClient(id uint) error {
 		return fmt.Errorf("启动 EasyTier 客户端失败: %w", err)
 	}
 
-	entry := &processEntry{cmd: cmd, cancel: cancel}
+	entry := &processEntry{cmd: cmd, cancel: cancel, done: make(chan struct{})}
 	m.clients.Store(id, entry)
 
 	go func() {
 		err := cmd.Wait()
+		// 进程已退出，立即关闭 done channel，通知 StopClient 端口等资源已释放
+		close(entry.done)
 		stderrOutput := stderrBuf.String()
 		m.clients.Delete(id)
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
 			m.log.Warnf("[EasyTier客户端][%d] %s", id, errMsg)
+			if stdoutOutput := stdoutBuf.String(); stdoutOutput != "" {
+				m.log.Warnf("[EasyTier客户端][%d] stdout输出:\n%s", id, stdoutOutput)
+			}
 			m.db.Model(&model.EasytierClient{}).Where("id = ?", id).Updates(map[string]interface{}{
 				"status":     "error",
 				"last_error": errMsg,
@@ -213,8 +226,10 @@ func (m *Manager) StopClient(id uint) {
 		entry := val.(*processEntry)
 		entry.cancel()
 		if entry.cmd.Process != nil {
-			entry.cmd.Process.Kill()
+			_ = entry.cmd.Process.Kill()
 		}
+		// 等待进程完全退出，确保端口等资源已释放
+		<-entry.done
 		m.clients.Delete(id)
 	}
 	m.db.Model(&model.EasytierClient{}).Where("id = ?", id).Update("status", "stopped")
@@ -285,9 +300,10 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	}
 
 	// ===== 监听器设置 =====
-	if cfg.NoListener {
+	if cfg.NoListener || cfg.ListenPorts == "" {
+		// 未指定监听端口时默认不监听，避免占用随机端口
 		args = append(args, "--no-listener")
-	} else if cfg.ListenPorts != "" {
+	} else {
 		for _, p := range strings.Split(cfg.ListenPorts, ",") {
 			p = strings.TrimSpace(p)
 			if p != "" {
@@ -535,11 +551,15 @@ func (m *Manager) StartServer(id uint) error {
 	}
 
 	args := m.buildServerArgs(&cfg)
+	m.log.Infof("[EasyTier服务端][%d] 启动命令: %s %s", id, m.getBinaryPath(), strings.Join(args, " "))
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, m.getBinaryPath(), args...)
-	cmd.Stdout = os.Stdout
-	// 使用 bytes.Buffer 捕获 stderr，同时保留输出到控制台
+	// 设置工作目录为二进制文件所在目录，确保能找到 wintun.dll 等依赖文件
+	cmd.Dir = filepath.Dir(m.getBinaryPath())
+	// 使用 bytes.Buffer 捕获 stdout/stderr，同时保留输出到控制台
+	var stdoutBuf bytes.Buffer
 	var stderrBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
 	if err := cmd.Start(); err != nil {
@@ -551,16 +571,24 @@ func (m *Manager) StartServer(id uint) error {
 		return fmt.Errorf("启动 EasyTier 服务端失败: %w", err)
 	}
 
-	entry := &processEntry{cmd: cmd, cancel: cancel}
+	entry := &processEntry{cmd: cmd, cancel: cancel, done: make(chan struct{})}
 	m.servers.Store(id, entry)
 
 	go func() {
 		err := cmd.Wait()
+		// 进程已退出，立即关闭 done channel，通知 StopServer 端口等资源已释放
+		close(entry.done)
 		stderrOutput := stderrBuf.String()
 		m.servers.Delete(id)
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
 			m.log.Warnf("[EasyTier服务端][%d] %s", id, errMsg)
+			if stdoutOutput := stdoutBuf.String(); stdoutOutput != "" {
+				m.log.Warnf("[EasyTier服务端][%d] stdout输出:\n%s", id, stdoutOutput)
+			}
+			if stderrOutput != "" {
+				m.log.Warnf("[EasyTier服务端][%d] stderr输出:\n%s", id, stderrOutput)
+			}
 			m.db.Model(&model.EasytierServer{}).Where("id = ?", id).Updates(map[string]interface{}{
 				"status":     "error",
 				"last_error": errMsg,
@@ -605,8 +633,10 @@ func (m *Manager) StopServer(id uint) {
 		entry := val.(*processEntry)
 		entry.cancel()
 		if entry.cmd.Process != nil {
-			entry.cmd.Process.Kill()
+			_ = entry.cmd.Process.Kill()
 		}
+		// 等待进程完全退出，确保端口等资源已释放
+		<-entry.done
 		m.servers.Delete(id)
 	}
 	m.db.Model(&model.EasytierServer{}).Where("id = ?", id).Update("status", "stopped")
@@ -633,15 +663,27 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 
 	// ===== config-server 节点模式 =====
 	// 节点模式下只需传入 --config-server 地址，其余参数由 config-server 下发，不再手动配置
+	// URL 格式：tcp://host:port/<token>，token 不能为空
 	if cfg.ServerMode == "config-server" && cfg.ConfigServerAddr != "" {
 		for _, addr := range strings.Split(cfg.ConfigServerAddr, ",") {
 			addr = strings.TrimSpace(addr)
-			if addr != "" {
-				args = append(args, "--config-server", addr)
+			if addr == "" {
+				continue
 			}
+			// 将 token 拼接到 URL 末尾（如果 URL 末尾没有 /token 路径）
+			if cfg.ConfigServerToken != "" {
+				// 去掉末尾的 /，再拼接 /<token>
+				addr = strings.TrimRight(addr, "/") + "/" + cfg.ConfigServerToken
+			}
+			args = append(args, "--config-server", addr)
 		}
 		if cfg.MachineID != "" {
 			args = append(args, "--machine-id", cfg.MachineID)
+		}
+		// config-server 模式下，配置由服务端下发，但 TUN 网卡创建需要管理员权限。
+		// 若用户未勾选 no_tun，仍尊重用户配置（不强制加 --no-tun）。
+		if cfg.NoTun {
+			args = append(args, "--no-tun")
 		}
 		// 额外参数（兜底）
 		if cfg.ExtraArgs != "" {
@@ -679,13 +721,6 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 				args = append(args, "-l", p)
 			}
 		}
-	}
-
-	if cfg.NetworkName != "" {
-		args = append(args, "--network-name", cfg.NetworkName)
-	}
-	if cfg.NetworkPassword != "" {
-		args = append(args, "--network-secret", cfg.NetworkPassword)
 	}
 
 	// ===== RPC 设置 =====
@@ -745,9 +780,13 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 	}
 
 	// ===== 中继选项 =====
-	if cfg.RelayNetworkWhitelist != "" {
-		args = append(args, "--relay-network-whitelist", cfg.RelayNetworkWhitelist)
+	// 服务端必须传入 --relay-network-whitelist，否则 easytier-core 会以普通节点模式启动并立即退出。
+	// 默认值 "*" 表示中继所有网络；用户可自定义为 "net1,net2" 等。
+	relayWhitelist := cfg.RelayNetworkWhitelist
+	if relayWhitelist == "" {
+		relayWhitelist = "*"
 	}
+	args = append(args, "--relay-network-whitelist", relayWhitelist)
 	if cfg.ForeignRelayBpsLimit > 0 {
 		args = append(args, "--foreign-relay-bps-limit", fmt.Sprintf("%d", cfg.ForeignRelayBpsLimit))
 	}

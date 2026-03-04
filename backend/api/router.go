@@ -7,6 +7,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
 	"github.com/netpanel/netpanel/service/caddy"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cron"
@@ -18,6 +19,7 @@ import (
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
+	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -38,10 +40,12 @@ type RouterOptions struct {
 	CronMgr        *cron.Manager
 	StorageMgr     *storage.Manager
 	AccessMgr      *access.Manager
+	FirewallMgr    *firewall.Manager
 	DnsmasqMgr     *dnsmasq.Manager
 	WolMgr         *wol.Manager
 	CertMgr        *cert.Manager
 	CallbackMgr    *callback.Manager
+	SyslogMgr      *syslog.Manager
 }
 
 // NewRouter 创建路由
@@ -197,6 +201,16 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/domain/accounts/:id", daHandler.Delete)
 	auth.POST("/domain/accounts/:id/test", daHandler.Test)
 
+	// 域名管理（域名列表，参考 dnsmgr domain 表）
+	diHandler := handlers.NewDomainInfoHandler(opts.DB, opts.Log)
+		auth.GET("/domain/domains", diHandler.List)
+		auth.GET("/domain/domains/fetch", diHandler.FetchFromProvider)
+		auth.POST("/domain/domains", diHandler.Create)
+		auth.PUT("/domain/domains/:id", diHandler.Update)
+		auth.DELETE("/domain/domains/:id", diHandler.Delete)
+		auth.POST("/domain/domains/:id/refresh", diHandler.Refresh)
+		auth.PUT("/domain/domains/:id/auto-sync", diHandler.UpdateAutoSync)
+
 	// 证书账号（ACME CA 账号，参考 dnsmgr cert_account）
 	certAccountHandler := handlers.NewCertAccountHandler(opts.DB, opts.Log)
 	auth.GET("/domain/cert-accounts", certAccountHandler.List)
@@ -213,13 +227,13 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/domain/certs/:id", certHandler.Delete)
 	auth.POST("/domain/certs/:id/apply", certHandler.Renew)
 
-	// 域名解析
+	// 域名解析（子域名解析记录，按域名ID查询）
 	drHandler := handlers.NewDomainRecordHandler(opts.DB, opts.Log)
 	auth.GET("/domain/records", drHandler.List)
 	auth.POST("/domain/records", drHandler.Create)
 	auth.PUT("/domain/records/:id", drHandler.Update)
 	auth.DELETE("/domain/records/:id", drHandler.Delete)
-	auth.POST("/domain/records/sync/:accountId", drHandler.SyncFromProvider)
+	auth.POST("/domain/records/sync/:domainInfoId", drHandler.SyncFromProvider)
 
 	// DNSMasq
 	dnsmasqHandler := handlers.NewDnsmasqHandler(opts.DB, opts.Log, opts.DnsmasqMgr)
@@ -274,6 +288,18 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/access/:id", accessHandler.Update)
 	auth.DELETE("/access/:id", accessHandler.Delete)
 
+	// 系统防火墙（iptables/nftables/ufw/firewalld/Windows）
+	firewallHandler := handlers.NewFirewallHandler(opts.DB, opts.Log, opts.FirewallMgr)
+	auth.GET("/security/firewall", firewallHandler.List)
+	auth.POST("/security/firewall", firewallHandler.Create)
+	auth.PUT("/security/firewall/:id", firewallHandler.Update)
+	auth.DELETE("/security/firewall/:id", firewallHandler.Delete)
+	auth.POST("/security/firewall/:id/apply", firewallHandler.Apply)
+	auth.POST("/security/firewall/:id/remove", firewallHandler.Remove)
+	auth.GET("/security/firewall/backend", firewallHandler.DetectBackend)
+	auth.POST("/security/firewall/sync-system", firewallHandler.SyncSystem)
+	auth.GET("/security/firewall/sync-status", firewallHandler.GetSyncStatus)
+
 	// WAF 防火墙（Coraza，参考 coraza WAF 和 lucky 安全模块）
 	wafHandler := handlers.NewWafHandler(opts.DB, opts.Log)
 	auth.GET("/security/waf", wafHandler.List)
@@ -299,6 +325,21 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/callback/tasks", cbTaskHandler.Create)
 	auth.PUT("/callback/tasks/:id", cbTaskHandler.Update)
 	auth.DELETE("/callback/tasks/:id", cbTaskHandler.Delete)
+
+	// ── 系统管理 ──────────────────────────────────────────────────────────────
+	// 日志查看
+	syslogHandler := handlers.NewSyslogHandler(opts.DB, opts.Log, opts.SyslogMgr)
+	auth.GET("/admin/logs", syslogHandler.QueryLogs)
+	auth.GET("/admin/logs/services", syslogHandler.GetLogServices)
+	auth.DELETE("/admin/logs", syslogHandler.CleanupLogs)
+
+	// 用户管理
+	userHandler := handlers.NewUserHandler(opts.DB, opts.Log)
+	auth.GET("/admin/users", userHandler.ListUsers)
+	auth.POST("/admin/users", userHandler.CreateUser)
+	auth.PUT("/admin/users/:id", userHandler.UpdateUser)
+	auth.DELETE("/admin/users/:id", userHandler.DeleteUser)
+	auth.GET("/admin/users/me", userHandler.GetCurrentUser)
 
 	return r
 }

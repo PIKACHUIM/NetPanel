@@ -21,8 +21,10 @@ const Wol = lazy(() => import('./pages/Wol'))
 const DomainAccount = lazy(() => import('./pages/DomainAccount'))
 const CertAccount = lazy(() => import('./pages/CertAccount'))
 const DomainCert = lazy(() => import('./pages/DomainCert'))
-const DomainRecord = lazy(() => import('./pages/DomainRecord'))
+const DomainInfo = lazy(() => import('./pages/DomainRecord'))
+const DomainRecordDetail = lazy(() => import('./pages/DomainRecordDetail'))
 const Waf = lazy(() => import('./pages/Waf'))
+const Firewall = lazy(() => import('./pages/Firewall'))
 const Dnsmasq = lazy(() => import('./pages/Dnsmasq'))
 const Cron = lazy(() => import('./pages/Cron'))
 const Storage = lazy(() => import('./pages/Storage'))
@@ -31,6 +33,8 @@ const Access = lazy(() => import('./pages/Access'))
 const CallbackAccount = lazy(() => import('./pages/CallbackAccount'))
 const CallbackTask = lazy(() => import('./pages/CallbackTask'))
 const Settings = lazy(() => import('./pages/Settings'))
+const SystemLogs = lazy(() => import('./pages/SystemLogs'))
+const UserManagement = lazy(() => import('./pages/UserManagement'))
 
 const PageLoader: React.FC = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 300 }}>
@@ -73,8 +77,10 @@ const App: React.FC = () => {
         <Route path="domain/account" element={<Suspense fallback={<PageLoader />}><DomainAccount /></Suspense>} />
         <Route path="domain/cert-account" element={<Suspense fallback={<PageLoader />}><CertAccount /></Suspense>} />
         <Route path="domain/cert" element={<Suspense fallback={<PageLoader />}><DomainCert /></Suspense>} />
-        <Route path="domain/record" element={<Suspense fallback={<PageLoader />}><DomainRecord /></Suspense>} />
+        <Route path="domain/info" element={<Suspense fallback={<PageLoader />}><DomainInfo /></Suspense>} />
+        <Route path="domain/info/:domainInfoId/records" element={<Suspense fallback={<PageLoader />}><DomainRecordDetail /></Suspense>} />
         <Route path="security/waf" element={<Suspense fallback={<PageLoader />}><Waf /></Suspense>} />
+        <Route path="security/firewall" element={<Suspense fallback={<PageLoader />}><Firewall /></Suspense>} />
         <Route path="dnsmasq" element={<Suspense fallback={<PageLoader />}><Dnsmasq /></Suspense>} />
         <Route path="cron" element={<Suspense fallback={<PageLoader />}><Cron /></Suspense>} />
         <Route path="storage" element={<Suspense fallback={<PageLoader />}><Storage /></Suspense>} />
@@ -83,6 +89,8 @@ const App: React.FC = () => {
         <Route path="callback/account" element={<Suspense fallback={<PageLoader />}><CallbackAccount /></Suspense>} />
         <Route path="callback/task" element={<Suspense fallback={<PageLoader />}><CallbackTask /></Suspense>} />
         <Route path="settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
+        <Route path="admin/logs" element={<Suspense fallback={<PageLoader />}><SystemLogs /></Suspense>} />
+        <Route path="admin/users" element={<Suspense fallback={<PageLoader />}><UserManagement /></Suspense>} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

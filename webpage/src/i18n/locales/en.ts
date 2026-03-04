@@ -64,11 +64,16 @@ const en = {
     settings: 'Settings',
     certAccount: 'Cert Account',
     waf: 'WAF Firewall',
+    firewall: 'IP Firewall',
     security: 'Security',
     tunnel: 'Tunnel',
     network: 'Network',
     domain: 'Domain',
     callback: 'Callback',
+    // System Admin
+    admin: 'System Admin',
+    adminLogs: 'System Logs',
+    adminUsers: 'User Management',
   },
   login: {
     title: 'NetPanel',

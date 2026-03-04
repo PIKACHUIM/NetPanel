@@ -466,8 +466,10 @@ type EasytierServer struct {
 	// standalone 模式下可配置所有参数；config-server 模式下只需填写 ConfigServerAddr
 	ServerMode string `gorm:"size:20;default:'standalone'" json:"server_mode"`
 	// ConfigServerAddr config-server 地址，仅 config-server 模式下使用，格式：tcp://host:port
-	ConfigServerAddr string `gorm:"size:500" json:"config_server_addr"`
-	MachineID        string `gorm:"size:255" json:"machine_id"` // --machine-id：Web 配置服务器用于识别机器的唯一 ID
+	ConfigServerAddr  string `gorm:"size:500" json:"config_server_addr"`
+	// ConfigServerToken config-server 认证 token（用户名），拼接到 URL 末尾，格式：tcp://host:port/<token>
+	ConfigServerToken string `gorm:"size:255" json:"config_server_token"`
+	MachineID         string `gorm:"size:255" json:"machine_id"` // --machine-id：Web 配置服务器用于识别机器的唯一 ID
 
 	ListenAddr string `gorm:"size:100;default:'0.0.0.0'" json:"listen_addr"`
 	// 监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
@@ -654,11 +656,45 @@ type WolDevice struct {
 // DomainAccount 域名服务商账号
 type DomainAccount struct {
 	BaseModel
-	Name         string `gorm:"size:100;not null" json:"name"`
-	Provider     string `gorm:"size:50;not null" json:"provider"` // alidns/cloudflare/dnspod/...
+	Name     string `gorm:"size:100;not null" json:"name"`
+	Provider string `gorm:"size:50;not null" json:"provider"` // alidns/cloudflare/dnspod/...
+	// 邮箱地址（部分服务商需要）
+	Email string `gorm:"size:255" json:"email"`
+	// 认证方式：api_key（API密钥，需要ID+Secret）/ api_token（API令牌，只需Token）
+	AuthType     string `gorm:"size:20;default:'api_key'" json:"auth_type"`
 	AccessID     string `gorm:"size:255" json:"access_id"`
 	AccessSecret string `gorm:"size:500" json:"access_secret"`
-	Remark       string `gorm:"size:500" json:"remark"`
+	// 是否使用代理服务器
+	UseProxy bool   `gorm:"default:false" json:"use_proxy"`
+	Remark   string `gorm:"size:500" json:"remark"`
+}
+
+// ===== 域名管理 =====
+
+// DomainInfo 域名信息（对应 dnsmgr_domain 表）
+type DomainInfo struct {
+	BaseModel
+	// 关联域名账号
+	AccountID   uint   `gorm:"not null;index" json:"account_id"`
+	// 域名
+	Name        string `gorm:"size:255;not null" json:"name"`
+	// 服务商侧域名ID（thirdid）
+	ThirdID     string `gorm:"size:60" json:"third_id"`
+	// 解析记录数
+	RecordCount int    `gorm:"default:0" json:"record_count"`
+	// 到期时间
+	ExpireTime  *time.Time `json:"expire_time"`
+	// 注册时间
+	RegTime     *time.Time `json:"reg_time"`
+	// 是否开启到期提醒
+	IsNotice    bool   `gorm:"default:false" json:"is_notice"`
+	// 自动同步解析记录
+	AutoSync     bool  `gorm:"default:false" json:"auto_sync"`
+	// 自动同步间隔（分钟），0 表示不自动同步
+	SyncInterval int   `gorm:"default:60" json:"sync_interval"`
+	// 上次同步时间
+	LastSyncTime *time.Time `json:"last_sync_time"`
+	Remark      string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 证书账号 =====
@@ -671,9 +707,18 @@ type CertAccount struct {
 	Type string `gorm:"size:50;not null" json:"type"`
 	// ACME 注册邮箱
 	Email string `gorm:"size:255" json:"email"`
-	// EAB（External Account Binding）凭据，ZeroSSL / Google Trust Services 等需要
+	// EAB 获取方式：auto（自动获取）/ manual（手动输入）
+	// ZeroSSL / Google Trust Services 等需要 EAB
+	EabMode string `gorm:"size:20;default:'manual'" json:"eab_mode"`
+	// EAB（External Account Binding）凭据
 	EabKid     string `gorm:"size:255" json:"eab_kid"`
 	EabHmacKey string `gorm:"size:500" json:"eab_hmac_key"`
+	// 环境选择：production（正式环境）/ staging（测试环境）
+	Env string `gorm:"size:20;default:'production'" json:"env"`
+	// 是否使用代理：none（否）/ proxy（是）/ reverse_proxy（是（反向代理））
+	UseProxy string `gorm:"size:20;default:'none'" json:"use_proxy"`
+	// 代理地址（use_proxy != none 时填写）
+	ProxyAddr string `gorm:"size:255" json:"proxy_addr"`
 	// 扩展信息（ACME 注册后返回的账号 URL 等）
 	Ext    string `gorm:"type:text" json:"ext"`
 	Remark string `gorm:"size:500" json:"remark"`
@@ -684,37 +729,47 @@ type CertAccount struct {
 // DomainCert ACME 域名证书
 type DomainCert struct {
 	BaseModel
-	Name            string      `gorm:"size:100;not null" json:"name"`
-	Domains         string      `gorm:"type:text;not null" json:"domains"` // JSON 数组
-	CA              string      `gorm:"size:50;default:'letsencrypt'" json:"ca"` // letsencrypt/zerossl/buypass/google
-	ChallengeType   string      `gorm:"size:20;default:'dns'" json:"challenge_type"` // dns/http
-	DomainAccountID uint        `json:"domain_account_id"`
+	Name    string `gorm:"size:100;not null" json:"name"`
+	Domains string `gorm:"type:text;not null" json:"domains"` // JSON 数组
+	// 证书类型：acme（ACME自动申请）/ manual（手动上传）
+	CertType      string `gorm:"size:20;default:'acme'" json:"cert_type"`
+	CA            string `gorm:"size:50;default:'letsencrypt'" json:"ca"` // letsencrypt/zerossl/buypass/google
+	ChallengeType string `gorm:"size:20;default:'dns'" json:"challenge_type"` // dns/http
+	DomainAccountID uint `json:"domain_account_id"`
 	// 关联证书账号（ACME CA 账号）
-	CertAccountID   uint        `json:"cert_account_id"`
-	CertAccount     CertAccount `gorm:"foreignKey:CertAccountID" json:"cert_account,omitempty"`
-	CertFile        string      `gorm:"size:500" json:"cert_file"`
-	KeyFile         string      `gorm:"size:500" json:"key_file"`
-	ExpireAt        *time.Time  `json:"expire_at"`
-	AutoRenew       bool        `gorm:"default:true" json:"auto_renew"`
+	CertAccountID uint        `json:"cert_account_id"`
+	CertAccount   CertAccount `gorm:"foreignKey:CertAccountID" json:"cert_account,omitempty"`
+	// 证书文件路径（ACME 申请后写入）
+	CertFile string `gorm:"size:500" json:"cert_file"`
+	KeyFile  string `gorm:"size:500" json:"key_file"`
+	// 手动上传时的证书内容（PEM 格式）
+	CertContent string `gorm:"type:text" json:"cert_content"`
+	KeyContent  string `gorm:"type:text" json:"key_content"`
+	ExpireAt        *time.Time `json:"expire_at"`
+	AutoRenew       bool       `gorm:"default:true" json:"auto_renew"`
 	// 提前续期天数，默认 7 天
-	RenewBeforeDays int         `gorm:"default:7" json:"renew_before_days"`
-	Status          string      `gorm:"size:20;default:'pending'" json:"status"` // pending/valid/expired/error/applying
-	LastError       string      `gorm:"type:text" json:"last_error"`
-	Remark          string      `gorm:"size:500" json:"remark"`
+	RenewBeforeDays int    `gorm:"default:7" json:"renew_before_days"`
+	Status          string `gorm:"size:20;default:'pending'" json:"status"` // pending/valid/expired/error/applying
+	LastError       string `gorm:"type:text" json:"last_error"`
+	Remark          string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 域名解析 =====
 
-// DomainRecord 域名解析记录
+// DomainRecord 域名解析记录（本地缓存，实际数据来自服务商）
 type DomainRecord struct {
 	BaseModel
-	DomainAccountID uint   `gorm:"not null;index" json:"domain_account_id"`
+	// 关联域名信息
+	DomainInfoID    uint   `gorm:"not null;index" json:"domain_info_id"`
+	DomainAccountID uint   `gorm:"not null;index" json:"domain_account_id"` // 冗余字段，方便查询
 	Domain          string `gorm:"size:255;not null" json:"domain"`
 	RecordType      string `gorm:"size:20;not null" json:"record_type"` // A/AAAA/CNAME/MX/TXT/...
 	Host            string `gorm:"size:255;not null" json:"host"`       // 主机记录
 	Value           string `gorm:"size:500;not null" json:"value"`      // 记录值
 	TTL             int    `gorm:"default:600" json:"ttl"`
 	RemoteID        string `gorm:"size:255" json:"remote_id"` // 服务商记录ID
+	// CDN 代理（仅 Cloudflare 支持）：true=橙色云朵（代理），false=灰色云朵（仅DNS）
+	Proxied         bool   `gorm:"default:false" json:"proxied"`
 	Remark          string `gorm:"size:500" json:"remark"`
 }
 
@@ -855,6 +910,41 @@ type WafLog struct {
 	Action      string `gorm:"size:20" json:"action"`   // block/detect
 }
 
+// ===== 系统防火墙 =====
+
+// FirewallRule 系统防火墙规则（支持 Linux iptables/nftables/ufw/firewalld 和 Windows 防火墙）
+type FirewallRule struct {
+	BaseModel
+	Name      string `gorm:"size:100;not null" json:"name"`
+	Enable    bool   `gorm:"default:false" json:"enable"`
+	// 方向：in（入站）/ out（出站）
+	Direction string `gorm:"size:10;default:'in'" json:"direction"`
+	// 动作：allow（允许）/ deny（拒绝/丢弃）
+	Action string `gorm:"size:10;default:'deny'" json:"action"`
+	// 协议：tcp / udp / tcp+udp / icmp / all
+	Protocol string `gorm:"size:20;default:'tcp'" json:"protocol"`
+	// 源IP/CIDR，留空表示任意
+	SrcIP string `gorm:"size:255" json:"src_ip"`
+	// 目标IP/CIDR，留空表示任意
+	DstIP string `gorm:"size:255" json:"dst_ip"`
+	// 端口或端口范围，如 80、8080-8090，留空表示任意
+	Port string `gorm:"size:100" json:"port"`
+	// 优先级（数字越小越优先），默认 100
+	Priority int `gorm:"default:100" json:"priority"`
+	// 应用到哪个网络接口，留空表示所有接口
+	Interface string `gorm:"size:100" json:"interface"`
+	// 备注
+	Remark string `gorm:"size:500" json:"remark"`
+	// 最后一次应用状态：pending / applied / error
+	ApplyStatus string `gorm:"size:20;default:'pending'" json:"apply_status"`
+	// 最后一次应用错误信息
+	LastError string `gorm:"type:text" json:"last_error"`
+	// 是否为从系统防火墙自动同步的规则（true=系统规则，false=手动创建）
+	IsSystem bool `gorm:"default:false" json:"is_system"`
+	// 原始规则字符串（用于去重和展示，系统同步时填充）
+	Raw string `gorm:"type:text" json:"raw"`
+}
+
 // ===== 回调账号 =====
 
 // CallbackAccount 回调账号
@@ -881,4 +971,28 @@ type CallbackTask struct {
 	LastTriggerTime   *time.Time `json:"last_trigger_time"`
 	LastTriggerResult string `gorm:"type:text" json:"last_trigger_result"`
 	Remark            string `gorm:"size:500" json:"remark"`
+}
+
+// ===== 系统日志 =====
+
+// SystemLog 系统日志记录
+type SystemLog struct {
+	ID      uint      `gorm:"primarykey" json:"id"`
+	Level   string    `gorm:"size:20;index" json:"level"`   // info/warn/error/debug
+	Service string    `gorm:"size:50;index" json:"service"` // system/frp/nps/easytier/ddns/caddy/portforward/stun/dnsmasq/storage/cron/waf/firewall/access/cert/callback
+	Message string    `gorm:"type:text" json:"message"`
+	LogTime time.Time `gorm:"index" json:"log_time"`
+}
+
+// ===== 用户管理 =====
+
+// User 用户表
+type User struct {
+	BaseModel
+	Username string `gorm:"size:100;uniqueIndex;not null" json:"username"`
+	Password string `gorm:"size:255;not null" json:"-"` // bcrypt hash，不序列化到 JSON
+	Email    string `gorm:"size:255" json:"email"`
+	Enable   bool   `gorm:"default:true" json:"enable"`
+	IsAdmin  bool   `gorm:"default:false" json:"is_admin"`
+	Remark   string `gorm:"size:500" json:"remark"`
 }

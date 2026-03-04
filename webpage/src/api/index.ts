@@ -146,15 +146,31 @@ export const domainCertApi = {
   update: (id: number, data: any) => request.put(`/v1/domain/certs/${id}`, data),
   delete: (id: number) => request.delete(`/v1/domain/certs/${id}`),
   apply: (id: number) => request.post(`/v1/domain/certs/${id}/apply`),
+  // 解析 PEM 证书内容，返回域名列表
+  parseCert: (data: { cert_content: string }) => request.post('/v1/domain/certs/parse', data),
 }
 
-// ===== 域名解析 =====
+// ===== 域名管理（域名列表）=====
+export const domainInfoApi = {
+  list: (params?: { account_id?: number; keyword?: string }) => request.get('/v1/domain/domains', { params }),
+  create: (data: any) => request.post('/v1/domain/domains', data),
+  update: (id: number, data: any) => request.put(`/v1/domain/domains/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/domain/domains/${id}`),
+  refresh: (id: number) => request.post(`/v1/domain/domains/${id}/refresh`),
+  // 更新自动同步配置（触发后端定时器注册/取消）
+  updateAutoSync: (id: number, data: { auto_sync: boolean; sync_interval: number }) =>
+    request.put(`/v1/domain/domains/${id}/auto-sync`, data),
+  // 从服务商拉取账号下的域名列表（含已添加状态）
+  fetchFromProvider: (accountId: number) => request.get('/v1/domain/domains/fetch', { params: { account_id: accountId } }),
+}
+
+// ===== 域名解析（子域名解析记录）=====
 export const domainRecordApi = {
-  list: (accountId?: number) => request.get('/v1/domain/records', { params: { account_id: accountId } }),
+  list: (params?: { domain_info_id?: number; account_id?: number }) => request.get('/v1/domain/records', { params }),
   create: (data: any) => request.post('/v1/domain/records', data),
   update: (id: number, data: any) => request.put(`/v1/domain/records/${id}`, data),
   delete: (id: number) => request.delete(`/v1/domain/records/${id}`),
-  sync: (accountId: number) => request.post(`/v1/domain/records/sync/${accountId}`),
+  sync: (domainInfoId: number) => request.post(`/v1/domain/records/sync/${domainInfoId}`),
 }
 
 // ===== DNSMasq =====
@@ -230,6 +246,24 @@ export const wafApi = {
   testRule: (id: number, data: any) => request.post(`/v1/security/waf/${id}/test`, data),
 }
 
+// ===== 系统防火墙 =====
+export const firewallApi = {
+  list: () => request.get('/v1/security/firewall'),
+  create: (data: any) => request.post('/v1/security/firewall', data),
+  update: (id: number, data: any) => request.put(`/v1/security/firewall/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/security/firewall/${id}`),
+  // 应用规则到系统防火墙
+  apply: (id: number) => request.post(`/v1/security/firewall/${id}/apply`),
+  // 从系统防火墙移除规则（不删除数据库记录）
+  remove: (id: number) => request.post(`/v1/security/firewall/${id}/remove`),
+  // 检测当前系统防火墙后端
+  detectBackend: () => request.get('/v1/security/firewall/backend'),
+  // 触发异步同步系统防火墙规则到数据库
+  syncSystem: () => request.post('/v1/security/firewall/sync-system'),
+  // 获取同步状态（syncing/last_sync_at/last_sync_err/total）
+  getSyncStatus: () => request.get('/v1/security/firewall/sync-status'),
+}
+
 // ===== 回调账号 =====
 export const callbackAccountApi = {
   list: () => request.get('/v1/callback/accounts'),
@@ -256,4 +290,18 @@ export const systemApi = {
   changePassword: (data: any) => request.post('/v1/system/change-password', data),
   getInterfaces: () => request.get('/v1/system/interfaces'),
   login: (data: any) => request.post('/v1/auth/login', data),
+}
+
+// ===== 系统管理（日志 + 用户）=====
+export const adminApi = {
+  // 日志查看
+  queryLogs: (params?: any) => request.get('/v1/admin/logs', { params }),
+  getLogServices: () => request.get('/v1/admin/logs/services'),
+  cleanupLogs: (days: number) => request.delete('/v1/admin/logs', { params: { days } }),
+  // 用户管理
+  listUsers: () => request.get('/v1/admin/users'),
+  createUser: (data: any) => request.post('/v1/admin/users', data),
+  updateUser: (id: number, data: any) => request.put(`/v1/admin/users/${id}`, data),
+  deleteUser: (id: number) => request.delete(`/v1/admin/users/${id}`),
+  getCurrentUser: () => request.get('/v1/admin/users/me'),
 }

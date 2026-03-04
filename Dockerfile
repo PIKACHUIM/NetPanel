@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────
-# 阶段 1：构建前端
+# 阶段 1：构建前端（始终在构建机器原生架构上运行）
 # ─────────────────────────────────────────────
-FROM node:20-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
 
 WORKDIR /app/webpage
 COPY webpage/package*.json ./
@@ -11,12 +11,21 @@ COPY webpage/ ./
 RUN npm run build
 
 # ─────────────────────────────────────────────
-# 阶段 2：构建后端
+# 阶段 2：构建后端（支持交叉编译到目标架构）
 # ─────────────────────────────────────────────
-FROM golang:1.25-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend-builder
 
-# 安装 CGO 依赖（sqlite 需要 gcc）
-RUN apk add --no-cache gcc musl-dev
+# 接收目标平台参数
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG TARGETOS
+
+# 根据目标架构安装对应的 CGO 交叉编译工具链
+# amd64 构建机器交叉编译 arm64 需要 musl-cross（含 aarch64-linux-musl-gcc）
+RUN apk add --no-cache gcc musl-dev && \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        apk add --no-cache musl-cross; \
+    fi
 
 WORKDIR /app
 
@@ -36,8 +45,12 @@ COPY --from=frontend-builder /app/backend/embed/dist/ ./embed/dist/
 ARG VERSION=docker
 ARG BUILD_TIME
 
+# 根据目标架构设置交叉编译环境
 RUN BUILD_TIME=${BUILD_TIME:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')} && \
-    CGO_ENABLED=1 go build \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        export CC=aarch64-linux-musl-gcc; \
+    fi && \
+    CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
       -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
       -o /app/netpanel .
 
