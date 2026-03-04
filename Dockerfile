@@ -30,7 +30,8 @@ RUN go mod download
 COPY backend/ ./
 
 # 复制前端构建产物到 embed 目录
-COPY --from=frontend-builder /app/webpage/dist/ ./embed/dist/
+# vite.config.ts 中 outDir 为 '../backend/embed/dist'，即输出到 /app/backend/embed/dist
+COPY --from=frontend-builder /app/backend/embed/dist/ ./embed/dist/
 
 ARG VERSION=docker
 ARG BUILD_TIME
