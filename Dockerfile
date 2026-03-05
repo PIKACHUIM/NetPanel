@@ -28,10 +28,11 @@ ARG TARGETOS
 # 引入 xx 工具（提供 xx-apk、xx-go、xx-cc 等辅助命令）
 COPY --from=xx / /
 
-# 安装本机 gcc/musl-dev，再由 xx-apk 为目标架构安装交叉编译工具链
-# 同时安装 binutils 以确保目标架构的汇编器（as）可用
-RUN apk add --no-cache gcc musl-dev binutils && \
-    xx-apk add --no-cache gcc musl-dev binutils
+# 安装 clang/lld 作为交叉编译工具链
+# clang 是单一二进制，天然支持多架构交叉编译，不依赖外部汇编器
+# 可彻底避免 gcc 交叉编译时 runtime/cgo 汇编器（as）架构不匹配的问题
+RUN apk add --no-cache clang lld musl-dev && \
+    xx-apk add --no-cache musl-dev
 
 WORKDIR /app
 
@@ -51,12 +52,12 @@ COPY --from=frontend-builder /app/backend/embed/dist/ ./embed/dist/
 ARG VERSION=docker
 ARG BUILD_TIME
 
-# 使用 xx-go 自动设置 GOARCH/CC 等交叉编译环境变量
-# 同时显式设置 AS 为目标架构的汇编器，避免交叉编译时 CGO 使用宿主机汇编器
-# 导致 ARM64 汇编文件（如 kcp-go/reedsolomon 中的 gcc_arm64.S）编译失败
+# 使用 xx-go + clang 进行交叉编译
+# CC/CXX 指向 xx-clang/xx-clang++，由 xx 工具自动注入目标架构的 --target 参数
+# clang 内置汇编器（integrated-as），无需外部 as，彻底解决 runtime/cgo 汇编器架构不匹配问题
 RUN BUILD_TIME=${BUILD_TIME:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')} && \
-    CROSS_PREFIX=$(xx-info triple) && \
-    AS=${CROSS_PREFIX}-as \
+    CC=xx-clang \
+    CXX=xx-clang++ \
     CGO_ENABLED=1 xx-go build \
       -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
       -o /app/netpanel .
