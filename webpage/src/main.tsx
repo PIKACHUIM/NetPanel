@@ -19,10 +19,17 @@ const Root: React.FC = () => {
   // 同步主题属性到 HTML，供 CSS 使用
   // data-theme: 用于匹配暗色/亮色 CSS 选择器
   // data-wallpaper: 用于匹配壁纸毛玻璃 CSS
+  // 注意：index.html 内联脚本已提前设置，这里只做差异更新，防止首次渲染时
+  // zustand 尚未 rehydrate（wallpaper 还是默认值 'none'）把正确值覆盖掉
   useLayoutEffect(() => {
-    document.documentElement.setAttribute('data-theme', uiMode)
-    document.documentElement.setAttribute('data-wallpaper', wallpaper)
-  }, [uiMode, wallpaper, hasWp])
+    const html = document.documentElement
+    if (html.getAttribute('data-theme') !== uiMode) {
+      html.setAttribute('data-theme', uiMode)
+    }
+    if (html.getAttribute('data-wallpaper') !== wallpaper) {
+      html.setAttribute('data-wallpaper', wallpaper)
+    }
+  }, [uiMode, wallpaper])
 
   return (
     <ConfigProvider

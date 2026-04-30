@@ -391,7 +391,6 @@ const MainLayout: React.FC = () => {
                                         color: token.colorTextSecondary,
                                         fontSize: 12, fontWeight: 500,
                                         transition: 'all 0.2s',
-                                        border: `1px solid ${token.colorBorderSecondary}`,
                                         letterSpacing: '0.3px',
                                     }}
                                     onMouseEnter={e => (e.currentTarget.style.background = token.colorFillSecondary)}
@@ -412,7 +411,6 @@ const MainLayout: React.FC = () => {
                                     display: 'flex', alignItems: 'center', gap: 5,
                                     color: token.colorTextSecondary,
                                     fontSize: 12, fontWeight: 500,
-                                    border: `1px solid ${token.colorBorderSecondary}`,
                                 }}
                             >
                                 <span style={{fontSize: 14}}>{isDark ? '🌙' : '☀️'}</span>
@@ -458,7 +456,6 @@ const MainLayout: React.FC = () => {
                                     display: 'flex', alignItems: 'center', gap: 5,
                                     color: token.colorTextSecondary,
                                     fontSize: 12, fontWeight: 500,
-                                    border: `1px solid ${token.colorBorderSecondary}`,
                                 }}>
                                     <span style={{fontSize: 14}}>
                                         {wallpaperList.find(w => w.key === wallpaper)?.icon || '🎯'}
@@ -493,12 +490,16 @@ const MainLayout: React.FC = () => {
                     </Header>
 
                     {/* 内容区（背景由 index.css 根据 data-wallpaper 控制，避免 hydration 闪烁） */}
+                    {/* 关键：滚动放在内部 div，Content 本身不滚动，否则会破坏子 card 的 backdrop-filter */}
                     <Content style={{
-                        padding: 20,
-                        overflow: 'auto',
                         height: 'calc(100vh - 56px)',
+                        overflow: 'hidden',
                     }}>
-                        <div className="page-enter">
+                        <div className="page-enter" style={{
+                            height: '100%',
+                            overflow: 'auto',
+                            padding: 20,
+                        }}>
                             <Outlet/>
                         </div>
                     </Content>

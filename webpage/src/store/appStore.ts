@@ -32,8 +32,8 @@ export function getWallpaperColor(wallpaper: WallpaperKey): string {
 export const animeThemes = wallpaperList.filter(w => w.key !== 'none') as Array<{ key: string; name: string; icon: string; pc: string; mobile: string }>
 
 // 判断是否有壁纸
-export function hasWallpaper(wallpaper: WallpaperKey | undefined): boolean {
-  return !!wallpaper && wallpaper !== 'none'
+export function hasWallpaper(wallpaper: WallpaperKey): boolean {
+  return wallpaper !== 'none'
 }
 
 // 兼容旧代码

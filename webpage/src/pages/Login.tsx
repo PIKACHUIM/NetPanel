@@ -133,13 +133,13 @@ const LoginPage: React.FC = () => {
           transform: visible ? 'translateX(0)' : 'translateX(-30px)',
           transition: 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
           ...(animeBg ? {
-            background: isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.45)',
+            background: 'rgba(0,0,0,0.45)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
             borderRadius: 20,
             padding: '36px 32px',
-            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
           } : {}),
         }}>
           <div style={{

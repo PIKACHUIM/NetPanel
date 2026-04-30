@@ -87,7 +87,7 @@ const zh = {
     admin: '系统管理',
     adminLogs: '系统日志查看',
     adminUsers: '面板用户管理',
-    oauthProviders: 'OAuth 登录',
+    oauthProviders: '三方登录管理',
     // 节点管理
     meshManagement: '节点管理',
     meshNodes: '组网节点管理',
