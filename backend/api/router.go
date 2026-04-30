@@ -66,6 +66,12 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	apiV1.POST("/auth/login", authHandler.Login)
 	apiV1.POST("/auth/logout", authHandler.Logout)
 
+	// OAuth2/OIDC 公开路由
+	oauthHandler := handlers.NewOAuthHandler(opts.DB, opts.Log)
+	apiV1.GET("/auth/oauth/providers", oauthHandler.ListPublicProviders)
+	apiV1.GET("/auth/oauth/:provider/authorize", oauthHandler.Authorize)
+	apiV1.GET("/auth/oauth/:provider/callback", oauthHandler.Callback)
+
 	// 需要认证的路由
 	auth := apiV1.Group("")
 	auth.Use(middleware.JWTAuth())
@@ -318,7 +324,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/ipdb/subscriptions/:id/refresh", ipdbHandler.RefreshSubscription)
 
 	// 访问控制
-	accessHandler := handlers.NewAccessHandler(opts.DB, opts.Log, opts.AccessMgr)
+	accessHandler := handlers.NewAccessHandler(opts.DB, opts.Log, opts.AccessMgr, opts.CaddyMgr)
 	auth.GET("/access", accessHandler.List)
 	auth.POST("/access", accessHandler.Create)
 	auth.PUT("/access/:id", accessHandler.Update)
@@ -376,6 +382,12 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/admin/users/:id", userHandler.UpdateUser)
 	auth.DELETE("/admin/users/:id", userHandler.DeleteUser)
 	auth.GET("/admin/users/me", userHandler.GetCurrentUser)
+
+	// OAuth Provider 管理
+	auth.GET("/admin/oauth-providers", oauthHandler.ListProviders)
+	auth.POST("/admin/oauth-providers", oauthHandler.CreateProvider)
+	auth.PUT("/admin/oauth-providers/:id", oauthHandler.UpdateProvider)
+	auth.DELETE("/admin/oauth-providers/:id", oauthHandler.DeleteProvider)
 
 	// ── 组网节点管理 ──────────────────────────────────────────────────────────
 	meshHandler := handlers.NewMeshNodeHandler(opts.DB, opts.Log, opts.MeshNodeMgr)

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useLayoutEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ConfigProvider, theme as antTheme } from 'antd'
@@ -7,36 +7,39 @@ import enUS from 'antd/locale/en_US'
 import App from './App'
 import './i18n'
 import './index.css'
-import { useAppStore } from './store/appStore'
+import { useAppStore, hasWallpaper, getWallpaperColor } from './store/appStore'
 
 const Root: React.FC = () => {
-  const { language, theme } = useAppStore()
+  const { language, uiMode, wallpaper } = useAppStore()
   const locale = language === 'zh' ? zhCN : enUS
-  const isDark = theme === 'dark' || theme === 'glass-dark'
-  const isGlass = theme === 'glass-light' || theme === 'glass-dark'
+  const isDark = uiMode === 'dark'
+  const hasWp = hasWallpaper(wallpaper)
+  const primaryColor = getWallpaperColor(wallpaper)
 
-  // 同步主题到 data-theme 属性，供 CSS 变量使用
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
+  // 同步主题属性到 HTML，供 CSS 使用
+  // data-theme: 用于匹配暗色/亮色 CSS 选择器
+  // data-wallpaper: 用于匹配壁纸毛玻璃 CSS
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute('data-theme', uiMode)
+    document.documentElement.setAttribute('data-wallpaper', wallpaper)
+  }, [uiMode, wallpaper, hasWp])
 
   return (
     <ConfigProvider
       locale={locale}
       theme={{
-        algorithm: isDark || isGlass ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
+        algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
         token: {
-          colorPrimary: '#1677ff',
+          colorPrimary: primaryColor,
           borderRadius: 8,
           borderRadiusLG: 12,
           borderRadiusSM: 6,
           fontFamily: "'MapleMono', monospace",
-          // 暗黑/玻璃模式下的颜色调整
+          // 暗黑模式下的颜色调整
           ...(isDark ? {
-            colorBgContainer: '#1a1a1a',
-            colorBgElevated: '#242424',
-            colorBgLayout: '#0d0d0d',
-            colorBgSpotlight: '#2a2a2a',
+            colorBgContainer: '#0f1838',
+            colorBgElevated: '#162044',
+            colorBgSpotlight: '#1a2550',
             colorBgMask: 'rgba(0,0,0,0.65)',
             colorBorder: 'rgba(255,255,255,0.1)',
             colorBorderSecondary: 'rgba(255,255,255,0.06)',
@@ -49,27 +52,32 @@ const Root: React.FC = () => {
             colorTextTertiary: 'rgba(255,255,255,0.3)',
             colorTextQuaternary: 'rgba(255,255,255,0.2)',
           } : {}),
-          ...(isGlass ? {
-            colorBgContainer: 'rgba(255,255,255,0.06)',
-            colorBgElevated: 'rgba(255,255,255,0.1)',
-            colorBgLayout: 'transparent',
-            colorBorder: 'rgba(255,255,255,0.12)',
-            colorBorderSecondary: 'rgba(255,255,255,0.08)',
-            colorText: 'rgba(255,255,255,0.88)',
-            colorTextSecondary: 'rgba(255,255,255,0.5)',
-            colorTextTertiary: 'rgba(255,255,255,0.3)',
+          // colorBgLayout 始终透明，由 CSS 统一控制背景
+          colorBgLayout: 'transparent',
+          ...(hasWp ? {
+            colorBgContainer: isDark ? 'rgba(20,25,40,0.65)' : 'rgba(255,255,255,0.55)',
+            colorBgElevated: isDark ? 'rgba(20,25,40,0.8)' : 'rgba(255,255,255,0.75)',
+            colorBorder: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+            colorBorderSecondary: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
           } : {}),
         },
         components: {
           Layout: {
-            siderBg: isDark ? '#141414' : isGlass ? 'rgba(10,20,50,0.75)' : '#001529',
-            triggerBg: isDark ? '#1f1f1f' : isGlass ? 'rgba(10,20,50,0.85)' : '#002140',
-            headerBg: isDark ? '#1a1a1a' : isGlass ? 'rgba(255,255,255,0.06)' : '#ffffff',
+            siderBg: hasWp ? (isDark ? 'rgba(10,20,50,0.75)' : 'rgba(255,255,255,0.7)') : (isDark ? '#0a1028' : '#001529'),
+            triggerBg: hasWp ? (isDark ? 'rgba(10,20,50,0.85)' : 'rgba(255,255,255,0.8)') : (isDark ? '#0f1838' : '#002140'),
+            headerBg: hasWp ? 'rgba(255,255,255,0.06)' : (isDark ? '#0f1838' : '#ffffff'),
           },
           Menu: {
-            darkItemBg: isDark ? '#141414' : isGlass ? 'transparent' : '#001529',
-            darkSubMenuItemBg: isDark ? '#1a1a1a' : isGlass ? 'rgba(0,0,0,0.2)' : '#000c17',
-            darkItemSelectedBg: isDark ? '#1677ff20' : isGlass ? 'rgba(22,119,255,0.2)' : '#1677ff',
+            darkItemBg: hasWp ? 'transparent' : (isDark ? '#0a1028' : '#001529'),
+            darkSubMenuItemBg: hasWp ? 'rgba(0,0,0,0.2)' : (isDark ? '#060b1e' : '#000c17'),
+            darkItemSelectedBg: hasWp ? 'rgba(22,119,255,0.2)' : (isDark ? '#1677ff30' : '#1677ff'),
+            ...(hasWp && !isDark ? {
+              itemBg: 'transparent',
+              subMenuItemBg: 'rgba(0,0,0,0.03)',
+              itemSelectedBg: 'rgba(22,119,255,0.1)',
+              itemSelectedColor: '#1677ff',
+              itemHoverBg: 'rgba(0,0,0,0.04)',
+            } : {}),
           },
           Card: {
             borderRadiusLG: 12,
@@ -80,21 +88,21 @@ const Root: React.FC = () => {
           },
           Table: {
             borderRadius: 10,
-            headerBg: isDark ? '#1f1f1f' : isGlass ? 'rgba(255,255,255,0.05)' : '#fafafa',
-            footerBg: isDark ? '#1a1a1a' : isGlass ? 'transparent' : '#fafafa',
-            rowHoverBg: isDark ? 'rgba(255,255,255,0.04)' : isGlass ? 'rgba(255,255,255,0.04)' : undefined,
+            headerBg: hasWp ? 'rgba(255,255,255,0.05)' : (isDark ? '#1f1f1f' : '#fafafa'),
+            footerBg: hasWp ? 'transparent' : (isDark ? '#1a1a1a' : '#fafafa'),
+            rowHoverBg: (isDark || hasWp) ? 'rgba(255,255,255,0.04)' : undefined,
             rowSelectedBg: isDark ? 'rgba(22,119,255,0.12)' : undefined,
             rowSelectedHoverBg: isDark ? 'rgba(22,119,255,0.18)' : undefined,
           },
           Tooltip: {
-            colorBgSpotlight: isDark ? '#2a2a2a' : isGlass ? 'rgba(20,30,60,0.9)' : undefined,
-            colorTextLightSolid: isDark || isGlass ? 'rgba(255,255,255,0.85)' : undefined,
+            colorBgSpotlight: isDark ? '#2a2a2a' : undefined,
+            colorTextLightSolid: isDark ? 'rgba(255,255,255,0.85)' : undefined,
           },
           Popover: {
-            colorBgElevated: isDark ? '#242424' : isGlass ? 'rgba(20,30,60,0.9)' : undefined,
+            colorBgElevated: isDark ? '#242424' : undefined,
           },
           Dropdown: {
-            colorBgElevated: isDark ? '#242424' : isGlass ? 'rgba(20,30,60,0.9)' : undefined,
+            colorBgElevated: isDark ? '#242424' : undefined,
           },
           Alert: {
             colorInfoBg: isDark ? 'rgba(22,119,255,0.12)' : undefined,
@@ -107,17 +115,17 @@ const Root: React.FC = () => {
             colorErrorBorder: isDark ? 'rgba(255,77,79,0.3)' : undefined,
           },
           Tabs: {
-            cardBg: isDark ? '#1a1a1a' : isGlass ? 'rgba(255,255,255,0.04)' : undefined,
-            itemColor: isDark || isGlass ? 'rgba(255,255,255,0.5)' : undefined,
-            itemActiveColor: isDark || isGlass ? '#4096ff' : undefined,
-            itemHoverColor: isDark || isGlass ? 'rgba(255,255,255,0.75)' : undefined,
+            cardBg: hasWp ? 'rgba(255,255,255,0.04)' : (isDark ? '#1a1a1a' : undefined),
+            itemColor: isDark ? 'rgba(255,255,255,0.5)' : undefined,
+            itemActiveColor: isDark ? '#4096ff' : undefined,
+            itemHoverColor: isDark ? 'rgba(255,255,255,0.75)' : undefined,
           },
           Drawer: {
-            colorBgElevated: isDark ? '#1a1a1a' : isGlass ? 'rgba(15,25,50,0.88)' : undefined,
+            colorBgElevated: hasWp ? 'rgba(15,25,50,0.88)' : (isDark ? '#1a1a1a' : undefined),
           },
           Tag: {
-            defaultBg: isDark ? 'rgba(255,255,255,0.06)' : isGlass ? 'rgba(255,255,255,0.08)' : undefined,
-            defaultColor: isDark || isGlass ? 'rgba(255,255,255,0.75)' : undefined,
+            defaultBg: isDark ? 'rgba(255,255,255,0.06)' : undefined,
+            defaultColor: isDark ? 'rgba(255,255,255,0.75)' : undefined,
           },
           Checkbox: {
             colorBgContainer: isDark ? 'rgba(255,255,255,0.05)' : undefined,
@@ -129,11 +137,11 @@ const Root: React.FC = () => {
             colorTextQuaternary: isDark ? 'rgba(255,255,255,0.2)' : undefined,
           },
           Form: {
-            labelColor: isDark || isGlass ? 'rgba(255,255,255,0.75)' : undefined,
+            labelColor: isDark ? 'rgba(255,255,255,0.75)' : undefined,
           },
           Pagination: {
             itemBg: 'transparent',
-            itemActiveBg: isDark || isGlass ? 'rgba(22,119,255,0.2)' : undefined,
+            itemActiveBg: isDark ? 'rgba(22,119,255,0.2)' : undefined,
           },
           Button: {
             borderRadius: 8,

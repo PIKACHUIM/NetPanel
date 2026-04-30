@@ -1,15 +1,22 @@
 package access
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -21,6 +28,8 @@ type resolvedRule struct {
 	AllIPs []string
 	// 绑定的站点域名/端口列表（用于匹配请求）
 	BindSites []siteMatch
+	// 解析后的允许用户 ID 列表
+	ParsedAllowedUserIDs []uint
 }
 
 // siteMatch 站点匹配信息
@@ -111,6 +120,11 @@ func (m *Manager) loadRules() {
 			}
 		}
 
+		// 5. 解析允许的用户 ID 列表
+		if rule.AllowedUserIDs != "" {
+			json.Unmarshal([]byte(rule.AllowedUserIDs), &r.ParsedAllowedUserIDs)
+		}
+
 		resolved = append(resolved, r)
 	}
 
@@ -163,28 +177,196 @@ func (m *Manager) GinMiddleware() gin.HandlerFunc {
 				}
 			}
 
-			matched := matchIP(clientIP, rule.AllIPs)
+			// === IP 访问控制 ===
+			if len(rule.AllIPs) > 0 {
+				matched := matchIP(clientIP, rule.AllIPs)
 
-			switch rule.Mode {
-			case "blacklist":
-				if matched {
-					m.log.Warnf("[访问控制] IP %s 在黑名单中，拒绝访问", clientIP)
-					c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "访问被拒绝"})
-					c.Abort()
-					return
+				switch rule.Mode {
+				case "blacklist":
+					if matched {
+						m.log.Warnf("[访问控制] IP %s 在黑名单中，拒绝访问", clientIP)
+						c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "访问被拒绝"})
+						c.Abort()
+						return
+					}
+				case "whitelist":
+					if !matched {
+						m.log.Warnf("[访问控制] IP %s 不在白名单中，拒绝访问", clientIP)
+						c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "访问被拒绝"})
+						c.Abort()
+						return
+					}
 				}
-			case "whitelist":
-				if !matched {
-					m.log.Warnf("[访问控制] IP %s 不在白名单中，拒绝访问", clientIP)
-					c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "访问被拒绝"})
-					c.Abort()
-					return
+			}
+
+			// === 用户认证策略 ===
+			if rule.AuthMode != "" {
+				if !m.handleUserAuth(c, rule) {
+					return // 已在 handleUserAuth 中 Abort
 				}
 			}
 		}
 
 		c.Next()
 	}
+}
+
+// handleUserAuth 处理用户认证策略，返回 true 表示认证通过，false 表示已拒绝
+func (m *Manager) handleUserAuth(c *gin.Context, rule resolvedRule) bool {
+	switch rule.AuthMode {
+	case "basic_auth":
+		return m.handleBasicAuth(c, rule)
+	case "page_login":
+		return m.handlePageLogin(c, rule)
+	}
+	return true
+}
+
+// handleBasicAuth 处理 Basic Auth 认证
+func (m *Manager) handleBasicAuth(c *gin.Context, rule resolvedRule) bool {
+	auth := c.GetHeader("Authorization")
+	if auth == "" || !strings.HasPrefix(auth, "Basic ") {
+		c.Header("WWW-Authenticate", `Basic realm="NetPanel Access Control"`)
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return false
+	}
+
+	// 解码 Basic Auth
+	decoded, err := base64.StdEncoding.DecodeString(auth[6:])
+	if err != nil {
+		c.Header("WWW-Authenticate", `Basic realm="NetPanel Access Control"`)
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return false
+	}
+
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		c.Header("WWW-Authenticate", `Basic realm="NetPanel Access Control"`)
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return false
+	}
+
+	username, password := parts[0], parts[1]
+
+	// 验证用户
+	var user model.User
+	if err := m.db.Where("username = ? AND enable = ?", username, true).First(&user).Error; err != nil {
+		c.Header("WWW-Authenticate", `Basic realm="NetPanel Access Control"`)
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return false
+	}
+
+	// 验证密码
+	if !utils.CheckPassword(password, user.Password) {
+		c.Header("WWW-Authenticate", `Basic realm="NetPanel Access Control"`)
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return false
+	}
+
+	// 检查用户是否在允许列表中
+	if !m.isUserAllowed(user.ID, rule.ParsedAllowedUserIDs) {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "您无权访问此站点"})
+		c.Abort()
+		return false
+	}
+
+	return true
+}
+
+// handlePageLogin 处理页面跳转登录认证
+func (m *Manager) handlePageLogin(c *gin.Context, rule resolvedRule) bool {
+	// 检查 session cookie
+	cookie, err := c.Cookie("netpanel_session")
+	if err != nil || cookie == "" {
+		// 重定向到登录页面（带回跳地址）
+		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
+		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
+		c.Abort()
+		return false
+	}
+
+	// 验证 session cookie（使用 HMAC 签名验证）
+	username, valid := validateSessionCookieForAccess(cookie)
+	if !valid {
+		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
+		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
+		c.Abort()
+		return false
+	}
+
+	// 查找用户
+	var user model.User
+	if err := m.db.Where("username = ? AND enable = ?", username, true).First(&user).Error; err != nil {
+		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
+		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
+		c.Abort()
+		return false
+	}
+
+	// 检查用户是否在允许列表中
+	if !m.isUserAllowed(user.ID, rule.ParsedAllowedUserIDs) {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "您无权访问此站点"})
+		c.Abort()
+		return false
+	}
+
+	return true
+}
+
+// isUserAllowed 检查用户是否在允许列表中（空列表表示所有已认证用户都允许）
+func (m *Manager) isUserAllowed(userID uint, allowedIDs []uint) bool {
+	if len(allowedIDs) == 0 {
+		return true // 空列表表示所有已登录用户均可访问
+	}
+	for _, id := range allowedIDs {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// validateSessionCookieForAccess 验证 session cookie（复用 platform_auth 的逻辑）
+// 使用与 middleware/platform_auth.go 相同的 JWT 密钥签名
+func validateSessionCookieForAccess(cookie string) (string, bool) {
+	parts := strings.SplitN(cookie, ".", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+
+	payloadHex := parts[0]
+	signature := parts[1]
+
+	// 解码 hex payload
+	payload, err := hex.DecodeString(payloadHex)
+	if err != nil {
+		return "", false
+	}
+
+	// 验证 HMAC-SHA256 签名（使用与 auth 中间件相同的密钥）
+	mac := hmac.New(sha256.New, []byte("netpanel-secret-key-change-in-production"))
+	mac.Write(payload)
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+	if subtle.ConstantTimeCompare([]byte(signature), []byte(expectedSig)) != 1 {
+		return "", false
+	}
+
+	// 解析数据
+	var data struct {
+		Username  string `json:"u"`
+		ExpiresAt int64  `json:"e"`
+	}
+	if err := json.Unmarshal(payload, &data); err != nil {
+		return "", false
+	}
+
+	// 检查过期
+	if time.Now().Unix() > data.ExpiresAt {
+		return "", false
+	}
+
+	return data.Username, true
 }
 
 // matchRequestSite 检查请求的 Host 是否匹配绑定的站点列表

@@ -37,6 +37,15 @@
     </style>
   </head>
   <body>
+    <script>
+      // 同步设置主题属性，避免刷新时毛玻璃/主题闪烁
+      try {
+        var store = JSON.parse(localStorage.getItem('netpanel-store') || '{}');
+        var state = store.state || store;
+        document.documentElement.setAttribute('data-theme', state.uiMode || 'dark');
+        document.documentElement.setAttribute('data-wallpaper', state.wallpaper || 'none');
+      } catch(e) {}
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

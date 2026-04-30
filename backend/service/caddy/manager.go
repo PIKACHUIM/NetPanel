@@ -5,14 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/caddyauth"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/fileserver"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/headers"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
@@ -29,6 +32,7 @@ type Manager struct {
 	db        *gorm.DB
 	log       *logrus.Logger
 	dataDir   string
+	panelPort int // NetPanel 面板监听端口
 	mu        sync.Mutex
 	started   bool
 	adminHTTP *http.Client
@@ -36,13 +40,19 @@ type Manager struct {
 
 func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 	return &Manager{
-		db:      db,
-		log:     log,
-		dataDir: dataDir,
+		db:        db,
+		log:       log,
+		dataDir:   dataDir,
+		panelPort: 8080, // 默认值
 		adminHTTP: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+// SetPanelPort 设置 NetPanel 面板的实际监听端口（用于 page_login 重定向）
+func (m *Manager) SetPanelPort(port int) {
+	m.panelPort = port
 }
 
 // StartAll 启动 Caddy 引擎并加载所有已启用站点（异步，不阻塞主进程）
@@ -108,7 +118,7 @@ func (m *Manager) Start(id uint) error {
 	}
 
 	// 构建路由配置
-	route, err := m.buildRoute(&site)
+	routes, err := m.buildRoutes(&site)
 	if err != nil {
 		m.setError(id, err.Error())
 		return fmt.Errorf("构建路由配置失败: %w", err)
@@ -116,7 +126,18 @@ func (m *Manager) Start(id uint) error {
 
 	// 通过 Admin API 添加路由
 	serverKey := fmt.Sprintf("netpanel_%d", id)
-	serverCfg := m.buildServerConfig(&site, route)
+	serverCfg := m.buildServerConfig(&site, routes)
+
+	// 输出调试日志：打印实际发送给 Caddy 的配置
+	if cfgJSON, err := json.MarshalIndent(serverCfg, "", "  "); err == nil {
+		m.log.Infof("[Caddy] 站点 [%s] 配置:\n%s", site.Name, string(cfgJSON))
+	}
+
+	// 先删除可能已存在的旧配置（避免 409 key already exists 错误）
+	m.adminRequest("DELETE",
+		fmt.Sprintf("/config/apps/http/servers/%s", serverKey),
+		nil,
+	)
 
 	if err := m.adminRequest("PUT",
 		fmt.Sprintf("/config/apps/http/servers/%s", serverKey),
@@ -174,6 +195,15 @@ func (m *Manager) ensureCaddyRunning() error {
 		Admin: &caddy.AdminConfig{
 			Listen: caddyAdminAddr,
 		},
+		Logging: &caddy.Logging{
+			Logs: map[string]*caddy.CustomLog{
+				"default": {
+					BaseLog: caddy.BaseLog{
+						Level: "INFO",
+					},
+				},
+			},
+		},
 		AppsRaw: caddy.ModuleMap{
 			"http": json.RawMessage(`{"servers":{}}`),
 		},
@@ -199,16 +229,19 @@ func (m *Manager) ensureCaddyRunning() error {
 }
 
 // buildServerConfig 构建 Caddy 服务器配置
-func (m *Manager) buildServerConfig(site *model.CaddySite, route map[string]interface{}) map[string]interface{} {
+func (m *Manager) buildServerConfig(site *model.CaddySite, routes []interface{}) map[string]interface{} {
 	listenAddr := fmt.Sprintf(":%d", site.Port)
 
 	serverCfg := map[string]interface{}{
 		"listen": []string{listenAddr},
-		"routes": []interface{}{route},
-		// 禁用自动 HTTPS 重定向，避免 Caddy 尝试监听 80 端口
-		// （80 端口在 Windows 上通常被占用或需要管理员权限）
+		"routes": routes,
+		// 禁用自动 HTTPS 重定向
 		"automatic_https": map[string]interface{}{
 			"disable": true,
+		},
+		// 开启访问日志
+		"logs": map[string]interface{}{
+			"default_logger_name": fmt.Sprintf("netpanel_%d", site.ID),
 		},
 	}
 
@@ -223,36 +256,44 @@ func (m *Manager) buildServerConfig(site *model.CaddySite, route map[string]inte
 	return serverCfg
 }
 
-// buildRoute 构建路由配置
-func (m *Manager) buildRoute(site *model.CaddySite) (map[string]interface{}, error) {
-	// 匹配条件
-	var matchers []interface{}
-	if site.Domain != "" {
-		matchers = append(matchers, map[string]interface{}{
+// buildRoute 构建路由配置，返回路由数组
+func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
+	// 匹配条件：只有当域名是真实域名（非 localhost、非 IP）时才添加 host matcher
+	var hostMatchers []interface{}
+	if site.Domain != "" && !isLocalOrIP(site.Domain) {
+		hostMatchers = append(hostMatchers, map[string]interface{}{
 			"host": []string{site.Domain},
 		})
 	}
 
-	// 处理器
-	var handlers []interface{}
+	// 业务处理器
+	var mainHandlers []interface{}
 
 	switch site.SiteType {
 	case "reverse_proxy":
 		if site.UpstreamAddr == "" {
 			return nil, fmt.Errorf("反向代理目标地址不能为空")
 		}
-		handlers = append(handlers, map[string]interface{}{
+		dialAddr := normalizeUpstreamDial(site.UpstreamAddr)
+		mainHandlers = append(mainHandlers, map[string]interface{}{
 			"handler": "reverse_proxy",
 			"upstreams": []interface{}{
-				map[string]interface{}{"dial": site.UpstreamAddr},
+				map[string]interface{}{"dial": dialAddr},
 			},
 			"headers": map[string]interface{}{
 				"request": map[string]interface{}{
 					"set": map[string]interface{}{
-						"X-Real-IP":       []string{"{http.request.remote.host}"},
-						"X-Forwarded-For": []string{"{http.request.remote.host}"},
+						"Host":              []string{"{http.request.host}"},
+						"X-Real-IP":         []string{"{http.request.remote.host}"},
+						"X-Forwarded-For":   []string{"{http.request.remote.host}"},
+						"X-Forwarded-Proto": []string{"{http.request.scheme}"},
 					},
 				},
+			},
+			"transport": map[string]interface{}{
+				"protocol":      "http",
+				"read_timeout":  300000000000,
+				"write_timeout": 300000000000,
 			},
 		})
 
@@ -260,7 +301,6 @@ func (m *Manager) buildRoute(site *model.CaddySite) (map[string]interface{}, err
 		if site.RootPath == "" {
 			return nil, fmt.Errorf("静态文件根目录不能为空")
 		}
-		// 确保目录存在
 		if err := os.MkdirAll(site.RootPath, 0755); err != nil {
 			return nil, fmt.Errorf("创建静态文件目录失败: %w", err)
 		}
@@ -271,7 +311,7 @@ func (m *Manager) buildRoute(site *model.CaddySite) (map[string]interface{}, err
 		if site.FileList {
 			fileHandler["browse"] = map[string]interface{}{}
 		}
-		handlers = append(handlers, fileHandler)
+		mainHandlers = append(mainHandlers, fileHandler)
 
 	case "redirect":
 		if site.RedirectTo == "" {
@@ -281,8 +321,8 @@ func (m *Manager) buildRoute(site *model.CaddySite) (map[string]interface{}, err
 		if code == 0 {
 			code = 301
 		}
-		handlers = append(handlers, map[string]interface{}{
-			"handler":   "static_response",
+		mainHandlers = append(mainHandlers, map[string]interface{}{
+			"handler":     "static_response",
 			"status_code": code,
 			"headers": map[string]interface{}{
 				"Location": []string{site.RedirectTo},
@@ -293,14 +333,157 @@ func (m *Manager) buildRoute(site *model.CaddySite) (map[string]interface{}, err
 		return nil, fmt.Errorf("不支持的站点类型: %s", site.SiteType)
 	}
 
-	route := map[string]interface{}{
-		"handle": handlers,
+	// 查询认证规则
+	authMode, authRule := m.findAuthRule(site.ID)
+
+	switch authMode {
+	case "basic_auth":
+		// Basic Auth: 在 handler 链前面插入 authentication handler
+		basicHandler := m.buildBasicAuthHandler(authRule)
+		if basicHandler != nil {
+			mainHandlers = append([]interface{}{basicHandler}, mainHandlers...)
+		}
+		route := map[string]interface{}{"handle": mainHandlers}
+		if len(hostMatchers) > 0 {
+			route["match"] = hostMatchers
+		}
+		return []interface{}{route}, nil
+
+	case "page_login":
+		// 页面跳转登录: 两个 route
+		// Route 1: 没有有效 session cookie → 重定向到 NetPanel 登录页
+		// Route 2: 有 cookie → 正常代理
+		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, site), nil
+
+	default:
+		// 无认证
+		route := map[string]interface{}{"handle": mainHandlers}
+		if len(hostMatchers) > 0 {
+			route["match"] = hostMatchers
+		}
+		return []interface{}{route}, nil
 	}
-	if len(matchers) > 0 {
-		route["match"] = matchers
+}
+
+// findAuthRule 查找绑定到指定站点的认证规则
+func (m *Manager) findAuthRule(siteID uint) (string, model.AccessRule) {
+	var rules []model.AccessRule
+	m.db.Where("enable = ? AND auth_mode != ''", true).Find(&rules)
+
+	for _, rule := range rules {
+		if rule.BindSiteIDs == "" {
+			continue
+		}
+		var siteIDs []uint
+		if err := json.Unmarshal([]byte(rule.BindSiteIDs), &siteIDs); err != nil {
+			continue
+		}
+		for _, id := range siteIDs {
+			if id == siteID {
+				return rule.AuthMode, rule
+			}
+		}
+	}
+	return "", model.AccessRule{}
+}
+
+// buildPageLoginRoutes 构建页面跳转登录的路由
+// 无 cookie 时重定向到 NetPanel 面板的登录页面
+func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers []interface{}, site *model.CaddySite) []interface{} {
+	// 构建 NetPanel 面板登录页的 URL
+	// 使用请求的 scheme + 请求的 hostname + 面板端口
+	// redirect 参数带上代理站点的完整地址，登录成功后跳回
+	panelLogin := fmt.Sprintf("{http.request.scheme}://{http.request.host}:%d/login?redirect={http.request.scheme}://{http.request.hostport}{http.request.uri}", m.panelPort)
+
+	// Route 1: 没有 netpanel_session cookie → 重定向到面板登录页
+	redirectRoute := map[string]interface{}{
+		"match": []interface{}{
+			map[string]interface{}{
+				"not": []interface{}{
+					map[string]interface{}{
+						"header_regexp": map[string]interface{}{
+							"Cookie": map[string]interface{}{
+								"pattern": "netpanel_session=.+",
+							},
+						},
+					},
+				},
+			},
+		},
+		"handle": []interface{}{
+			map[string]interface{}{
+				"handler":     "static_response",
+				"status_code": 302,
+				"headers": map[string]interface{}{
+					"Location": []string{panelLogin},
+				},
+			},
+		},
 	}
 
-	return route, nil
+	// Route 2: 有 cookie → 正常代理
+	proxyRoute := map[string]interface{}{
+		"handle": mainHandlers,
+	}
+
+	// 如果有 host matcher，添加到两个 route 上
+	if len(hostMatchers) > 0 {
+		// 对 redirectRoute，合并 host matcher 和 cookie not-match
+		redirectRoute["match"] = append(hostMatchers, redirectRoute["match"].([]interface{})...)
+		proxyRoute["match"] = hostMatchers
+	}
+
+	return []interface{}{redirectRoute, proxyRoute}
+}
+
+// buildBasicAuthHandler 构建 Caddy Basic Auth handler
+func (m *Manager) buildBasicAuthHandler(rule model.AccessRule) map[string]interface{} {
+	// 获取允许的用户列表
+	var allowedIDs []uint
+	if rule.AllowedUserIDs != "" {
+		json.Unmarshal([]byte(rule.AllowedUserIDs), &allowedIDs)
+	}
+
+	// 查询用户（如果有指定用户则只查询指定的，否则查询所有启用用户）
+	var users []model.User
+	if len(allowedIDs) > 0 {
+		m.db.Where("id IN ? AND enable = ?", allowedIDs, true).Find(&users)
+	} else {
+		m.db.Where("enable = ?", true).Find(&users)
+	}
+
+	if len(users) == 0 {
+		return nil
+	}
+
+	// 构建 Caddy 的 basic_auth accounts
+	// Caddy 需要 bcrypt hash 格式的密码
+	var accounts []interface{}
+	for _, u := range users {
+		if u.Password == "" {
+			continue // OAuth 用户无密码，跳过
+		}
+		accounts = append(accounts, map[string]interface{}{
+			"username": u.Username,
+			"password": u.Password, // 已经是 bcrypt hash
+		})
+	}
+
+	if len(accounts) == 0 {
+		return nil
+	}
+
+	return map[string]interface{}{
+		"handler": "authentication",
+		"providers": map[string]interface{}{
+			"http_basic": map[string]interface{}{
+				"accounts": accounts,
+				"hash": map[string]interface{}{
+					"algorithm": "bcrypt",
+				},
+			},
+		},
+	}
 }
 
 // buildTLSConfig 构建 TLS 配置
@@ -424,4 +607,51 @@ func (m *Manager) setError(id uint, errMsg string) {
 // GetCaddyDataDir 获取 Caddy 数据目录
 func (m *Manager) GetCaddyDataDir() string {
 	return filepath.Join(m.dataDir, "caddy")
+}
+
+// normalizeUpstreamDial 将上游地址转换为 Caddy reverse_proxy 的 dial 格式 (host:port)
+// 支持输入格式: "http://127.0.0.1:1087", "https://example.com", "127.0.0.1:1087", "example.com"
+func normalizeUpstreamDial(addr string) string {
+	addr = strings.TrimSpace(addr)
+
+	// 去除协议前缀，提取 scheme 用于默认端口
+	scheme := ""
+	if strings.HasPrefix(addr, "https://") {
+		scheme = "https"
+		addr = strings.TrimPrefix(addr, "https://")
+	} else if strings.HasPrefix(addr, "http://") {
+		scheme = "http"
+		addr = strings.TrimPrefix(addr, "http://")
+	}
+
+	// 去除路径部分（只取 host:port）
+	if idx := strings.Index(addr, "/"); idx != -1 {
+		addr = addr[:idx]
+	}
+
+	// 如果已经包含端口，直接返回
+	if _, _, err := net.SplitHostPort(addr); err == nil {
+		return addr
+	}
+
+	// 没有端口，根据 scheme 补充默认端口
+	switch scheme {
+	case "https":
+		return addr + ":443"
+	default:
+		return addr + ":80"
+	}
+}
+
+// isLocalOrIP 判断域名是否为 localhost 或 IP 地址（这些不应该作为 host matcher）
+func isLocalOrIP(domain string) bool {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "localhost" || domain == "" {
+		return true
+	}
+	// 检查是否为 IP 地址
+	if net.ParseIP(domain) != nil {
+		return true
+	}
+	return false
 }

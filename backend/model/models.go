@@ -901,7 +901,10 @@ type AccessRule struct {
 	IPList      string `gorm:"type:text" json:"ip_list"`                // JSON 数组，支持 CIDR（手动输入）
 	BindIPDBIDs string `gorm:"type:text" json:"bind_ipdb_ids"`          // JSON 数组，绑定 IP 地址库条目 ID 列表
 	BindSiteIDs string `gorm:"type:text" json:"bind_site_ids"`          // JSON 数组，绑定网站服务（CaddySite）ID 列表
-	Remark      string `gorm:"size:500" json:"remark"`
+	// 用户认证策略
+	AuthMode       string `gorm:"size:20;default:''" json:"auth_mode"`       // 空=不要求登录, basic_auth=Basic Auth, page_login=页面跳转登录
+	AllowedUserIDs string `gorm:"type:text" json:"allowed_user_ids"`         // JSON 数组，允许访问的用户 ID 列表（空数组=所有已登录用户）
+	Remark         string `gorm:"size:500" json:"remark"`
 }
 
 // ===== WAF 防火墙 =====
@@ -1020,12 +1023,35 @@ type SystemLog struct {
 // User 用户表
 type User struct {
 	BaseModel
-	Username string `gorm:"size:100;uniqueIndex;not null" json:"username"`
-	Password string `gorm:"size:255;not null" json:"-"` // bcrypt hash，不序列化到 JSON
-	Email    string `gorm:"size:255" json:"email"`
-	Enable   bool   `gorm:"default:true" json:"enable"`
-	IsAdmin  bool   `gorm:"default:false" json:"is_admin"`
-	Remark   string `gorm:"size:500" json:"remark"`
+	Username      string `gorm:"size:100;uniqueIndex;not null" json:"username"`
+	Password      string `gorm:"size:255" json:"-"` // bcrypt hash，不序列化到 JSON（OAuth 用户可为空）
+	Email         string `gorm:"size:255" json:"email"`
+	Enable        bool   `gorm:"default:true" json:"enable"`
+	IsAdmin       bool   `gorm:"default:false" json:"is_admin"`
+	OAuthProvider string `gorm:"size:100" json:"oauth_provider"` // OAuth 来源标记（provider name），空表示本地用户
+	OAuthSub      string `gorm:"size:255" json:"oauth_sub"`      // OAuth 用户唯一标识（sub claim）
+	Remark        string `gorm:"size:500" json:"remark"`
+}
+
+// ===== OAuth2/OIDC 第三方登录 =====
+
+// OAuthProvider OAuth2/OIDC 提供商配置
+type OAuthProviderConfig struct {
+	BaseModel
+	Name         string `gorm:"size:100;not null" json:"name"`
+	Type         string `gorm:"size:20;default:'oidc'" json:"type"` // oidc/oauth2
+	ClientID     string `gorm:"size:255;not null" json:"client_id"`
+	ClientSecret string `gorm:"size:500;not null" json:"-"`
+	AuthURL      string `gorm:"size:500" json:"auth_url"`     // OAuth2 自定义时填写
+	TokenURL     string `gorm:"size:500" json:"token_url"`    // OAuth2 自定义时填写
+	UserInfoURL  string `gorm:"size:500" json:"userinfo_url"` // OAuth2 自定义时填写
+	IssuerURL    string `gorm:"size:500" json:"issuer_url"`   // OIDC Discovery URL
+	Scopes       string `gorm:"size:500;default:'openid profile email'" json:"scopes"`
+	RedirectURI  string `gorm:"size:500" json:"redirect_uri"`
+	Icon         string `gorm:"size:100" json:"icon"`          // 图标名称
+	DisplayOrder int    `gorm:"default:0" json:"display_order"`
+	Enable       bool   `gorm:"default:true" json:"enable"`
+	Remark       string `gorm:"size:500" json:"remark"`
 }
 
 // ===== WireGuard 管理 =====

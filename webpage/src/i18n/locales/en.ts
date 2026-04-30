@@ -84,6 +84,7 @@ const en = {
     admin: 'System Admin',
     adminLogs: 'System Logs',
     adminUsers: 'User Management',
+    oauthProviders: 'OAuth Login',
     // Mesh Node Management
     meshManagement: 'Node Management',
     meshNodes: 'Mesh Nodes',
@@ -99,6 +100,7 @@ const en = {
     login: 'Login',
     loginSuccess: 'Login successful',
     loginFailed: 'Invalid username or password',
+    orThirdParty: 'Or sign in with',
   },
   dashboard: {
     title: 'Dashboard',

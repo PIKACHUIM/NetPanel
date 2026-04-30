@@ -20,7 +20,7 @@ import {
   cronApi, storageApi, accessApi, wolApi,
   firewallApi, wireguardApi,
 } from '../api'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, hasWallpaper } from '../store/appStore'
 
 const { Text } = Typography
 
@@ -198,14 +198,16 @@ const RingProgress: React.FC<{
 }
 
 // 服务卡片
-const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean }> = ({ svc, isDark }) => {
+const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean; hasWp?: boolean }> = ({ svc, isDark, hasWp }) => {
   const isRunning = svc.running > 0
   const hasConfig = svc.count > 0
   const colors = serviceGroupColor[svc.type] || { main: '#1677ff', bg: 'rgba(22,119,255,0.08)', border: 'rgba(22,119,255,0.2)' }
   const percent = hasConfig ? Math.round((svc.running / svc.count) * 100) : 0
 
   return (
-    <div style={{
+    <div
+      className={!isRunning ? 'service-card-idle' : undefined}
+      style={{
       padding: '12px 14px',
       borderRadius: 12,
       border: `1px solid ${isRunning ? colors.border : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
@@ -366,7 +368,8 @@ const MiniResourceCard: React.FC<{
   subtitle: string
   color: string
   isDark: boolean
-}> = ({ icon, label, value, subtitle, color, isDark }) => {
+  hasWp?: boolean
+}> = ({ icon, label, value, subtitle, color, isDark, hasWp }) => {
   const { main, track } = getResourceColor(value)
   const finalColor = color || main
   return (
@@ -374,11 +377,8 @@ const MiniResourceCard: React.FC<{
       flex: 1, minWidth: 120,
       padding: '14px 16px',
       borderRadius: 14,
-      background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-      border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'}`,
-      boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.25)' : '0 2px 12px rgba(0,0,0,0.05)',
       position: 'relative', overflow: 'hidden',
-    }}>
+    }} className="dashboard-card">
       {/* 左侧彩色竖条 */}
       <div style={{
         position: 'absolute', left: 0, top: 8, bottom: 8, width: 3,
@@ -420,16 +420,14 @@ const MiniInfoCard: React.FC<{
   sub?: string
   color: string
   isDark: boolean
-}> = ({ icon, label, value, sub, color, isDark }) => (
+  hasWp?: boolean
+}> = ({ icon, label, value, sub, color, isDark, hasWp }) => (
   <div style={{
     flex: 1, minWidth: 120,
     padding: '14px 16px',
     borderRadius: 14,
-    background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'}`,
-    boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.25)' : '0 2px 12px rgba(0,0,0,0.05)',
     position: 'relative', overflow: 'hidden',
-  }}>
+  }} className="dashboard-card">
     <div style={{
       position: 'absolute', left: 0, top: 8, bottom: 8, width: 3,
       borderRadius: '0 3px 3px 0',
@@ -446,7 +444,7 @@ const MiniInfoCard: React.FC<{
 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation()
-  const { theme } = useAppStore()
+  const { theme, wallpaper } = useAppStore()
   const { token } = antTheme.useToken()
   const [info, setInfo] = useState<SystemInfo | null>(null)
   const [stats, setStats] = useState<SystemStats | null>(null)
@@ -457,6 +455,7 @@ const Dashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false)
 
   const isDark = theme?.includes('dark') || token.colorBgBase === '#000'
+  const hasWp = hasWallpaper(wallpaper)
 
   const fetchInfo = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true)
@@ -581,16 +580,14 @@ const Dashboard: React.FC = () => {
     )
   }
 
-  // 卡片基础样式
+  // 卡片基础样式（背景/边框/阴影由 CSS .dashboard-card 规则控制）
   const cardBase: React.CSSProperties = {
     borderRadius: 16,
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'}`,
-    background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-    boxShadow: isDark
-      ? '0 4px 24px rgba(0,0,0,0.3)'
-      : '0 2px 16px rgba(0,0,0,0.06)',
     padding: 20,
   }
+
+  // 壁纸模式 class name（毛玻璃 + 背景色由 CSS 控制，避免 hydration 延迟）
+  const cardBaseClass = 'dashboard-card'
 
   const sectionTitle = (text: string, accent: string) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -643,6 +640,7 @@ const Dashboard: React.FC = () => {
           sub={`${totalCount - runningCount} 个未运行`}
           color="#1677ff"
           isDark={isDark}
+          hasWp={hasWp}
         />
         {/* CPU */}
         <MiniResourceCard
@@ -652,6 +650,7 @@ const Dashboard: React.FC = () => {
           subtitle="处理器占用率"
           color=""
           isDark={isDark}
+          hasWp={hasWp}
         />
         {/* 内存 */}
         <MiniResourceCard
@@ -661,6 +660,7 @@ const Dashboard: React.FC = () => {
           subtitle={stats ? `${formatBytes(stats.mem_used)} / ${formatBytes(stats.mem_total)}` : '-'}
           color=""
           isDark={isDark}
+          hasWp={hasWp}
         />
         {/* 磁盘 */}
         <MiniResourceCard
@@ -670,6 +670,7 @@ const Dashboard: React.FC = () => {
           subtitle={stats ? `${formatBytes(stats.disk_used)} / ${formatBytes(stats.disk_total)}` : '-'}
           color=""
           isDark={isDark}
+          hasWp={hasWp}
         />
         {/* 运行时间 */}
         <MiniInfoCard
@@ -679,6 +680,7 @@ const Dashboard: React.FC = () => {
           sub={`${info?.os || '-'} · ${info?.arch || '-'}`}
           color="#722ed1"
           isDark={isDark}
+          hasWp={hasWp}
         />
         {/* 主机 */}
         <MiniInfoCard
@@ -688,6 +690,7 @@ const Dashboard: React.FC = () => {
           sub={`Go ${info?.go_version?.replace('go', '') || '-'} · v${info?.version || 'dev'}`}
           color="#13c2c2"
           isDark={isDark}
+          hasWp={hasWp}
         />
       </div>
 
@@ -699,7 +702,7 @@ const Dashboard: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
             {/* 系统信息 */}
-            <div style={cardBase}>
+            <div className={cardBaseClass} style={cardBase}>
             {sectionTitle('系统信息', '#1677ff')}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <InfoItem icon={<DesktopOutlined />} label="主机名" value={info?.hostname || '-'} isDark={isDark} />
@@ -749,7 +752,7 @@ borderRadius: 4, fontFamily: "'MapleMono', monospace",
             </div>
 
             {/* 防火墙状态 */}
-            <div style={cardBase}>
+            <div className={cardBaseClass} style={cardBase}>
               {sectionTitle('防火墙状态', '#ff4d4f')}
               {firewallStats ? (
                 <>
@@ -871,7 +874,7 @@ borderRadius: 4, fontFamily: "'MapleMono', monospace",
             </div>
 
             {/* 资源监控 */}
-            <div style={cardBase}>
+            <div className={cardBaseClass} style={cardBase}>
               {sectionTitle('资源监控', '#52c41a')}
               <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
                 <RingProgress
@@ -900,12 +903,12 @@ borderRadius: 4, fontFamily: "'MapleMono', monospace",
 
         {/* 右列：服务状态 */}
         <Col xs={24} lg={16}>
-          <div style={{ ...cardBase, height: '100%' }}>
+          <div className={cardBaseClass} style={{ ...cardBase, height: '100%' }}>
             {sectionTitle(`服务状态 · ${runningCount} 个运行中`, '#fa8c16')}
             <Row gutter={[10, 10]} style={{ height: 'calc(100% - 65px)' }}>
               {services.map((svc) => (
                 <Col key={svc.type} xs={24} sm={12} md={8} style={{ height: '20%' }}>
-                  <ServiceCard svc={svc} isDark={isDark} />
+                  <ServiceCard svc={svc} isDark={isDark} hasWp={hasWp} />
                 </Col>
               ))}
             </Row>

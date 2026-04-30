@@ -87,6 +87,7 @@ const zh = {
     admin: '系统管理',
     adminLogs: '系统日志查看',
     adminUsers: '面板用户管理',
+    oauthProviders: 'OAuth 登录',
     // 节点管理
     meshManagement: '节点管理',
     meshNodes: '组网节点管理',
@@ -103,6 +104,7 @@ const zh = {
     login: '登录',
     loginSuccess: '登录成功',
     loginFailed: '用户名或密码错误',
+    orThirdParty: '或使用第三方登录',
   },
   // 仪表盘
   dashboard: {

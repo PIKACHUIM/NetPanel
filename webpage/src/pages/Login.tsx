@@ -1,264 +1,339 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Form, Input, Button, Typography, message } from 'antd'
-import { UserOutlined, LockOutlined, WifiOutlined, ArrowRightOutlined } from '@ant-design/icons'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Form, Input, Button, Typography, message, Divider, Dropdown, Space } from 'antd'
+import { UserOutlined, LockOutlined, WifiOutlined, GlobalOutlined, SkinOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, wallpaperList, getWallpaperBg } from '../store/appStore'
 import request from '../api/request'
+import i18n from '../i18n'
 
 const { Title, Text } = Typography
 
-// 动态粒子背景
-const AnimatedBackground: React.FC = () => {
-  return (
-    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
-      {/* 网格线 */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        backgroundImage: `
-          linear-gradient(rgba(22,119,255,0.05) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(22,119,255,0.05) 1px, transparent 1px)
-        `,
-        backgroundSize: '60px 60px',
-      }} />
-
-      {/* 主光晕 */}
-      <div style={{
-        position: 'absolute',
-        width: 700, height: 700,
-        top: '-20%', left: '-15%',
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(22,119,255,0.18) 0%, transparent 65%)',
-        animation: 'orbFloat1 22s ease-in-out infinite',
-      }} />
-      <div style={{
-        position: 'absolute',
-        width: 550, height: 550,
-        bottom: '-15%', right: '-10%',
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(9,88,217,0.14) 0%, transparent 65%)',
-        animation: 'orbFloat2 28s ease-in-out infinite',
-      }} />
-      <div style={{
-        position: 'absolute',
-        width: 300, height: 300,
-        top: '45%', right: '22%',
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(82,196,26,0.07) 0%, transparent 65%)',
-        animation: 'orbFloat3 18s ease-in-out infinite',
-      }} />
-
-      {/* 装饰圆环 */}
-      {[
-        { size: 220, top: '12%', right: '8%', opacity: 0.06 },
-        { size: 140, bottom: '18%', left: '6%', opacity: 0.08 },
-        { size: 90, top: '58%', right: '28%', opacity: 0.07 },
-        { size: 60, top: '30%', left: '20%', opacity: 0.05 },
-      ].map((c, i) => (
-        <div key={i} style={{
-          position: 'absolute',
-          width: c.size, height: c.size,
-          borderRadius: '50%',
-          border: `1px solid rgba(22,119,255,${c.opacity * 4})`,
-          top: c.top, right: c.right, bottom: c.bottom, left: c.left,
-        }} />
-      ))}
-
-      {/* 浮动点 */}
-      {[
-        { size: 4, top: '20%', left: '30%', delay: '0s' },
-        { size: 3, top: '65%', left: '15%', delay: '1.5s' },
-        { size: 5, top: '40%', right: '15%', delay: '0.8s' },
-        { size: 3, bottom: '30%', right: '35%', delay: '2s' },
-        { size: 4, top: '75%', left: '55%', delay: '1.2s' },
-      ].map((p, i) => (
-        <div key={i} style={{
-          position: 'absolute',
-          width: p.size, height: p.size,
-          borderRadius: '50%',
-          background: 'rgba(22,119,255,0.6)',
-          top: p.top, left: p.left, right: p.right, bottom: p.bottom,
-          animation: `pulse 3s ease-in-out ${p.delay} infinite`,
-        }} />
-      ))}
-    </div>
-  )
+interface OAuthProvider {
+  id: number
+  name: string
+  type: string
+  icon: string
+  display_order: number
 }
+
+// 壁纸选项（登录页使用）
+const wpOptions = wallpaperList
 
 const LoginPage: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { setToken, setUsername } = useAppStore()
+  const [searchParams] = useSearchParams()
+  const { token, setToken, setUsername, uiMode, setUIMode, wallpaper, setWallpaper, language, setLanguage } = useAppStore()
   const [loading, setLoading] = useState(false)
-  const [focused, setFocused] = useState<string | null>(null)
+  const [providers, setProviders] = useState<OAuthProvider[]>([])
+  const [visible, setVisible] = useState(false)
+
+  // 判断是否为站点认证模式
+  const redirectUrl = searchParams.get('redirect') || ''
+  const isSiteAuth = redirectUrl.startsWith('http://') || redirectUrl.startsWith('https://')
+  const siteHost = isSiteAuth ? (() => { try { return new URL(redirectUrl).host } catch { return redirectUrl } })() : ''
+
+  // 主题相关
+  const isDark = uiMode === 'dark'
+  const animeBg = getWallpaperBg(wallpaper)
+
+  useEffect(() => {
+    // 如果用户已登录且是站点认证模式，直接跳转（cookie 已存在）
+    if (token && isSiteAuth) {
+      window.location.href = redirectUrl
+      return
+    }
+    // 如果用户已登录且不是站点认证，跳转到面板
+    if (token && !isSiteAuth) {
+      navigate('/dashboard', { replace: true })
+      return
+    }
+    setVisible(true)
+    request.get('/v1/auth/oauth/providers').then((res: any) => {
+      if (res.data) setProviders(res.data)
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => { i18n.changeLanguage(language) }, [language])
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true)
     try {
       const res: any = await request.post('/v1/auth/login', values)
+      if (isSiteAuth) {
+        message.success(t('login.loginSuccess'))
+        window.location.href = redirectUrl
+        return
+      }
       setToken(res.data?.token)
       setUsername(values.username)
       message.success(t('login.loginSuccess'))
-      navigate('/dashboard')
+      navigate(redirectUrl || '/dashboard')
     } catch {
-      // 错误已在拦截器处理
     } finally {
       setLoading(false)
     }
   }
 
-  const inputStyle = (name: string) => ({
-    background: focused === name ? 'rgba(22,119,255,0.08)' : 'rgba(255,255,255,0.04)',
-    border: `1px solid ${focused === name ? 'rgba(22,119,255,0.5)' : 'rgba(255,255,255,0.1)'}`,
-    borderRadius: 10,
-    color: '#fff',
-    height: 48,
-    fontSize: 14,
-    transition: 'all 0.2s',
-    boxShadow: focused === name ? '0 0 0 3px rgba(22,119,255,0.12)' : 'none',
-  })
+  const handleOAuthLogin = (provider: OAuthProvider) => {
+    window.location.href = `/api/v1/auth/oauth/${provider.name}/authorize`
+  }
+
+  // 颜色变量
+  const textColor = isDark ? '#fff' : '#1a1a2e'
+  const subColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'
+  const inputBg = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.02)'
+  const inputBorder = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'
+  const cardBg = isDark ? 'rgba(15,20,35,0.85)' : 'rgba(255,255,255,0.92)'
+
+  const wpMenuItems = wpOptions.map(w => ({
+    key: w.key,
+    label: <span>{w.icon} {w.name}{wallpaper === w.key ? ' ✓' : ''}</span>,
+    onClick: () => setWallpaper(w.key),
+  }))
 
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(160deg, #050c1a 0%, #091525 40%, #0c1c38 70%, #080e1c 100%)',
       display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
       position: 'relative',
       overflow: 'hidden',
-fontFamily: "'MapleMono', monospace",
+      background: animeBg ? undefined : (isDark ? '#080d1a' : '#f4f7fb'),
     }}>
-      <AnimatedBackground />
+      {/* 背景层 */}
+      {animeBg && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 0,
+          backgroundImage: `url(${animeBg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }} />
+      )}
+      {animeBg && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: 'rgba(0,0,0,0.3)' }} />
+      )}
 
-      {/* 登录卡片 */}
+      {/* 左侧：品牌介绍区 */}
       <div style={{
-        width: 420,
-        background: 'rgba(255,255,255,0.03)',
-        backdropFilter: 'blur(30px)',
-        WebkitBackdropFilter: 'blur(30px)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 24,
-        boxShadow: '0 40px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.08)',
-        padding: '52px 44px',
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: '60px 48px',
         position: 'relative',
         zIndex: 1,
-        animation: 'pageEnter 0.5s ease-out forwards',
+        minHeight: '100vh',
       }}>
-        {/* 顶部高光线 */}
+        {/* 品牌内容 */}
         <div style={{
-          position: 'absolute', top: 0, left: '15%', right: '15%', height: 1,
-          background: 'linear-gradient(90deg, transparent, rgba(22,119,255,0.7), rgba(82,196,26,0.3), transparent)',
-          borderRadius: 1,
-        }} />
-
-        {/* 角落装饰 */}
-        <div style={{
-          position: 'absolute', top: 20, right: 20,
-          width: 60, height: 60,
-          borderTop: '1px solid rgba(22,119,255,0.2)',
-          borderRight: '1px solid rgba(22,119,255,0.2)',
-          borderRadius: '0 8px 0 0',
-        }} />
-        <div style={{
-          position: 'absolute', bottom: 20, left: 20,
-          width: 60, height: 60,
-          borderBottom: '1px solid rgba(22,119,255,0.15)',
-          borderLeft: '1px solid rgba(22,119,255,0.15)',
-          borderRadius: '0 0 0 8px',
-        }} />
-
-        {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 44 }}>
+          maxWidth: 480,
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'translateX(0)' : 'translateX(-30px)',
+          transition: 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
+          ...(animeBg ? {
+            background: isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.45)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            borderRadius: 20,
+            padding: '36px 32px',
+            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          } : {}),
+        }}>
           <div style={{
-            width: 68, height: 68, borderRadius: 20,
-            background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            marginBottom: 22,
-            boxShadow: '0 16px 40px rgba(22,119,255,0.5), 0 0 0 1px rgba(22,119,255,0.3), inset 0 1px 0 rgba(255,255,255,0.2)',
-            position: 'relative',
+            width: 72, height: 72, borderRadius: 20,
+            background: 'linear-gradient(135deg, #1677ff 0%, #722ed1 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 32,
+            boxShadow: '0 20px 50px rgba(22,119,255,0.3)',
           }}>
-            <WifiOutlined style={{ color: '#fff', fontSize: 30 }} />
-            {/* Logo 光晕 */}
-            <div style={{
-              position: 'absolute', inset: -8,
-              borderRadius: 28,
-              background: 'radial-gradient(circle, rgba(22,119,255,0.2) 0%, transparent 70%)',
-            }} />
+            <WifiOutlined style={{ color: '#fff', fontSize: 32 }} />
           </div>
-          <Title level={2} style={{
-            color: '#fff', margin: 0, fontWeight: 700,
-            fontSize: 28, letterSpacing: '-0.5px',
+
+          <Title level={1} style={{
+            color: textColor, margin: 0, fontWeight: 800,
+            fontSize: 42, letterSpacing: '-1px', lineHeight: 1.2,
           }}>
             NetPanel
           </Title>
           <Text style={{
-            color: 'rgba(255,255,255,0.35)', fontSize: 12,
-            marginTop: 8, display: 'block', letterSpacing: '2px',
-            textTransform: 'uppercase',
+            color: subColor, fontSize: 14,
+            marginTop: 12, display: 'block', lineHeight: 1.8,
           }}>
-            {t('login.subtitle')}
+            {language === 'zh'
+              ? '一站式网络管理平台 —— 端口转发、内网穿透、反向代理、DDNS、域名管理、SSL证书、防火墙策略，尽在掌控。'
+              : 'All-in-one Network Management — Port forwarding, NAT traversal, reverse proxy, DDNS, domain management, SSL certificates, and firewall policies, all under your control.'}
           </Text>
+
+          {/* 特性标签 */}
+          <div style={{ marginTop: 32, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {(language === 'zh'
+              ? ['端口映射', '内网穿透', '反向代理', 'DDNS', '证书管理', '防火墙']
+              : ['Port Forward', 'NAT Traversal', 'Reverse Proxy', 'DDNS', 'Cert Mgmt', 'Firewall']
+            ).map(tag => (
+              <span key={tag} style={{
+                padding: '6px 14px',
+                borderRadius: 20,
+                fontSize: 12,
+                fontWeight: 500,
+                background: isDark ? 'rgba(22,119,255,0.12)' : 'rgba(22,119,255,0.08)',
+                color: '#1677ff',
+                border: `1px solid rgba(22,119,255,0.2)`,
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
         </div>
+      </div>
 
-        <Form name="login" onFinish={onFinish} size="large" autoComplete="off">
-          <Form.Item
-            name="username"
-            rules={[{ required: true, message: `请输入${t('login.username')}` }]}
-            style={{ marginBottom: 14 }}
-          >
-            <Input
-              prefix={<UserOutlined style={{ color: 'rgba(255,255,255,0.3)', marginRight: 6 }} />}
-              placeholder={t('login.username')}
-              onFocus={() => setFocused('username')}
-              onBlur={() => setFocused(null)}
-              style={inputStyle('username')}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="password"
-            rules={[{ required: true, message: `请输入${t('login.password')}` }]}
-            style={{ marginBottom: 32 }}
-          >
-            <Input.Password
-              prefix={<LockOutlined style={{ color: 'rgba(255,255,255,0.3)', marginRight: 6 }} />}
-              placeholder={t('login.password')}
-              onFocus={() => setFocused('password')}
-              onBlur={() => setFocused(null)}
-              style={inputStyle('password')}
-            />
-          </Form.Item>
-
+      {/* 右侧：登录卡片 */}
+      <div style={{
+        width: 460,
+        minWidth: 380,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        padding: '40px 48px',
+        position: 'relative',
+        zIndex: 1,
+        background: cardBg,
+        backdropFilter: 'blur(40px)',
+        WebkitBackdropFilter: 'blur(40px)',
+        borderLeft: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
+        boxShadow: isDark ? '-20px 0 60px rgba(0,0,0,0.3)' : '-10px 0 40px rgba(0,0,0,0.04)',
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'translateX(0)' : 'translateX(30px)',
+        transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.1s',
+      }}>
+        {/* 语言 + UI模式 + 壁纸 切换 */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 32 }}>
           <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            block
-            icon={!loading ? <ArrowRightOutlined /> : undefined}
+            size="small" type="text"
+            icon={<GlobalOutlined />}
+            onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
             style={{
-              height: 50, borderRadius: 12, fontSize: 15, fontWeight: 600,
-              background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
-              border: 'none',
-              boxShadow: '0 8px 24px rgba(22,119,255,0.5), inset 0 1px 0 rgba(255,255,255,0.15)',
-              letterSpacing: '0.5px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              color: subColor,
+              background: inputBg,
+              border: `1px solid ${inputBorder}`,
+              borderRadius: 8, padding: '2px 10px',
             }}
           >
-            {t('login.login')}
+            {language === 'zh' ? 'EN' : '中文'}
           </Button>
+          <Button
+            size="small" type="text"
+            onClick={() => setUIMode(isDark ? 'light' : 'dark')}
+            style={{
+              color: subColor,
+              background: inputBg,
+              border: `1px solid ${inputBorder}`,
+              borderRadius: 8, padding: '2px 10px',
+            }}
+          >
+            {isDark ? '🌙' : '☀️'}
+          </Button>
+          <Dropdown menu={{ items: wpMenuItems }} placement="bottomRight" trigger={['click']}>
+            <Button
+              size="small" type="text"
+              icon={<SkinOutlined />}
+              style={{
+                color: subColor,
+                background: inputBg,
+                border: `1px solid ${inputBorder}`,
+                borderRadius: 8, padding: '2px 10px',
+              }}
+            >
+              {wpOptions.find(w => w.key === wallpaper)?.icon || '🎯'}
+            </Button>
+          </Dropdown>
+        </div>
+
+        {/* 标题 */}
+        <div style={{ marginBottom: 32 }}>
+          <Title level={3} style={{ color: textColor, margin: 0, fontWeight: 700 }}>
+            {isSiteAuth ? (language === 'zh' ? '身份认证' : 'Authentication') : t('login.login')}
+          </Title>
+          {isSiteAuth ? (
+            <div style={{
+              marginTop: 12, padding: '10px 14px',
+              background: 'rgba(22,119,255,0.08)',
+              border: '1px solid rgba(22,119,255,0.2)',
+              borderRadius: 8,
+            }}>
+              <Text style={{ color: textColor, fontSize: 13 }}>
+                🔒 {language === 'zh' ? '正在访问' : 'Accessing'} <span style={{ color: '#1677ff', fontWeight: 600 }}>{siteHost}</span>
+              </Text>
+              <br />
+              <Text style={{ color: subColor, fontSize: 12 }}>
+                {language === 'zh' ? '该站点需要身份认证，请登录后继续' : 'This site requires authentication. Please log in to continue.'}
+              </Text>
+            </div>
+          ) : (
+            <Text style={{ color: subColor, fontSize: 13, marginTop: 6, display: 'block' }}>
+              {language === 'zh' ? '登录以管理你的网络服务' : 'Sign in to manage your network services'}
+            </Text>
+          )}
+        </div>
+
+        {/* 登录表单 */}
+        <Form name="login" onFinish={onFinish} size="large" autoComplete="off">
+          <Form.Item name="username" rules={[{ required: true, message: t('login.username') }]} style={{ marginBottom: 16 }}>
+            <Input
+              prefix={<UserOutlined style={{ color: subColor }} />}
+              placeholder={t('login.username')}
+              style={{
+                background: inputBg, border: `1px solid ${inputBorder}`,
+                borderRadius: 10, color: textColor, height: 46,
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="password" rules={[{ required: true, message: t('login.password') }]} style={{ marginBottom: 28 }}>
+            <Input.Password
+              prefix={<LockOutlined style={{ color: subColor }} />}
+              placeholder={t('login.password')}
+              style={{
+                background: inputBg, border: `1px solid ${inputBorder}`,
+                borderRadius: 10, color: textColor, height: 46,
+              }}
+            />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 16 }}>
+            <Button
+              type="primary" htmlType="submit" block loading={loading}
+              style={{
+                height: 46, borderRadius: 10, fontSize: 15, fontWeight: 600,
+                background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
+                border: 'none', boxShadow: '0 8px 24px rgba(22,119,255,0.3)',
+              }}
+            >
+              {t('login.login')}
+            </Button>
+          </Form.Item>
         </Form>
 
+        {/* 第三方登录 */}
+        {providers.length > 0 && (
+          <>
+            <Divider style={{ borderColor: inputBorder, margin: '12px 0' }}>
+              <Text style={{ color: subColor, fontSize: 12 }}>{t('login.orThirdParty')}</Text>
+            </Divider>
+            <Space wrap style={{ width: '100%', justifyContent: 'center' }}>
+              {providers.map(p => (
+                <Button key={p.id} shape="round" onClick={() => handleOAuthLogin(p)}
+                  style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}>
+                  {p.name}
+                </Button>
+              ))}
+            </Space>
+          </>
+        )}
+
         {/* 底部版权 */}
-        <div style={{ textAlign: 'center', marginTop: 32 }}>
-          <div style={{
-            width: 40, height: 1,
-            background: 'rgba(255,255,255,0.1)',
-            margin: '0 auto 16px',
-          }} />
-          <Text style={{ color: 'rgba(255,255,255,0.18)', fontSize: 11, letterSpacing: '1px' }}>
-            NETPANEL · NETWORK MANAGEMENT
-          </Text>
+        <div style={{ marginTop: 'auto', paddingTop: 32, textAlign: 'center' }}>
+          <Text style={{ color: subColor, fontSize: 11 }}>© 2024 NetPanel · Network Manager</Text>
         </div>
       </div>
     </div>

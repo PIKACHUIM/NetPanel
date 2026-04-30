@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/beego/beego v1.12.14
 	github.com/caddyserver/caddy/v2 v2.11.1
+	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/djylb/nps v0.34.1
 	github.com/fatedier/frp v0.67.0
 	github.com/gin-gonic/gin v1.9.1
@@ -18,6 +19,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	golang.org/x/crypto v0.48.0
 	golang.org/x/net v0.50.0
+	golang.org/x/oauth2 v0.34.0
 	golang.org/x/sys v0.41.0
 	gorm.io/gorm v1.25.7
 )
@@ -58,7 +60,6 @@ require (
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cloudflare/cloudflare-go v0.70.0 // indirect
-	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/dgraph-io/badger v1.6.2 // indirect
 	github.com/dgraph-io/badger/v2 v2.2007.4 // indirect
@@ -198,7 +199,6 @@ require (
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20260213171211-a408498e5541 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/mod v0.33.0 // indirect
-	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/term v0.40.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

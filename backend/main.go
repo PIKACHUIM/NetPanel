@@ -294,6 +294,7 @@ func startServer() *http.Server {
 
 	// 尝试绑定端口，若失败则自动寻找可用端口
 	listenPort := findAvailablePort(*port, log)
+	caddyMgr.SetPanelPort(listenPort)
 	addr := fmt.Sprintf(":%d", listenPort)
 	srv := &http.Server{
 		Addr:    addr,

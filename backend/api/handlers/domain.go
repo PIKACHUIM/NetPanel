@@ -26,6 +26,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/sirupsen/logrus"
@@ -1801,13 +1802,14 @@ func (h *IPDBHandler) Query(c *gin.Context) {
 // ===== 访问控制 =====
 
 type AccessHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
-	mgr *access.Manager
+	db       *gorm.DB
+	log      *logrus.Logger
+	mgr      *access.Manager
+	caddyMgr *caddy.Manager
 }
 
-func NewAccessHandler(db *gorm.DB, log *logrus.Logger, mgr *access.Manager) *AccessHandler {
-	return &AccessHandler{db: db, log: log, mgr: mgr}
+func NewAccessHandler(db *gorm.DB, log *logrus.Logger, mgr *access.Manager, caddyMgr *caddy.Manager) *AccessHandler {
+	return &AccessHandler{db: db, log: log, mgr: mgr, caddyMgr: caddyMgr}
 }
 
 func (h *AccessHandler) List(c *gin.Context) {
@@ -1821,11 +1823,16 @@ func (h *AccessHandler) List(c *gin.Context) {
 	var caddySites []model.CaddySite
 	h.db.Select("id, name, domain, port, site_type").Order("id desc").Find(&caddySites)
 
+	// 查询所有用户，供用户认证配置选择
+	var users []model.User
+	h.db.Select("id, username, email, enable, is_admin, remark").Order("id asc").Find(&users)
+
 	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"data": rules,
+		"code":         200,
+		"data":         rules,
 		"ipdb_entries": ipdbEntries,
 		"caddy_sites":  caddySites,
+		"users":        users,
 	})
 }
 
@@ -1837,6 +1844,7 @@ func (h *AccessHandler) Create(c *gin.Context) {
 	}
 	h.db.Create(&rule)
 	h.mgr.Reload()
+	h.restartBoundSites(rule.BindSiteIDs)
 	logger.WriteLog("info", "access", fmt.Sprintf("创建访问控制规则 [%d]", rule.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
 }
@@ -1851,16 +1859,43 @@ func (h *AccessHandler) Update(c *gin.Context) {
 	req.ID = uint(id)
 	h.db.Save(&req)
 	h.mgr.Reload()
+	h.restartBoundSites(req.BindSiteIDs)
 	logger.WriteLog("info", "access", fmt.Sprintf("更新访问控制规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *AccessHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	// 先查出规则以获取绑定的站点
+	var rule model.AccessRule
+	h.db.First(&rule, id)
 	h.db.Delete(&model.AccessRule{}, id)
 	h.mgr.Reload()
+	h.restartBoundSites(rule.BindSiteIDs)
 	logger.WriteLog("info", "access", fmt.Sprintf("删除访问控制规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
+}
+
+// restartBoundSites 重启规则绑定的所有运行中的 Caddy 站点
+func (h *AccessHandler) restartBoundSites(bindSiteIDs string) {
+	if bindSiteIDs == "" || h.caddyMgr == nil {
+		return
+	}
+	var siteIDs []uint
+	if err := json.Unmarshal([]byte(bindSiteIDs), &siteIDs); err != nil || len(siteIDs) == 0 {
+		return
+	}
+	for _, siteID := range siteIDs {
+		// 只重启正在运行的站点
+		var site model.CaddySite
+		if err := h.db.First(&site, siteID).Error; err != nil {
+			continue
+		}
+		if site.Status == "running" && site.Enable {
+			h.log.Infof("[访问控制] 规则变更，自动重启站点 [%s]", site.Name)
+			h.caddyMgr.Restart(siteID)
+		}
+	}
 }
 
 // ===== 回调账号 =====

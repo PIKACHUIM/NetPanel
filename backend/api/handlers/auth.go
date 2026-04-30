@@ -70,6 +70,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// 设置平台访问控制 Cookie
+	middleware.SetSessionCookie(c, req.Username)
+
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "登录成功",

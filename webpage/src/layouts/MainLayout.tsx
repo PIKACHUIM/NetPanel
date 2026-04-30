@@ -1,7 +1,7 @@
 import React, {useEffect} from 'react'
 import {Outlet, useLocation, useNavigate} from 'react-router-dom'
 import type {MenuProps} from 'antd'
-import {Avatar, Dropdown, Layout, Menu, Space, theme as antTheme, Tooltip, Typography,} from 'antd'
+import {Avatar, Dropdown, Layout, Menu, Popover, Space, theme as antTheme, Tooltip, Typography,} from 'antd'
 import {
     ApartmentOutlined,
     ApiOutlined,
@@ -35,43 +35,24 @@ import {
     FileTextOutlined,
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
-import {useAppStore} from '../store/appStore'
+import {useAppStore, wallpaperList, hasWallpaper, getWallpaperBg} from '../store/appStore'
+import type {WallpaperKey} from '../store/appStore'
 import i18n from '../i18n'
 
 const {Sider, Header, Content} = Layout
 const {Text} = Typography
-
-// 玻璃背景组件
-const GlassBackground: React.FC = () => (
-    <div className="glass-bg-wrapper">
-        <div className="glass-bg-orb glass-bg-orb-1"/>
-        <div className="glass-bg-orb glass-bg-orb-2"/>
-        <div className="glass-bg-orb glass-bg-orb-3"/>
-    </div>
-)
 
 
 const MainLayout: React.FC = () => {
     const {t} = useTranslation()
     const navigate = useNavigate()
     const location = useLocation()
-    const {username, collapsed, setCollapsed, logout, language, setLanguage, theme, setTheme} = useAppStore()
+    const {username, collapsed, setCollapsed, logout, language, setLanguage, uiMode, setUIMode, wallpaper, setWallpaper} = useAppStore()
     const {token} = antTheme.useToken()
-    const isDark = theme === 'dark' || theme === 'glass-dark'
-    const isGlass = theme === 'glass-light' || theme === 'glass-dark'
+    const hasWp = hasWallpaper(wallpaper)
+    const isDark = uiMode === 'dark'
     const isLight = !isDark
-
-    // 切换暗黑：保持透明状态不变，只切换明暗
-    const toggleDark = () => {
-        if (isGlass) setTheme(isDark ? 'glass-light' : 'glass-dark')
-        else setTheme(isDark ? 'light' : 'dark')
-    }
-
-    // 切换透明：保持明暗状态不变，只切换透明
-    const toggleGlass = () => {
-        if (isDark) setTheme(isGlass ? 'dark' : 'glass-dark')
-        else setTheme(isGlass ? 'light' : 'glass-light')
-    }
+    const animeBgUrl = getWallpaperBg(wallpaper)
 
     // 同步语言到 i18n
     useEffect(() => {
@@ -192,6 +173,7 @@ const MainLayout: React.FC = () => {
             children: [
                 {key: 'admin/logs', icon: <FileTextOutlined/>, label: t('menu.adminLogs')},
                 {key: 'admin/users', icon: <TeamOutlined/>, label: t('menu.adminUsers')},
+                {key: 'admin/oauth-providers', icon: <KeyOutlined/>, label: t('menu.oauthProviders') || 'OAuth 登录'},
                 {key: 'settings', icon: <SettingOutlined/>, label: t('menu.settings')},
             ],
         },
@@ -218,38 +200,39 @@ const MainLayout: React.FC = () => {
     ]
 
     // 侧边栏背景
-    const siderBg = isDark
-        ? '#141414'
-        : isGlass
-            ? 'rgba(10,20,50,0.75)'
+    const siderBg = hasWp
+        ? (isDark ? 'rgba(10,15,30,0.8)' : 'rgba(255,255,255,0.7)')
+        : isDark
+            ? '#0a1028'
             : '#001529'
 
-    const logoBorderColor = isLight
-        ? 'rgba(255,255,255,0.08)'
-        : 'rgba(255,255,255,0.1)'
+    const logoBorderColor = hasWp && !isDark
+        ? 'rgba(0,0,0,0.08)'
+        : isLight
+            ? 'rgba(255,255,255,0.08)'
+            : 'rgba(255,255,255,0.1)'
 
     // 顶部栏背景
-    const headerBg = isDark
-        ? '#1a1a1a'
-        : isGlass
-            ? 'rgba(255,255,255,0.06)'
+    const headerBg = hasWp
+        ? (isDark ? 'rgba(10,15,30,0.6)' : 'rgba(255,255,255,0.4)')
+        : isDark
+            ? '#0f1838'
             : token.colorBgContainer
 
-    const headerBorder = isGlass
+    const headerBorder = hasWp
         ? '1px solid rgba(255,255,255,0.08)'
         : `1px solid ${token.colorBorderSecondary}`
 
     // 内容区背景
-    const contentBg = isDark
-        ? '#0d0d0d'
-        : isGlass
-            ? 'transparent'
+    const contentBg = hasWp
+        ? 'transparent'
+        : isDark
+            ? '#0a1028'
             : '#f0f2f5'
 
     return (
         <>
-            {/* 玻璃模式背景 */}
-            {isGlass && <GlassBackground/>}
+            {/* 壁纸背景由 index.css 的 body::before 渲染，避免 React hydration 延迟 */}
 
             <Layout style={{height: '100vh'}}>
                 {/* 侧边栏 */}
@@ -261,12 +244,12 @@ const MainLayout: React.FC = () => {
                     width={220}
                     style={{
                         background: siderBg,
-                        backdropFilter: isGlass ? 'blur(20px)' : undefined,
-                        WebkitBackdropFilter: isGlass ? 'blur(20px)' : undefined,
+                        backdropFilter: hasWp ? 'blur(20px)' : undefined,
+                        WebkitBackdropFilter: hasWp ? 'blur(20px)' : undefined,
                         boxShadow: isDark
                             ? '2px 0 12px rgba(0,0,0,0.5)'
-                            : isGlass
-                                ? '2px 0 20px rgba(0,0,0,0.3), inset -1px 0 0 rgba(255,255,255,0.06)'
+                            : hasWp
+                                ? '2px 0 20px rgba(0,0,0,0.1), inset -1px 0 0 rgba(255,255,255,0.5)'
                                 : '2px 0 8px rgba(0,0,0,0.12)',
                         overflow: 'auto',
                         height: '100vh',
@@ -275,7 +258,7 @@ const MainLayout: React.FC = () => {
                         top: 0,
                         bottom: 0,
                         zIndex: 100,
-                        borderRight: isGlass ? '1px solid rgba(255,255,255,0.08)' : 'none',
+                        borderRight: hasWp ? (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)') : 'none',
                     }}
                 >
                     {/* Logo 区域 */}
@@ -306,14 +289,14 @@ const MainLayout: React.FC = () => {
                         {!collapsed && (
                             <div style={{marginLeft: 12}}>
                                 <Text style={{
-                                    color: '#fff', fontSize: 16, fontWeight: 700,
+                                    color: hasWp && !isDark ? 'rgba(0,0,0,0.88)' : '#fff', fontSize: 16, fontWeight: 700,
                                     letterSpacing: '0.3px', whiteSpace: 'nowrap',
                                     display: 'block', lineHeight: 1.2,
                                 }}>
                                     NetPanel
                                 </Text>
                                 <Text style={{
-                                    color: 'rgba(255,255,255,0.35)', fontSize: 10,
+                                    color: hasWp && !isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.35)', fontSize: 10,
                                     letterSpacing: '1px', whiteSpace: 'nowrap',
                                     display: 'block', lineHeight: 1,
                                 }}>
@@ -326,7 +309,7 @@ const MainLayout: React.FC = () => {
                     {/* 菜单 */}
                     <div style={{flex: 1, overflow: 'auto', paddingTop: 6}}>
                         <Menu
-                            theme="dark"
+                            theme={hasWp && !isDark ? 'light' : 'dark'}
                             mode="inline"
                             selectedKeys={[selectedKey]}
                             defaultOpenKeys={openKeys}
@@ -347,7 +330,7 @@ const MainLayout: React.FC = () => {
                             borderTop: `1px solid ${logoBorderColor}`,
                             textAlign: 'center',
                         }}>
-                            <Text style={{color: 'rgba(255,255,255,0.2)', fontSize: 11, letterSpacing: '0.5px'}}>
+                            <Text style={{color: hasWp && !isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.2)', fontSize: 11, letterSpacing: '0.5px'}}>
                                 v0.1.0
                             </Text>
                         </div>
@@ -360,8 +343,8 @@ const MainLayout: React.FC = () => {
                     <Header style={{
                         padding: '0 20px',
                         background: headerBg,
-                        backdropFilter: isGlass ? 'blur(20px)' : undefined,
-                        WebkitBackdropFilter: isGlass ? 'blur(20px)' : undefined,
+                        backdropFilter: hasWp ? 'blur(20px)' : undefined,
+                        WebkitBackdropFilter: hasWp ? 'blur(20px)' : undefined,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -372,7 +355,7 @@ const MainLayout: React.FC = () => {
                         zIndex: 99,
                         boxShadow: isDark
                             ? '0 1px 6px rgba(0,0,0,0.4)'
-                            : isGlass
+                            : hasWp
                                 ? '0 4px 20px rgba(0,0,0,0.15)'
                                 : '0 1px 4px rgba(0,0,0,0.06)',
                     }}>
@@ -419,51 +402,70 @@ const MainLayout: React.FC = () => {
                                 </div>
                             </Tooltip>
 
-                            {/* 暗黑模式开关 */}
-                            <Tooltip title={isDark ? t('settings.lightTheme') : t('settings.darkTheme')}>
-                                <div
-                                    onClick={toggleDark}
-                                    style={{
-                                        cursor: 'pointer',
-                                        padding: '5px 10px',
-                                        borderRadius: 8,
-                                        display: 'flex', alignItems: 'center', gap: 5,
-                                        color: isDark ? '#fadb14' : token.colorTextSecondary,
-                                        fontSize: 12, fontWeight: 500,
-                                        transition: 'all 0.2s',
-                                        border: `1px solid ${isDark ? 'rgba(250,219,20,0.35)' : token.colorBorderSecondary}`,
-                                        background: isDark ? 'rgba(250,219,20,0.08)' : 'transparent',
-                                    }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = isDark ? 'rgba(250,219,20,0.15)' : token.colorFillSecondary)}
-                                    onMouseLeave={e => (e.currentTarget.style.background = isDark ? 'rgba(250,219,20,0.08)' : 'transparent')}
-                                >
-                                    <span style={{fontSize: 15}}>{isDark ? '🌙' : '☀️'}</span>
-                                    <span style={{fontSize: 11}}>{isDark ? '暗黑' : '白天'}</span>
-                                </div>
-                            </Tooltip>
+                            {/* 白天/黑夜模式切换 */}
+                            <div
+                                onClick={() => setUIMode(isDark ? 'light' : 'dark')}
+                                style={{
+                                    cursor: 'pointer',
+                                    padding: '5px 10px',
+                                    borderRadius: 8,
+                                    display: 'flex', alignItems: 'center', gap: 5,
+                                    color: token.colorTextSecondary,
+                                    fontSize: 12, fontWeight: 500,
+                                    border: `1px solid ${token.colorBorderSecondary}`,
+                                }}
+                            >
+                                <span style={{fontSize: 14}}>{isDark ? '🌙' : '☀️'}</span>
+                                <span style={{fontSize: 11}}>{isDark ? '黑夜' : '白天'}</span>
+                            </div>
 
-                            {/* 透明模式开关 */}
-                            <Tooltip title={isGlass ? '关闭透明模式' : '开启透明模式'}>
-                                <div
-                                    onClick={toggleGlass}
-                                    style={{
-                                        cursor: 'pointer',
-                                        padding: '5px 10px',
-                                        borderRadius: 8,
-                                        display: 'flex', alignItems: 'center', gap: 5,
-                                        color: isGlass ? '#a78bfa' : token.colorTextSecondary,
-                                        fontSize: 12, fontWeight: 500,
-                                        transition: 'all 0.2s',
-                                        border: `1px solid ${isGlass ? 'rgba(167,139,250,0.4)' : token.colorBorderSecondary}`,
-                                        background: isGlass ? 'rgba(167,139,250,0.12)' : 'transparent',
-                                    }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = isGlass ? 'rgba(167,139,250,0.2)' : token.colorFillSecondary)}
-                                    onMouseLeave={e => (e.currentTarget.style.background = isGlass ? 'rgba(167,139,250,0.12)' : 'transparent')}
-                                >
-                                    <span style={{fontSize: 15}}>✨</span>
-                                    <span style={{fontSize: 11}}>{isGlass ? '透明' : '不透明'}</span>
+                            {/* 主题/壁纸选择 */}
+                            <Dropdown
+                                menu={{
+                                    items: [
+                                        {
+                                            key: 'theme-grid',
+                                            type: 'group',
+                                            label: <div style={{
+                                                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+                                                gap: 8, padding: '8px 0', minWidth: 240,
+                                            }}>
+                                                {wallpaperList.map(w => (
+                                                    <div key={w.key} onClick={(e) => { e.stopPropagation(); setWallpaper(w.key); }}
+                                                        style={{
+                                                            display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                                            gap: 4, padding: '8px 4px', borderRadius: 8, cursor: 'pointer',
+                                                            background: wallpaper === w.key ? 'rgba(22,119,255,0.15)' : 'transparent',
+                                                            border: wallpaper === w.key ? '1px solid rgba(22,119,255,0.4)' : '1px solid transparent',
+                                                            transition: 'all 0.2s',
+                                                        }}
+                                                    >
+                                                        <span style={{fontSize: 20}}>{w.icon}</span>
+                                                        <span style={{fontSize: 10, opacity: 0.9}}>{w.name}</span>
+                                                    </div>
+                                                ))}
+                                            </div>,
+                                        },
+                                    ],
+                                }}
+                                placement="bottomRight"
+                                trigger={['click']}
+                            >
+                                <div style={{
+                                    cursor: 'pointer',
+                                    padding: '5px 10px',
+                                    borderRadius: 8,
+                                    display: 'flex', alignItems: 'center', gap: 5,
+                                    color: token.colorTextSecondary,
+                                    fontSize: 12, fontWeight: 500,
+                                    border: `1px solid ${token.colorBorderSecondary}`,
+                                }}>
+                                    <span style={{fontSize: 14}}>
+                                        {wallpaperList.find(w => w.key === wallpaper)?.icon || '🎯'}
+                                    </span>
+                                    <span style={{fontSize: 11}}>主题</span>
                                 </div>
-                            </Tooltip>
+                            </Dropdown>
 
                             {/* 用户菜单 */}
                             <Dropdown menu={{items: userMenuItems}} placement="bottomRight" arrow>
@@ -490,12 +492,11 @@ const MainLayout: React.FC = () => {
                         </Space>
                     </Header>
 
-                    {/* 内容区 */}
+                    {/* 内容区（背景由 index.css 根据 data-wallpaper 控制，避免 hydration 闪烁） */}
                     <Content style={{
                         padding: 20,
                         overflow: 'auto',
                         height: 'calc(100vh - 56px)',
-                        background: contentBg,
                     }}>
                         <div className="page-enter">
                             <Outlet/>

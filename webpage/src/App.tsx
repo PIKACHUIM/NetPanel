@@ -40,6 +40,8 @@ const MeshNodes = lazy(() => import('./pages/MeshNodes'))
 const MeshTunnels = lazy(() => import('./pages/MeshTunnels'))
 const MeshTopology = lazy(() => import('./pages/MeshTopology'))
 const MeshEvents = lazy(() => import('./pages/MeshEvents'))
+const OAuthProviders = lazy(() => import('./pages/OAuthProviders'))
+const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
 
 const PageLoader: React.FC = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 300 }}>
@@ -58,6 +60,7 @@ const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/oauth/callback" element={<Suspense fallback={<PageLoader />}><OAuthCallback /></Suspense>} />
       <Route
         path="/"
         element={
@@ -97,6 +100,7 @@ const App: React.FC = () => {
         <Route path="settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
         <Route path="admin/logs" element={<Suspense fallback={<PageLoader />}><SystemLogs /></Suspense>} />
         <Route path="admin/users" element={<Suspense fallback={<PageLoader />}><UserManagement /></Suspense>} />
+        <Route path="admin/oauth-providers" element={<Suspense fallback={<PageLoader />}><OAuthProviders /></Suspense>} />
         <Route path="mesh/nodes" element={<Suspense fallback={<PageLoader />}><MeshNodes /></Suspense>} />
         <Route path="mesh/tunnels" element={<Suspense fallback={<PageLoader />}><MeshTunnels /></Suspense>} />
         <Route path="mesh/topology" element={<Suspense fallback={<PageLoader />}><MeshTopology /></Suspense>} />
