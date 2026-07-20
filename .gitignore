@@ -83,3 +83,6 @@ go.work.sum
 /lucky/
 
 scripts/setup.iss.lock
+.codebuddy
+.codebuddy
+.agents
