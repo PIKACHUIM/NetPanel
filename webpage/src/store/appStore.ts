@@ -47,7 +47,7 @@ export function getWallpaperBg(wallpaper: WallpaperKey): string | null {
   const w = wallpaperList.find(item => item.key === wallpaper)
   if (!w || !('pc' in w)) return null
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-  return isMobile ? w.mobile : w.pc
+  return (isMobile ? w.mobile : w.pc) as string | null
 }
 
 // 兼容旧代码

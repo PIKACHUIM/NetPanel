@@ -485,6 +485,41 @@ body::after {
   50% { opacity: 0.5; }
 }
 
+/* ===== 登录页：网络拓扑动画 ===== */
+@keyframes dataFlow {
+  0%   { stroke-dashoffset: 103; }
+  100% { stroke-dashoffset: -3; }
+}
+
+@keyframes nodeRing {
+  0%, 100% { stroke-opacity: 0.1; }
+  50%       { stroke-opacity: 0.55; }
+}
+
+@keyframes nodeBlink {
+  0%, 100% { fill-opacity: 0.7; }
+  50%       { fill-opacity: 1; }
+}
+
+@keyframes hubPulse {
+  0%, 100% { stroke-opacity: 0.08; }
+  50%       { stroke-opacity: 0.35; }
+}
+
+/* ===== 六边形 logo 悬浮效果 ===== */
+.hex-logo:hover .hex-bg {
+  filter: brightness(1.2);
+}
+
+/* ===== 终端光标闪烁 ===== */
+@keyframes caretBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.caret-blink {
+  animation: caretBlink 1.2s step-end infinite;
+}
+
 .pulse {
   animation: pulse 2s ease-in-out infinite;
 }
