@@ -3,40 +3,73 @@ package selector
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
 
 // fakeProber 注入式探测器：按线路 id 返回固定延迟/错误。
+// latencies/httpLatencies/errors 可变，测试可通过公开 API 路径（ProbeAll）
+// 模拟线路质量变化，而不是直接写 Selector 内部状态。
 type fakeProber struct {
-	latencies map[string]time.Duration
-	errors    map[string]error
+	latencies     map[string]time.Duration
+	httpLatencies map[string]time.Duration
+	errors        map[string]error
 }
 
 func (f *fakeProber) Probe(_ context.Context, line Line) ProbeResult {
 	if err := f.errors[line.ID]; err != nil {
 		return ProbeResult{LineID: line.ID, Err: err}
 	}
-	return ProbeResult{LineID: line.ID, TCPLatency: f.latencies[line.ID]}
+	res := ProbeResult{LineID: line.ID, TCPLatency: f.latencies[line.ID]}
+	if hl, ok := f.httpLatencies[line.ID]; ok {
+		res.HTTPLatency = hl
+	}
+	return res
+}
+
+// countingProber 包装器：统计最大并发探测数（验证信号量限流）。
+type countingProber struct {
+	inner  Prober
+	mu     sync.Mutex
+	active int
+	peak   int
+}
+
+func (c *countingProber) Probe(ctx context.Context, line Line) ProbeResult {
+	c.mu.Lock()
+	c.active++
+	if c.active > c.peak {
+		c.peak = c.active
+	}
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.active--
+		c.mu.Unlock()
+	}()
+	// 让探测留出重叠窗口，才能测出真实并发上限。
+	time.Sleep(20 * time.Millisecond)
+	return c.inner.Probe(ctx, line)
 }
 
 func mkLines(ids ...string) []Line {
 	lines := make([]Line, 0, len(ids))
-	for i, id := range ids {
+	for _, id := range ids {
 		lines = append(lines, Line{ID: id, Name: id, Tool: "fake", Address: "127.0.0.1:1"})
-		_ = i
 	}
 	return lines
 }
 
-func newFake(lines []Line, lat map[string]time.Duration, errs map[string]error) *Selector {
-	s := NewSelector(&fakeProber{latencies: lat, errors: errs}, 50*time.Millisecond)
+func newFake(lines []Line, lat map[string]time.Duration, errs map[string]error) (*Selector, *fakeProber) {
+	f := &fakeProber{latencies: lat, errors: errs}
+	s := NewSelector(f, 50*time.Millisecond)
 	s.SetLines(lines)
-	return s
+	return s, f
 }
 
 func TestSelectPicksFastest(t *testing.T) {
-	s := newFake(
+	s, _ := newFake(
 		mkLines("a", "b", "c"),
 		map[string]time.Duration{"a": 300 * time.Millisecond, "b": 100 * time.Millisecond, "c": 200 * time.Millisecond},
 		nil,
@@ -51,8 +84,31 @@ func TestSelectPicksFastest(t *testing.T) {
 	}
 }
 
+func TestSelectPrefersHTTPLatencyWhenProbed(t *testing.T) {
+	// b 的 TCP 握手更慢，但 HTTP 出网更快；配置了 ProbeURL 时应选 b。
+	// 覆盖 #B 修复：测速结果里的 HTTP 延迟参与选线排序。
+	lines := []Line{
+		{ID: "a", Name: "a", Tool: "fake", Address: "127.0.0.1:1", ProbeURL: "http://a/probe"},
+		{ID: "b", Name: "b", Tool: "fake", Address: "127.0.0.1:1", ProbeURL: "http://b/probe"},
+	}
+	f := &fakeProber{
+		latencies:     map[string]time.Duration{"a": 10 * time.Millisecond, "b": 30 * time.Millisecond},
+		httpLatencies: map[string]time.Duration{"a": 200 * time.Millisecond, "b": 20 * time.Millisecond},
+	}
+	s := NewSelector(f, 50*time.Millisecond)
+	s.SetLines(lines)
+	s.ProbeAll(context.Background())
+	sel := s.Select()
+	if sel.LineID != "b" {
+		t.Fatalf("expected HTTP-fastest b, got %q", sel.LineID)
+	}
+	if sel.Latency != 20*time.Millisecond {
+		t.Fatalf("expected effective latency 20ms, got %v", sel.Latency)
+	}
+}
+
 func TestSelectSkipsUnavailableLines(t *testing.T) {
-	s := newFake(
+	s, _ := newFake(
 		mkLines("a", "b"),
 		map[string]time.Duration{"b": 100 * time.Millisecond},
 		map[string]error{"a": &ProbeError{Reason: "refused"}},
@@ -65,7 +121,7 @@ func TestSelectSkipsUnavailableLines(t *testing.T) {
 }
 
 func TestSelectEmptyWhenAllDown(t *testing.T) {
-	s := newFake(
+	s, _ := newFake(
 		mkLines("a", "b"),
 		nil,
 		map[string]error{"a": errors.New("down"), "b": errors.New("down")},
@@ -79,7 +135,7 @@ func TestSelectEmptyWhenAllDown(t *testing.T) {
 
 func TestToleranceHysteresis(t *testing.T) {
 	// a=90ms、b=100ms：首次 Select（无当前线路）直接选最快 a。
-	s := newFake(
+	s, f := newFake(
 		mkLines("a", "b"),
 		map[string]time.Duration{"a": 90 * time.Millisecond, "b": 100 * time.Millisecond},
 		nil,
@@ -90,13 +146,15 @@ func TestToleranceHysteresis(t *testing.T) {
 		t.Fatalf("first select should pick fastest a, got %q", first.LineID)
 	}
 	// b 提升到 40ms：a(90)-b(40)=50 <= tolerance(50) → 保持 a，不抖动。
-	s.results["b"] = ProbeResult{LineID: "b", TCPLatency: 40 * time.Millisecond}
+	f.latencies["b"] = 40 * time.Millisecond
+	s.ProbeAll(context.Background())
 	second := s.Select()
 	if second.LineID != "a" {
 		t.Fatalf("expected hysteresis keep a, got %q", second.LineID)
 	}
 	// b 提升到 30ms：a(90)-b(30)=60 > tolerance(50) → 切到 b。
-	s.results["b"] = ProbeResult{LineID: "b", TCPLatency: 30 * time.Millisecond}
+	f.latencies["b"] = 30 * time.Millisecond
+	s.ProbeAll(context.Background())
 	third := s.Select()
 	if third.LineID != "b" {
 		t.Fatalf("expected switch to b after big gap, got %q", third.LineID)
@@ -104,7 +162,7 @@ func TestToleranceHysteresis(t *testing.T) {
 }
 
 func TestLockOverridesAutoAndUnlockRestores(t *testing.T) {
-	s := newFake(
+	s, _ := newFake(
 		mkLines("a", "b"),
 		map[string]time.Duration{"a": 300 * time.Millisecond, "b": 100 * time.Millisecond},
 		nil,
@@ -123,7 +181,7 @@ func TestLockOverridesAutoAndUnlockRestores(t *testing.T) {
 }
 
 func TestLockUnknownLineIgnored(t *testing.T) {
-	s := newFake(mkLines("a"), map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
+	s, _ := newFake(mkLines("a"), map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
 	s.ProbeAll(context.Background())
 	s.Lock("does-not-exist")
 	if s.lockedLine != "" {
@@ -132,7 +190,7 @@ func TestLockUnknownLineIgnored(t *testing.T) {
 }
 
 func TestLockReleasedWhenLineDies(t *testing.T) {
-	s := newFake(
+	s, f := newFake(
 		mkLines("a", "b"),
 		map[string]time.Duration{"a": 10 * time.Millisecond, "b": 20 * time.Millisecond},
 		nil,
@@ -140,7 +198,8 @@ func TestLockReleasedWhenLineDies(t *testing.T) {
 	s.ProbeAll(context.Background())
 	s.Lock("a")
 	// a 失效 → Select 应解除锁并退回可用线路 b。
-	s.results["a"] = ProbeResult{LineID: "a", Err: &ProbeError{Reason: "timeout"}}
+	f.errors = map[string]error{"a": &ProbeError{Reason: "timeout"}}
+	s.ProbeAll(context.Background())
 	sel := s.Select()
 	if sel.Locked {
 		t.Fatal("expected lock to be released")
@@ -151,7 +210,7 @@ func TestLockReleasedWhenLineDies(t *testing.T) {
 }
 
 func TestSetLinesPrunesStaleResultsAndDeadLock(t *testing.T) {
-	s := newFake(
+	s, _ := newFake(
 		mkLines("a", "b"),
 		map[string]time.Duration{"a": 10 * time.Millisecond, "b": 20 * time.Millisecond},
 		nil,
@@ -168,11 +227,31 @@ func TestSetLinesPrunesStaleResultsAndDeadLock(t *testing.T) {
 }
 
 func TestSnapshotThreadSafe(t *testing.T) {
-	s := newFake(mkLines("a"), map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
+	s, _ := newFake(mkLines("a"), map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
 	s.ProbeAll(context.Background())
 	s.Select()
 	st := s.Snapshot()
 	if len(st.Lines) != 1 || st.Current != "a" {
 		t.Fatalf("unexpected snapshot: %+v", st)
+	}
+}
+
+func TestProbeAllConcurrencyLimited(t *testing.T) {
+	// 8 条线路、并发上限 3：实测最大并发必须 <= 3（覆盖 #D 信号量限流）。
+	f := &fakeProber{
+		latencies: map[string]time.Duration{
+			"a": 1, "b": 1, "c": 1, "d": 1, "e": 1, "f": 1, "g": 1, "h": 1,
+		},
+	}
+	counter := &countingProber{inner: f}
+	s := NewSelector(counter, 50*time.Millisecond)
+	s.SetMaxConcurrent(3)
+	s.SetLines(mkLines("a", "b", "c", "d", "e", "f", "g", "h"))
+	s.ProbeAll(context.Background())
+	if counter.peak > 3 {
+		t.Fatalf("expected peak concurrency <= 3, got %d", counter.peak)
+	}
+	if counter.peak < 1 {
+		t.Fatal("expected at least some concurrency")
 	}
 }

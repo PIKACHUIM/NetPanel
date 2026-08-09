@@ -63,9 +63,27 @@ type Prober interface {
 type TCPProber struct {
 	// Timeout 单条线路探测总超时（默认 3s）。
 	Timeout time.Duration
-	// InsecureTLS 探测 https 探测地址时跳过证书校验（穿透入口多为 IP 直连，
-	// 证书校验会误判可用性）。
-	InsecureTLS bool
+	// VerifyTLS 为 true 时校验证书；默认 false 跳过证书校验——穿透入口
+	// 常是 IP:PORT 直连，证书与 SNI 均不可信，探测只关心可达性。
+	VerifyTLS bool
+
+	// once/transport 复用同一个 http.Transport，避免每次探测都新建
+	// 连接池（高频探测时开销显著）。
+	once      sync.Once
+	transport *http.Transport
+}
+
+// transportFor 惰性初始化并复用 Transport（并发安全，http.Transport
+// 内部自带连接池与并发保护）。
+func (p *TCPProber) transportFor() *http.Transport {
+	p.once.Do(func() {
+		p.transport = &http.Transport{
+			// 穿透入口常是 IP:PORT 直连，证书与 SNI 均不可信；仅探测可达性，
+			// 默认跳过证书校验（VerifyTLS 为 true 时校验证书）。
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !p.VerifyTLS},
+		}
+	})
+	return p.transport
 }
 
 // Probe 并发安全，单次调用阻塞至探测完成。
@@ -91,13 +109,7 @@ func (p *TCPProber) Probe(ctx context.Context, line Line) ProbeResult {
 	}
 
 	httpStart := time.Now()
-	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			// 穿透入口常是 IP:PORT 直连，证书与 SNI 均不可信；仅探测可达性。
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: p.InsecureTLS},
-		},
-	}
+	client := &http.Client{Timeout: timeout, Transport: p.transportFor()}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, line.ProbeURL, nil)
 	if err != nil {
 		res.Err = &ProbeError{Reason: err.Error()}
@@ -136,6 +148,9 @@ type Selector struct {
 	prober Prober
 	// tolerance 延迟差在此范围内不切换（防抖）。
 	tolerance time.Duration
+	// maxConcurrent 单轮探测的最大并发数（信号量限流，避免线路过多时
+	// 同时打爆对端/本机连接）。
+	maxConcurrent int
 	// lines 当前线路（按添加顺序）。
 	lines []Line
 	// results 最近一次测速结果（lineID -> result）。
@@ -147,7 +162,8 @@ type Selector struct {
 	current string
 }
 
-// NewSelector 创建选择器。tolerance<=0 时取默认 50ms。
+// NewSelector 创建选择器。tolerance<=0 时取默认 50ms；maxConcurrent<=0 时
+// 取默认 8。
 func NewSelector(prober Prober, tolerance time.Duration) *Selector {
 	if prober == nil {
 		prober = &TCPProber{}
@@ -156,17 +172,30 @@ func NewSelector(prober Prober, tolerance time.Duration) *Selector {
 		tolerance = 50 * time.Millisecond
 	}
 	return &Selector{
-		prober:    prober,
-		tolerance: tolerance,
-		results:   make(map[string]ProbeResult),
+		prober:        prober,
+		tolerance:     tolerance,
+		maxConcurrent: 8,
+		results:       make(map[string]ProbeResult),
 	}
 }
 
+// SetMaxConcurrent 设置单轮探测的最大并发数（须在首次 ProbeAll 前调用，
+// 否则不保证生效）。<=0 时重置为默认 8。
+func (s *Selector) SetMaxConcurrent(n int) {
+	if n <= 0 {
+		n = 8
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxConcurrent = n
+}
+
 // SetLines 全量替换线路集合（保留锁线与当前选择；失效的锁线自动解除）。
+// 拷贝传入 slice，避免调用方后续修改污染内部状态。
 func (s *Selector) SetLines(lines []Line) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lines = lines
+	s.lines = append([]Line(nil), lines...)
 	known := make(map[string]bool, len(lines))
 	for _, l := range lines {
 		known[l.ID] = true
@@ -192,15 +221,19 @@ func (s *Selector) Lines() []Line {
 }
 
 // ProbeAll 并发探测全部线路并刷新结果，返回按线路 id 索引的结果。
+// 并发数受 maxConcurrent 信号量限制，线路过多时不会同时打爆对端/本机连接。
 func (s *Selector) ProbeAll(ctx context.Context) map[string]ProbeResult {
 	s.mu.Lock()
 	lines := append([]Line(nil), s.lines...)
+	maxConcurrent := s.maxConcurrent
 	s.mu.Unlock()
 
 	if len(lines) == 0 {
 		return map[string]ProbeResult{}
 	}
 
+	// 信号量限流：最多 maxConcurrent 个探测并发执行。
+	sem := make(chan struct{}, maxConcurrent)
 	results := make(map[string]ProbeResult, len(lines))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -208,6 +241,15 @@ func (s *Selector) ProbeAll(ctx context.Context) map[string]ProbeResult {
 		wg.Add(1)
 		go func(l Line) {
 			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				mu.Lock()
+				results[l.ID] = ProbeResult{LineID: l.ID, Err: &ProbeError{Reason: "probe canceled"}}
+				mu.Unlock()
+				return
+			}
 			r := s.prober.Probe(ctx, l)
 			mu.Lock()
 			results[l.ID] = r
@@ -222,6 +264,15 @@ func (s *Selector) ProbeAll(ctx context.Context) map[string]ProbeResult {
 	return results
 }
 
+// effectiveLatency 返回用于选线的延迟：配置了 ProbeURL 且 HTTP 探测成功时
+// 以 HTTP 延迟为准（它反映真实的出网可用性），否则回退到 TCP 握手延迟。
+func effectiveLatency(r ProbeResult) time.Duration {
+	if r.HTTPLatency > 0 {
+		return r.HTTPLatency
+	}
+	return r.TCPLatency
+}
+
 // Select 根据最新结果选线：锁线优先；否则取最快可用线路，且与当前线路的
 // 延迟差超过 tolerance 才切换（防抖）。
 func (s *Selector) Select() Selection {
@@ -231,7 +282,7 @@ func (s *Selector) Select() Selection {
 	if s.lockedLine != "" {
 		if r, ok := s.results[s.lockedLine]; ok && r.Err == nil {
 			s.current = s.lockedLine
-			return Selection{LineID: s.lockedLine, Locked: true, Latency: r.TCPLatency}
+			return Selection{LineID: s.lockedLine, Locked: true, Latency: effectiveLatency(r)}
 		}
 		// 锁定的线路失效：解除锁，退回自动模式。
 		s.lockedLine = ""
@@ -248,15 +299,17 @@ func (s *Selector) Select() Selection {
 	if s.current != "" {
 		cur, curOK := s.results[s.current]
 		bestR, bestOK := s.results[best]
-		if curOK && bestOK && cur.Err == nil && cur.TCPLatency-bestR.TCPLatency <= s.tolerance {
-			return Selection{LineID: s.current, Latency: cur.TCPLatency}
+		if curOK && bestOK && cur.Err == nil && effectiveLatency(cur)-effectiveLatency(bestR) <= s.tolerance {
+			return Selection{LineID: s.current, Latency: effectiveLatency(cur)}
 		}
 	}
 	s.current = best
-	return Selection{LineID: best, Latency: s.results[best].TCPLatency}
+	return Selection{LineID: best, Latency: effectiveLatency(s.results[best])}
 }
 
-// bestUsable 返回可用线路中 TCP 延迟最小的一条；无可用时返回空串。
+// bestUsable 返回可用线路中延迟最小的一条；无可用时返回空串。
+// 排序键为 effectiveLatency：配置了 ProbeURL 时优先按 HTTP 出网延迟，
+// 否则按 TCP 握手延迟。
 func (s *Selector) bestUsable() string {
 	type cand struct {
 		id  string
@@ -267,7 +320,7 @@ func (s *Selector) bestUsable() string {
 		if r.Err != nil {
 			continue
 		}
-		cands = append(cands, cand{id: id, lat: r.TCPLatency})
+		cands = append(cands, cand{id: id, lat: effectiveLatency(r)})
 	}
 	if len(cands) == 0 {
 		return ""
@@ -336,8 +389,9 @@ func (s *Selector) Run(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			s.ProbeAll(ctx)
-			s.Select()
-			log.Printf("[selector] current line: %q", s.current)
+			sel := s.Select()
+			// 用返回值而非直接读 s.current（后者在锁外，会与并发调用产生数据竞争）。
+			log.Printf("[selector] current line: %q", sel.LineID)
 		}
 	}
 }
