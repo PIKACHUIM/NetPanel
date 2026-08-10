@@ -172,6 +172,44 @@ func (m *Manager) Restart(id uint) error {
 	return m.Start(id)
 }
 
+// UpdateUpstream 动态更新反向代理站点的上游目标并热加载（不落库）。
+// 用于自动选线切换：选线结果变化时，把 Caddy 反代目标指向当前线路的入口。
+func (m *Manager) UpdateUpstream(id uint, upstream string) error {
+	var site model.CaddySite
+	if err := m.db.First(&site, id).Error; err != nil {
+		return fmt.Errorf("站点不存在: %w", err)
+	}
+	if site.SiteType != "reverse_proxy" {
+		return fmt.Errorf("仅反向代理站点支持动态切换上游，当前类型: %s", site.SiteType)
+	}
+	if upstream == "" {
+		return fmt.Errorf("上游目标地址不能为空")
+	}
+	if err := m.ensureCaddyRunning(); err != nil {
+		return fmt.Errorf("Caddy 引擎未就绪: %w", err)
+	}
+
+	// 内存中替换上游目标，不写库（保留用户原始配置，重启后回退）
+	site.UpstreamAddr = upstream
+	routes, err := m.buildRoutes(&site)
+	if err != nil {
+		m.setError(id, err.Error())
+		return fmt.Errorf("构建路由配置失败: %w", err)
+	}
+	serverKey := fmt.Sprintf("netpanel_%d", id)
+	serverCfg := m.buildServerConfig(&site, routes)
+
+	if err := m.adminRequest("PUT",
+		fmt.Sprintf("/config/apps/http/servers/%s", serverKey),
+		serverCfg,
+	); err != nil {
+		m.setError(id, err.Error())
+		return fmt.Errorf("热加载站点配置失败: %w", err)
+	}
+	m.log.Infof("[Caddy] 站点 [%s] 上游目标已切换为 %s", site.Name, upstream)
+	return nil
+}
+
 // GetStatus 获取站点状态
 func (m *Manager) GetStatus(id uint) string {
 	var site model.CaddySite

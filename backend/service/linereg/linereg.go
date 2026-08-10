@@ -10,7 +10,9 @@ package linereg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +34,13 @@ type Manager struct {
 	log      *logrus.Logger
 	interval time.Duration
 	selector *selector.Selector
+
+	// caddyUpdater 选线切换回调：把选中线路的入口同步到绑定的 Caddy 站点。
+	// 由上层注入（main.go），避免本包依赖 caddy。
+	caddyUpdater func(siteID uint, upstream string) error
+	// dnsUpdater 选线切换回调：把服务域名指向选中线路入口 IP（DNS 层切换）。
+	// 由上层注入（main.go），避免本包依赖 dnsmasq。
+	dnsUpdater func(domain, ip string) error
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -70,6 +79,18 @@ func (m *Manager) SetMaxConcurrent(n int) {
 // SetFailureThreshold 透传设置连续失败阈值（须在 Start 前调用）。
 func (m *Manager) SetFailureThreshold(n int) {
 	m.selector.SetFailureThreshold(n)
+}
+
+// SetCaddyUpdater 注入 Caddy 反代目标切换回调（域名层切换落地）。
+// 选线结果变化时，会把选中线路的入口地址同步到绑定了该线路的 Caddy 站点。
+func (m *Manager) SetCaddyUpdater(fn func(siteID uint, upstream string) error) {
+	m.caddyUpdater = fn
+}
+
+// SetDNSUpdater 注入 DNS 解析切换回调（DNS 层切换落地）。
+// 选线结果变化时，会把服务域名指向选中线路入口 IP。
+func (m *Manager) SetDNSUpdater(fn func(domain, ip string) error) {
+	m.dnsUpdater = fn
 }
 
 // Start 启动后台守护：立即执行一轮刷新与测速，之后按 interval 周期循环。
@@ -116,7 +137,108 @@ func (m *Manager) refresh(ctx context.Context) {
 	m.selector.ProbeAll(ctx)
 	sel := m.selector.Select()
 	m.saveHistory()
+	// 切换落地：选线结果同步到绑定的 Caddy 站点（域名层）与 DNS 解析（DNS 层）
+	m.applyCaddySwitch(sel.LineID)
+	m.applyDNSSwitch(sel.LineID)
 	m.log.Infof("[线路选择] 共 %d 条线路，当前线路: %q", len(lines), sel.LineID)
+}
+
+// applyCaddySwitch 将当前选中线路的入口地址同步到绑定了该线路的 Caddy 站点。
+// 通过 caddyUpdater 回调（main.go 注入）热加载 Caddy 反代目标，实现域名层自动切换。
+func (m *Manager) applyCaddySwitch(lineID string) {
+	if lineID == "" || m.caddyUpdater == nil {
+		return
+	}
+	// 找到选中线路的地址（作为 Caddy 反代目标入口）
+	var line selector.Line
+	for _, l := range m.selector.Lines() {
+		if l.ID == lineID {
+			line = l
+			break
+		}
+	}
+	if line.Address == "" {
+		return
+	}
+	// 查找绑定了 Caddy 站点且 LineRefs 包含该线路的服务
+	var services []model.TunService
+	if err := m.db.Where("caddy_site_id > ?", 0).Find(&services).Error; err != nil {
+		m.log.Warnf("[线路选择] 查询绑定 Caddy 的服务失败: %v", err)
+		return
+	}
+	for _, svc := range services {
+		var refs []string
+		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
+			continue
+		}
+		for _, ref := range refs {
+			if ref != lineID {
+				continue
+			}
+			if err := m.caddyUpdater(svc.CaddySiteID, line.Address); err != nil {
+				m.log.Warnf("[线路选择] 更新 Caddy 站点 %d 失败: %v", svc.CaddySiteID, err)
+			} else {
+				m.log.Infof("[线路选择] Caddy 站点 %d 反代目标已切换为 %s", svc.CaddySiteID, line.Address)
+			}
+			break
+		}
+	}
+}
+
+// applyDNSSwitch 将服务域名指向当前选中线路的入口 IP（DNS 层切换）。
+// 仅当服务配置了 Domain 且线路入口为 IP 时生效（域名入口走 Caddy 域名层）。
+// 通过 dnsUpdater 回调（main.go 注入 dnsmasq.SetRecord）写入自定义解析记录。
+func (m *Manager) applyDNSSwitch(lineID string) {
+	if lineID == "" || m.dnsUpdater == nil {
+		return
+	}
+	// 找到选中线路的地址，仅对 IP 入口做 DNS 切换
+	var line selector.Line
+	for _, l := range m.selector.Lines() {
+		if l.ID == lineID {
+			line = l
+			break
+		}
+	}
+	host := lineHost(line.Address)
+	if host == "" || net.ParseIP(host) == nil {
+		return
+	}
+	// 查找配置了 Domain 且 LineRefs 包含该线路的服务
+	var services []model.TunService
+	if err := m.db.Where("domain != ?", "").Find(&services).Error; err != nil {
+		m.log.Warnf("[线路选择] 查询配置域名服务失败: %v", err)
+		return
+	}
+	for _, svc := range services {
+		var refs []string
+		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
+			continue
+		}
+		for _, ref := range refs {
+			if ref != lineID {
+				continue
+			}
+			if err := m.dnsUpdater(svc.Domain, host); err != nil {
+				m.log.Warnf("[线路选择] 更新 DNS 解析 %s -> %s 失败: %v", svc.Domain, host, err)
+			} else {
+				m.log.Infof("[线路选择] DNS 解析 %s -> %s 已切换", svc.Domain, host)
+			}
+			break
+		}
+	}
+}
+
+// lineHost 从 host:port 地址中提取 host（无端口时视为纯 host）。
+func lineHost(address string) string {
+	if address == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return address
+	}
+	return host
 }
 
 // maxHistoryPerLine 每条线路保留的探测历史上限
