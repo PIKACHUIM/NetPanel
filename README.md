@@ -32,6 +32,7 @@
 | **内网穿透（FRP）** | 集成 FRP 客户端，支持 TCP/UDP/HTTP/HTTPS/STCP/XTCP 等代理类型 |
 | **FRP 服务端** | 同时支持运行 frps，方便自建穿透服务 |
 | **内网穿透（NPS）** | 集成 NPS 客户端与服务端，提供更多穿透方案选择 |
+| **内网穿透（CF）** | 集成 Cloudflare Tunnel（cloudflared），支持 Quick / Named / Token 三种模式，免公网 IP、边缘直接接入 |
 | **异地组网（EasyTier）** | 管理 EasyTier 客户端进程，支持多节点组网，配置虚拟 IP 和网络密码 |
 | **EasyTier 服务端** | 支持运行 EasyTier standalone 服务端 |
 | **WireGuard** | 内置 WireGuard 组网支持，配置简单，性能优异 |

@@ -125,6 +125,8 @@ func (m *Manager) refresh(ctx context.Context) {
 //   - nps      客户端配置的 nps 桥接地址（ServerAddr:ServerPort）
 //   - easytier 客户端 ServerAddr 中的每个地址（tcp://ip:port，可多个）
 //   - wireguard 启用的对端节点 Endpoint（host:port）
+//   - cftunnel named 模式的隧道入口（{tunnel_name}.cfargotunnel.com:443）；
+//     quick/token 模式无固定外部入口，不注册为线路
 func BuildLines(db *gorm.DB) []selector.Line {
 	if db == nil {
 		return nil
@@ -203,6 +205,24 @@ func BuildLines(db *gorm.DB) []selector.Line {
 					Address: p.Endpoint,
 				})
 			}
+		}
+	}
+
+	// ---- Cloudflare Tunnel（named 模式入口固定，可探测）----
+	// quick/token 模式无固定外部入口（trycloudflare 随机域名 / 远程配置），
+	// 不注册为线路；named 模式用 {tunnel_name}.cfargotunnel.com:443 探测。
+	var cfts []model.CftunnelConfig
+	if err := db.Where("enable = ? AND mode = ?", true, "named").Find(&cfts).Error; err == nil {
+		for _, c := range cfts {
+			if c.TunnelName == "" {
+				continue
+			}
+			lines = append(lines, selector.Line{
+				ID:      fmt.Sprintf("cftunnel:%d", c.ID),
+				Name:    c.Name,
+				Tool:    "cloudflare",
+				Address: c.TunnelName + ".cfargotunnel.com:443",
+			})
 		}
 	}
 

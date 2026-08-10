@@ -25,6 +25,7 @@ import (
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
+	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
@@ -199,6 +200,7 @@ func startServer() *http.Server {
 	frpMgr := frp.NewManager(db, logFrp)
 	npsMgr := nps.NewManager(db, logNps, *dataDir)
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
+	cftunnelMgr := cftunnel.NewManager(db, log, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
 	caddyMgr := caddy.NewManager(db, logCaddy, *dataDir)
 	wolMgr := wol.NewManager(db, logWol)
@@ -228,6 +230,7 @@ func startServer() *http.Server {
 	frpMgr.StartAll()
 	npsMgr.StartAll()
 	easytierMgr.StartAll()
+	cftunnelMgr.StartAll()
 	ddnsMgr.StartAll()
 	caddyMgr.StartAll()
 	cronMgr.StartAll()
@@ -255,6 +258,7 @@ func startServer() *http.Server {
 		FrpMgr:         frpMgr,
 		NpsMgr:         npsMgr,
 		EasytierMgr:    easytierMgr,
+		CftunnelMgr:    cftunnelMgr,
 		DdnsMgr:        ddnsMgr,
 		CaddyMgr:       caddyMgr,
 		CronMgr:        cronMgr,
@@ -318,7 +322,7 @@ func startServer() *http.Server {
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
-		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr)
+		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr)
 
 	return srv
 }
@@ -380,6 +384,7 @@ func registerStopHandlers(
 	wireguardMgr interface{ StopAll() },
 	meshNodeMgr interface{ Stop() },
 	lineregMgr interface{ Stop() },
+	cftunnelMgr interface{ StopAll() },
 ) {
 	stopAllFn = func() {
 		log.Info("正在停止所有服务...")
@@ -397,6 +402,7 @@ func registerStopHandlers(
 		wireguardMgr.StopAll()
 		meshNodeMgr.Stop()
 		lineregMgr.Stop()
+		cftunnelMgr.StopAll()
 		log.Info("所有服务已停止")
 	}
 }

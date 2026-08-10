@@ -49,6 +49,7 @@ const en = {
     stun: 'STUN',
     frpc: 'FRP Client',
     frps: 'FRP Server',
+    cftunnel: 'CF Tunnel',
     npsServer: 'NPS Server',
     npsClient: 'NPS Client',
     easytierClient: 'ET Client',

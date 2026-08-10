@@ -28,6 +28,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.EasytierClient{},
 		&model.WireguardConfig{},
 		&model.WireguardPeer{},
+		&model.CftunnelConfig{},
 	); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
@@ -55,6 +56,13 @@ func seedData(db *gorm.DB) {
 	db.Create(&peerB)
 	db.Model(&peerB).Update("enable", false)
 	db.Create(&model.WireguardPeer{WireguardID: wg.ID, Name: "无端点", Enable: true, PublicKey: "CCC", Endpoint: ""})
+
+	// CF 隧道：仅 named 模式注册为线路
+	db.Create(&model.CftunnelConfig{Name: "cf named", Enable: true, Mode: "named", TunnelName: "my-tunnel", LocalURL: "http://127.0.0.1:8080"})
+	db.Create(&model.CftunnelConfig{Name: "cf quick", Enable: true, Mode: "quick", LocalURL: "http://127.0.0.1:8081"})
+	db.Create(&model.CftunnelConfig{Name: "cf token", Enable: true, Mode: "token", Token: "eyJhIjoi"})
+	db.Create(&model.CftunnelConfig{Name: "cf 停用", Enable: false, Mode: "named", TunnelName: "off-tunnel"})
+	db.Create(&model.CftunnelConfig{Name: "cf 无名", Enable: true, Mode: "named", TunnelName: ""})
 }
 
 func TestBuildLines(t *testing.T) {
@@ -111,6 +119,18 @@ func TestBuildLines(t *testing.T) {
 			t.Errorf("%s 不应被收集", id)
 		}
 	}
+
+	// cftunnel：仅 named 模式且有隧道名的注册为线路
+	if l, ok := byID["cftunnel:1"]; !ok {
+		t.Error("缺少 cftunnel:1")
+	} else if l.Address != "my-tunnel.cfargotunnel.com:443" || l.Tool != "cloudflare" {
+		t.Errorf("cftunnel:1 地址/工具错误: %+v", l)
+	}
+	for _, id := range []string{"cftunnel:2", "cftunnel:3", "cftunnel:4", "cftunnel:5"} {
+		if _, ok := byID[id]; ok {
+			t.Errorf("%s 不应被收集（quick/token/停用/无名）", id)
+		}
+	}
 }
 
 func TestBuildLinesNilDB(t *testing.T) {
@@ -142,9 +162,9 @@ func TestManagerRefreshWiresLines(t *testing.T) {
 	if len(m.Selector().Lines()) == 0 {
 		t.Fatal("refresh 后线路集合不应为空")
 	}
-	// 内部状态应包含全部有效线路（frp1 + nps1 + et2 + wg1 = 5 条）
-	if got := len(m.Selector().Lines()); got != 5 {
-		t.Fatalf("期望 5 条线路, got %d", got)
+	// 内部状态应包含全部有效线路（frp1 + nps1 + et2 + wg1 + cftunnel1 = 6 条）
+	if got := len(m.Selector().Lines()); got != 6 {
+		t.Fatalf("期望 6 条线路, got %d", got)
 	}
 }
 

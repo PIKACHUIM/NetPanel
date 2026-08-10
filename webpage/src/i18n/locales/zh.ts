@@ -51,6 +51,7 @@ const zh = {
     stun: 'STUN内网穿透',
     frpc: 'FRP 客户管理',
     frps: 'FRP 服务管理',
+    cftunnel: 'CF 隧道(Cloudflare)',
     npsServer: 'NPS 服务管理',
     npsClient: 'NPS 客户管理',
     easytierClient: 'EasyTier组网',

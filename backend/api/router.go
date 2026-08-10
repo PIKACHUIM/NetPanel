@@ -10,6 +10,7 @@ import (
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
+	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
@@ -37,6 +38,7 @@ type RouterOptions struct {
 	FrpMgr         *frp.Manager
 	NpsMgr         *nps.Manager
 	EasytierMgr    *easytier.Manager
+	CftunnelMgr    *cftunnel.Manager
 	DdnsMgr        *ddns.Manager
 	CaddyMgr       *caddy.Manager
 	CronMgr        *cron.Manager
@@ -178,6 +180,18 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/easytier/server/:id/stop", etsHandler.Stop)
 	auth.GET("/easytier/server/:id/logs", etsHandler.GetLogs)
 	auth.GET("/easytier/server/:id/peers", etsHandler.GetPeers)
+
+	// Cloudflare Tunnel（cloudflared）
+	cfHandler := handlers.NewCftunnelHandler(opts.DB, opts.Log, opts.CftunnelMgr)
+	auth.GET("/cftunnel", cfHandler.List)
+	auth.POST("/cftunnel", cfHandler.Create)
+	auth.PUT("/cftunnel/:id", cfHandler.Update)
+	auth.DELETE("/cftunnel/:id", cfHandler.Delete)
+	auth.POST("/cftunnel/:id/start", cfHandler.Start)
+	auth.POST("/cftunnel/:id/stop", cfHandler.Stop)
+	auth.GET("/cftunnel/:id/status", cfHandler.GetStatus)
+	auth.GET("/cftunnel/:id/logs", cfHandler.GetLogs)
+	auth.GET("/cftunnel/binary", cfHandler.GetBinaryPath)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)
