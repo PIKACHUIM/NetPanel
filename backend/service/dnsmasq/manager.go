@@ -100,6 +100,30 @@ func (m *Manager) GetStatus() string {
 	return "stopped"
 }
 
+// SetRecord 新增或更新自定义解析记录（域名 → IP）。
+// handleDNS 每次查询都直接读库，因此写入后立即生效，无需重载。
+// 用于自动选线的 DNS 层切换：把服务域名指向当前线路入口 IP。
+func (m *Manager) SetRecord(domain, ip string) error {
+	domain = strings.TrimSuffix(strings.TrimSpace(domain), ".")
+	if domain == "" || strings.TrimSpace(ip) == "" {
+		return fmt.Errorf("域名和 IP 不能为空")
+	}
+	var record model.DnsmasqRecord
+	err := m.db.Where("domain = ?", domain).First(&record).Error
+	if err == nil {
+		record.IP = strings.TrimSpace(ip)
+		record.Enable = true
+		return m.db.Save(&record).Error
+	}
+	record = model.DnsmasqRecord{
+		Domain: domain,
+		IP:     strings.TrimSpace(ip),
+		Enable: true,
+		Remark: "自动选线切换",
+	}
+	return m.db.Create(&record).Error
+}
+
 // handleDNS 处理 DNS 查询
 func (m *Manager) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)

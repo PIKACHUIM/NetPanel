@@ -587,7 +587,13 @@ type TunService struct {
 	TargetPort    int    `gorm:"not null" json:"target_port"`
 	Protocol      string `gorm:"size:10;default:'tcp'" json:"protocol"` // tcp/udp
 	// LineRefs 关联线路 ID 列表（JSON 数组，如 ["frp:1","cftunnel:2"]）
-	LineRefs  string `gorm:"type:text" json:"line_refs"`
+	LineRefs string `gorm:"type:text" json:"line_refs"`
+	// CaddySiteID 绑定的 Caddy 反向代理站点 ID（0 表示不绑定）。
+	// 选线结果变化时，会把该站点的上游目标动态切换为当前线路的入口。
+	CaddySiteID uint `gorm:"default:0" json:"caddy_site_id"`
+	// Domain 对外服务域名（可选）。选线结果变化时，若线路入口为 IP，
+	// 会通过 dnsmasq 自定义解析记录把该域名指向当前线路入口（DNS 层切换）。
+	Domain    string `gorm:"size:255" json:"domain"`
 	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError string `gorm:"type:text" json:"last_error"`
 	Remark    string `gorm:"size:500" json:"remark"`
