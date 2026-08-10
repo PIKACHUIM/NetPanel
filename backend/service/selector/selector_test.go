@@ -255,3 +255,95 @@ func TestProbeAllConcurrencyLimited(t *testing.T) {
 		t.Fatal("expected at least some concurrency")
 	}
 }
+
+func TestFailureThresholdTransientFailureKeepsLine(t *testing.T) {
+	// 阈值 2：a 瞬时失败一次（failStreak=1 < 2），仍应保持 a，不切线。
+	s, f := newFake(
+		mkLines("a", "b"),
+		map[string]time.Duration{"a": 10 * time.Millisecond, "b": 20 * time.Millisecond},
+		nil,
+	)
+	s.SetFailureThreshold(2)
+	s.ProbeAll(context.Background())
+	first := s.Select()
+	if first.LineID != "a" {
+		t.Fatalf("expected initial pick a, got %q", first.LineID)
+	}
+	f.errors = map[string]error{"a": &ProbeError{Reason: "timeout"}}
+	s.ProbeAll(context.Background())
+	second := s.Select()
+	if second.LineID != "a" {
+		t.Fatalf("expected keep a after one transient failure, got %q", second.LineID)
+	}
+	if second.Latency != 10*time.Millisecond {
+		t.Fatalf("expected fallback latency from lastGood 10ms, got %v", second.Latency)
+	}
+}
+
+func TestFailureThresholdPersistentFailureSwitches(t *testing.T) {
+	// 阈值 2：a 连续失败两次（failStreak=2 >= 2）后判不可用，切到 b。
+	s, f := newFake(
+		mkLines("a", "b"),
+		map[string]time.Duration{"a": 10 * time.Millisecond, "b": 20 * time.Millisecond},
+		nil,
+	)
+	s.SetFailureThreshold(2)
+	s.ProbeAll(context.Background())
+	if sel := s.Select(); sel.LineID != "a" {
+		t.Fatalf("expected initial pick a, got %q", sel.LineID)
+	}
+	f.errors = map[string]error{"a": &ProbeError{Reason: "timeout"}}
+	s.ProbeAll(context.Background()) // failStreak[a]=1
+	if sel := s.Select(); sel.LineID != "a" {
+		t.Fatalf("expected still a after 1 failure, got %q", sel.LineID)
+	}
+	s.ProbeAll(context.Background()) // failStreak[a]=2，达到阈值
+	third := s.Select()
+	if third.LineID != "b" {
+		t.Fatalf("expected switch to b after 2 failures, got %q", third.LineID)
+	}
+}
+
+func TestFailureThresholdRecoveryReturnsToFastest(t *testing.T) {
+	// 阈值 2：a 失败两次期间选到 b；a 恢复且延迟优势超过容差后，应自动切回 a。
+	// b 用 100ms 使 a(10) 与 b(100) 差 90ms > tolerance(50)，恢复后必然回切。
+	s, f := newFake(
+		mkLines("a", "b"),
+		map[string]time.Duration{"a": 10 * time.Millisecond, "b": 100 * time.Millisecond},
+		nil,
+	)
+	s.SetFailureThreshold(2)
+	s.ProbeAll(context.Background())
+	if sel := s.Select(); sel.LineID != "a" {
+		t.Fatalf("expected initial pick a, got %q", sel.LineID)
+	}
+	f.errors = map[string]error{"a": &ProbeError{Reason: "timeout"}}
+	s.ProbeAll(context.Background()) // failStreak[a]=1，仍保持 a
+	if sel := s.Select(); sel.LineID != "a" {
+		t.Fatalf("expected keep a after 1 failure, got %q", sel.LineID)
+	}
+	s.ProbeAll(context.Background()) // failStreak[a]=2，切到 b
+	if sel := s.Select(); sel.LineID != "b" {
+		t.Fatalf("expected b after 2 failures, got %q", sel.LineID)
+	}
+	delete(f.errors, "a") // a 恢复
+	s.ProbeAll(context.Background())
+	final := s.Select()
+	if final.LineID != "a" {
+		t.Fatalf("expected switch back to a after recovery, got %q", final.LineID)
+	}
+}
+
+func TestFailureThresholdNoLastGoodStaysUnusable(t *testing.T) {
+	// 从未成功过的线路即使失败次数低于阈值也不可用（无 lastGood 兜底）。
+	s, _ := newFake(
+		mkLines("a", "b"),
+		map[string]time.Duration{"b": 20 * time.Millisecond},
+		map[string]error{"a": &ProbeError{Reason: "refused"}},
+	)
+	s.SetFailureThreshold(3)
+	s.ProbeAll(context.Background()) // failStreak[a]=1
+	if sel := s.Select(); sel.LineID != "b" {
+		t.Fatalf("expected only b usable, got %q", sel.LineID)
+	}
+}

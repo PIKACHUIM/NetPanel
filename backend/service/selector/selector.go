@@ -156,6 +156,14 @@ type Selector struct {
 	// results 最近一次测速结果（lineID -> result）。
 	results map[string]ProbeResult
 
+	// failureThreshold 连续失败多少次后线路才判为不可用（默认 1：任何一次
+	// 失败都立即视为不可用；调大可容忍瞬时抖动，避免频繁切线）。
+	failureThreshold int
+	// failStreak 每条线路的连续失败次数（成功探测时清零）。
+	failStreak map[string]int
+	// lastGood 每条线路最近一次成功探测的结果（失败未达阈值时兜底选线）。
+	lastGood map[string]ProbeResult
+
 	// lockedLine 手动锁定的线路；空串表示自动模式。
 	lockedLine string
 	// current 当前生效线路 id。
@@ -172,10 +180,13 @@ func NewSelector(prober Prober, tolerance time.Duration) *Selector {
 		tolerance = 50 * time.Millisecond
 	}
 	return &Selector{
-		prober:        prober,
-		tolerance:     tolerance,
-		maxConcurrent: 8,
-		results:       make(map[string]ProbeResult),
+		prober:           prober,
+		tolerance:        tolerance,
+		maxConcurrent:    8,
+		failureThreshold: 1,
+		results:          make(map[string]ProbeResult),
+		failStreak:       make(map[string]int),
+		lastGood:         make(map[string]ProbeResult),
 	}
 }
 
@@ -188,6 +199,18 @@ func (s *Selector) SetMaxConcurrent(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.maxConcurrent = n
+}
+
+// SetFailureThreshold 设置线路判为不可用所需的连续失败次数（须在首次
+// ProbeAll 前调用，否则不保证生效）。默认 1（任何一次失败立即判不可用）；
+// 调大可容忍瞬时抖动，例如 2 表示连续两次探测失败才切换线路。
+func (s *Selector) SetFailureThreshold(n int) {
+	if n <= 0 {
+		n = 1
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failureThreshold = n
 }
 
 // SetLines 全量替换线路集合（保留锁线与当前选择；失效的锁线自动解除）。
@@ -203,6 +226,12 @@ func (s *Selector) SetLines(lines []Line) {
 	for id := range s.results {
 		if !known[id] {
 			delete(s.results, id)
+		}
+	}
+	for id := range s.failStreak {
+		if !known[id] {
+			delete(s.failStreak, id)
+			delete(s.lastGood, id)
 		}
 	}
 	if s.lockedLine != "" && !known[s.lockedLine] {
@@ -260,6 +289,15 @@ func (s *Selector) ProbeAll(ctx context.Context) map[string]ProbeResult {
 
 	s.mu.Lock()
 	s.results = results
+	// 更新连续失败计数与最近成功结果：成功清零，失败累加（供阈值判可用）。
+	for id, r := range results {
+		if r.Err != nil {
+			s.failStreak[id]++
+		} else {
+			s.failStreak[id] = 0
+			s.lastGood[id] = r
+		}
+	}
 	s.mu.Unlock()
 	return results
 }
@@ -273,6 +311,30 @@ func effectiveLatency(r ProbeResult) time.Duration {
 	return r.TCPLatency
 }
 
+// usable 判断线路当前是否可用：最近一次探测成功；或失败但连续失败次数未达
+// 阈值（此时用最近成功结果兜底选线）。无任何成功记录的线路始终视为不可用。
+func (s *Selector) usable(r ProbeResult) bool {
+	if r.Err == nil {
+		return true
+	}
+	if s.failStreak[r.LineID] >= s.failureThreshold {
+		return false
+	}
+	_, ok := s.lastGood[r.LineID]
+	return ok
+}
+
+// latencyFor 返回线路参与排序的延迟：失败但未达阈值时用最近成功结果兜底，
+// 避免瞬时抖动把延迟抬到异常高。
+func (s *Selector) latencyFor(r ProbeResult) time.Duration {
+	if r.Err != nil {
+		if lg, ok := s.lastGood[r.LineID]; ok {
+			return effectiveLatency(lg)
+		}
+	}
+	return effectiveLatency(r)
+}
+
 // Select 根据最新结果选线：锁线优先；否则取最快可用线路，且与当前线路的
 // 延迟差超过 tolerance 才切换（防抖）。
 func (s *Selector) Select() Selection {
@@ -280,9 +342,9 @@ func (s *Selector) Select() Selection {
 	defer s.mu.Unlock()
 
 	if s.lockedLine != "" {
-		if r, ok := s.results[s.lockedLine]; ok && r.Err == nil {
+		if r, ok := s.results[s.lockedLine]; ok && s.usable(r) {
 			s.current = s.lockedLine
-			return Selection{LineID: s.lockedLine, Locked: true, Latency: effectiveLatency(r)}
+			return Selection{LineID: s.lockedLine, Locked: true, Latency: s.latencyFor(r)}
 		}
 		// 锁定的线路失效：解除锁，退回自动模式。
 		s.lockedLine = ""
@@ -299,12 +361,12 @@ func (s *Selector) Select() Selection {
 	if s.current != "" {
 		cur, curOK := s.results[s.current]
 		bestR, bestOK := s.results[best]
-		if curOK && bestOK && cur.Err == nil && effectiveLatency(cur)-effectiveLatency(bestR) <= s.tolerance {
-			return Selection{LineID: s.current, Latency: effectiveLatency(cur)}
+		if curOK && bestOK && s.usable(cur) && s.latencyFor(cur)-s.latencyFor(bestR) <= s.tolerance {
+			return Selection{LineID: s.current, Latency: s.latencyFor(cur)}
 		}
 	}
 	s.current = best
-	return Selection{LineID: best, Latency: effectiveLatency(s.results[best])}
+	return Selection{LineID: best, Latency: s.latencyFor(s.results[best])}
 }
 
 // bestUsable 返回可用线路中延迟最小的一条；无可用时返回空串。
@@ -317,10 +379,10 @@ func (s *Selector) bestUsable() string {
 	}
 	var cands []cand
 	for id, r := range s.results {
-		if r.Err != nil {
+		if !s.usable(r) {
 			continue
 		}
-		cands = append(cands, cand{id: id, lat: effectiveLatency(r)})
+		cands = append(cands, cand{id: id, lat: s.latencyFor(r)})
 	}
 	if len(cands) == 0 {
 		return ""
