@@ -29,6 +29,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.WireguardConfig{},
 		&model.WireguardPeer{},
 		&model.CftunnelConfig{},
+		&model.ProbeHistory{},
 	); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
@@ -182,5 +183,55 @@ func TestStripScheme(t *testing.T) {
 		if got := stripScheme(in); got != want {
 			t.Errorf("stripScheme(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRefreshWritesProbeHistory(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(&fakeProber{}, 0)
+	m.refresh(context.Background())
+
+	var count int64
+	if err := db.Model(&model.ProbeHistory{}).Count(&count).Error; err != nil {
+		t.Fatalf("查询历史失败: %v", err)
+	}
+	// seedData 共 6 条有效线路，refresh 后每线路应写入一条历史
+	if count != 6 {
+		t.Fatalf("期望 6 条探测历史, got %d", count)
+	}
+
+	var rec model.ProbeHistory
+	if err := db.Where("line_id = ?", "cftunnel:1").First(&rec).Error; err != nil {
+		t.Fatalf("读取 cftunnel:1 历史失败: %v", err)
+	}
+	if rec.Tool != "cloudflare" || rec.Layer != "domain" {
+		t.Errorf("历史记录工具/层次错误: %+v", rec)
+	}
+	if !rec.Available {
+		t.Errorf("fakeProber 全部成功，期望 Available=true, got %+v", rec)
+	}
+}
+
+func TestRefreshPrunesHistory(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(&fakeProber{}, 0)
+
+	// 循环刷新，历史应被 pruneHistory 限制在 maxHistoryPerLine 以内
+	rounds := maxHistoryPerLine + 20
+	for i := 0; i < rounds; i++ {
+		m.refresh(context.Background())
+	}
+	var count int64
+	if err := db.Model(&model.ProbeHistory{}).Where("line_id = ?", "frp:1").Count(&count).Error; err != nil {
+		t.Fatalf("查询历史失败: %v", err)
+	}
+	if count > maxHistoryPerLine {
+		t.Fatalf("历史超出上限: got %d, want <= %d", count, maxHistoryPerLine)
 	}
 }

@@ -1528,6 +1528,8 @@ const en = {
     noLines: 'No linked lines',
     detail: 'Detail',
     latency: 'Latency',
+    trend: 'Latency Trend',
+    noHistory: 'No history records',
   },
 }
 

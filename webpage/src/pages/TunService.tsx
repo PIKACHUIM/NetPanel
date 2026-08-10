@@ -53,6 +53,7 @@ const TunService: React.FC = () => {
     const [editing, setEditing] = useState<any>(null)
     const [detailOpen, setDetailOpen] = useState(false)
     const [detail, setDetail] = useState<any>(null)
+    const [history, setHistory] = useState<Record<string, any[]>>({})
     const [form] = Form.useForm()
 
     const load = async () => {
@@ -146,12 +147,52 @@ const TunService: React.FC = () => {
 
     const showDetail = async (id: number) => {
         setDetailOpen(true)
+        setHistory({})
         try {
-            const res = await tunserviceApi.get(id)
-            setDetail(res?.data || null)
+            const [detailRes, historyRes] = await Promise.all([
+                tunserviceApi.get(id),
+                tunserviceApi.history(id, 100),
+            ])
+            setDetail(detailRes?.data || null)
+            setHistory(historyRes?.data || {})
         } catch (e: any) {
             message.error(e?.response?.data?.message || t('common.failed'))
         }
+    }
+
+    // 迷你延迟趋势图（SVG 折线，不可用点标红）
+    const Sparkline = ({points}: {points: any[]}) => {
+        const W = 240
+        const H = 48
+        if (!points || points.length < 2) {
+            return <Text type="secondary" style={{fontSize: 12}}>{t('tunservice.noHistory')}</Text>
+        }
+        const lat = points.map(p => {
+            const v = (p.http_latency || 0) > 0 ? p.http_latency : p.tcp_latency
+            return v > 0 ? v / 1e6 : null // ms
+        })
+        const valid = lat.filter(v => v !== null) as number[]
+        if (valid.length === 0) {
+            return <Text type="secondary" style={{fontSize: 12}}>{t('tunservice.noHistory')}</Text>
+        }
+        const max = Math.max(...valid, 1)
+        const n = points.length
+        const stepX = n > 1 ? W / (n - 1) : W
+        const coords = points.map((p, i) => {
+            const v = lat[i]
+            const y = v === null ? H : H - (v / max) * (H - 6) - 3
+            return {x: i * stepX, y, ok: p.available}
+        })
+        const line = coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')
+        const down = coords.filter(c => !c.ok)
+        return (
+            <svg width={W} height={H} style={{display: 'block'}}>
+                <polyline points={line} fill="none" stroke="#1677ff" strokeWidth={1.5}/>
+                {down.map((c, i) => (
+                    <circle key={i} cx={c.x} cy={c.y} r={2.5} fill="#ff4d4f"/>
+                ))}
+            </svg>
+        )
     }
 
     const renderLines = (lines: any[]) => {
@@ -326,6 +367,11 @@ const TunService: React.FC = () => {
                                         dataIndex: 'latency',
                                         width: 100,
                                         render: (v: number) => (v > 0 ? `${(v / 1e6).toFixed(1)} ms` : '-'),
+                                    },
+                                    {
+                                        title: t('tunservice.trend'),
+                                        key: 'trend',
+                                        render: (_: any, row: any) => <Sparkline points={history[row.id] || []}/>,
                                     },
                                     {
                                         title: t('common.status'),

@@ -205,6 +205,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/tunservice/:id/start", tsHandler.Start)
 	auth.POST("/tunservice/:id/stop", tsHandler.Stop)
 	auth.GET("/tunservice/:id/candidates", tsHandler.Candidates)
+	auth.GET("/tunservice/:id/history", tsHandler.History)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)

@@ -119,6 +119,31 @@ func (m *Manager) Stop(id uint) {
 	}
 }
 
+// History 返回服务关联线路的探测历史（按线路分组，每条线路取最近 limit 条）。
+func (m *Manager) History(id uint, limit int) (map[string][]model.ProbeHistory, error) {
+	svc, err := m.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	result := make(map[string][]model.ProbeHistory, len(svc.Lines))
+	for _, line := range svc.Lines {
+		var history []model.ProbeHistory
+		if err := m.db.Where("line_id = ?", line.ID).
+			Order("id desc").Limit(limit).Find(&history).Error; err != nil {
+			continue
+		}
+		// 时间正序返回（趋势图从左到右）
+		for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+			history[i], history[j] = history[j], history[i]
+		}
+		result[line.ID] = history
+	}
+	return result, nil
+}
+
 // buildView 组装服务视图：解析 LineRefs，逐条取线路信息并聚合状态。
 func (m *Manager) buildView(s *model.TunService) ServiceView {
 	v := ServiceView{TunService: *s, Lines: []LineInfo{}}

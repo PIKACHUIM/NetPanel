@@ -1567,6 +1567,8 @@ const zh = {
     noLines: '未关联线路',
     detail: '详情',
     latency: '延迟',
+    trend: '延迟趋势',
+    noHistory: '暂无历史记录',
   },
 }
 

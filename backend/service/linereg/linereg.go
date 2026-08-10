@@ -115,7 +115,56 @@ func (m *Manager) refresh(ctx context.Context) {
 	}
 	m.selector.ProbeAll(ctx)
 	sel := m.selector.Select()
+	m.saveHistory()
 	m.log.Infof("[线路选择] 共 %d 条线路，当前线路: %q", len(lines), sel.LineID)
+}
+
+// maxHistoryPerLine 每条线路保留的探测历史上限
+const maxHistoryPerLine = 200
+
+// saveHistory 将最近一次探测结果写入历史表，并清理每线路超出上限的最旧记录。
+func (m *Manager) saveHistory() {
+	st := m.selector.Snapshot()
+	lines := st.Lines
+	for id, r := range st.Results {
+		var line selector.Line
+		for _, l := range lines {
+			if l.ID == id {
+				line = l
+				break
+			}
+		}
+		rec := model.ProbeHistory{
+			LineID:      id,
+			Tool:        line.Tool,
+			Layer:       line.Layer,
+			Address:     line.Address,
+			TCPLatency:  int64(r.TCPLatency),
+			HTTPLatency: int64(r.HTTPLatency),
+			Available:   r.Err == nil,
+		}
+		if r.Err != nil {
+			rec.ErrorMsg = r.Err.Error()
+		}
+		if err := m.db.Create(&rec).Error; err != nil {
+			m.log.Warnf("[线路选择] 写入探测历史失败 (%s): %v", id, err)
+			continue
+		}
+		m.pruneHistory(id)
+	}
+}
+
+// pruneHistory 删除指定线路超出上限的最旧历史记录。
+func (m *Manager) pruneHistory(lineID string) {
+	var count int64
+	if err := m.db.Model(&model.ProbeHistory{}).Where("line_id = ?", lineID).Count(&count).Error; err != nil {
+		return
+	}
+	if count <= maxHistoryPerLine {
+		return
+	}
+	excess := count - maxHistoryPerLine
+	m.db.Where("line_id = ?", lineID).Order("id asc").Limit(int(excess)).Delete(&model.ProbeHistory{})
 }
 
 // BuildLines 从数据库汇总各工具「启用且入口可用」的线路。

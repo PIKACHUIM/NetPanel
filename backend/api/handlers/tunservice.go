@@ -113,3 +113,15 @@ func (h *TunserviceHandler) Candidates(c *gin.Context) {
 	// 由 List 内嵌线路即可，这里保持空列表兜底）。
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": items})
 }
+
+// History 返回服务关联线路的探测历史（延迟趋势）
+func (h *TunserviceHandler) History(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	history, err := h.mgr.History(uint(id), limit)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": history})
+}

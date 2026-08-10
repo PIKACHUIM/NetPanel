@@ -67,6 +67,7 @@ func autoMigrate(db *gorm.DB) error {
 		&EasytierServer{},
 		&CftunnelConfig{},
 		&TunService{},
+		&ProbeHistory{},
 		&NpsTunnel{},
 		&DDNSTask{},
 		&DDNSHistory{},
