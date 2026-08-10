@@ -221,6 +221,7 @@ func BuildLines(db *gorm.DB) []selector.Line {
 				ID:      fmt.Sprintf("cftunnel:%d", c.ID),
 				Name:    c.Name,
 				Tool:    "cloudflare",
+				Layer:   "domain",
 				Address: c.TunnelName + ".cfargotunnel.com:443",
 			})
 		}

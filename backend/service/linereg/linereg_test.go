@@ -125,6 +125,8 @@ func TestBuildLines(t *testing.T) {
 		t.Error("缺少 cftunnel:1")
 	} else if l.Address != "my-tunnel.cfargotunnel.com:443" || l.Tool != "cloudflare" {
 		t.Errorf("cftunnel:1 地址/工具错误: %+v", l)
+	} else if l.Layer != "domain" {
+		t.Errorf("cftunnel:1 应为域名层(domain), got %q", l.Layer)
 	}
 	for _, id := range []string{"cftunnel:2", "cftunnel:3", "cftunnel:4", "cftunnel:5"} {
 		if _, ok := byID[id]; ok {

@@ -81,6 +81,7 @@ const MainLayout: React.FC = () => {
                 {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
                 {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
                 {key: 'cftunnel', icon: <GlobalOutlined/>, label: t('menu.cftunnel')},
+                {key: 'tunservice', icon: <ApartmentOutlined/>, label: t('menu.tunservice')},
             ],
         },
         // ── 组网管理 ──

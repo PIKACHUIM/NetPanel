@@ -347,3 +347,17 @@ func TestFailureThresholdNoLastGoodStaysUnusable(t *testing.T) {
 		t.Fatalf("expected only b usable, got %q", sel.LineID)
 	}
 }
+
+func TestDomainHost(t *testing.T) {
+	cases := map[string]string{
+		"my-tunnel.cfargotunnel.com:443": "my-tunnel.cfargotunnel.com",
+		"1.2.3.4:7000":                   "1.2.3.4",
+		"plain-host":                     "plain-host",
+		"":                               "",
+	}
+	for in, want := range cases {
+		if got := domainHost(in); got != want {
+			t.Errorf("domainHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

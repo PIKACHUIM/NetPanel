@@ -27,8 +27,12 @@ type Line struct {
 	ID string
 	// Name 展示名（如 "阿里云 frps"）。
 	Name string
-	// Tool 来源工具（"frp" / "nps" / "easytier" / "wireguard" ...）。
+	// Tool 来源工具（"frp" / "nps" / "easytier" / "wireguard" / "cloudflare" ...）。
 	Tool string
+	// Layer 线路层次："" / "port"（端口层，TCP 握手探测，默认）或
+	// "domain"（域名层，HTTPS 204 探测，如 Cloudflare Tunnel）。
+	// 域名层线路未配置 ProbeURL 时，探测会自动使用 https://<host>。
+	Layer string
 	// Address 探测地址（host:port）。做 TCP 握手延迟测量。
 	Address string
 	// ProbeURL 可选。非空时额外做一次 HTTP 204 探测（用于区分「能连上」与
@@ -104,13 +108,21 @@ func (p *TCPProber) Probe(ctx context.Context, line Line) ProbeResult {
 	_ = conn.Close()
 
 	res := ProbeResult{LineID: line.ID, TCPLatency: tcpLatency}
-	if line.ProbeURL == "" {
+	probeURL := line.ProbeURL
+	// 域名层线路未配置探测 URL 时，自动使用 https://<host> 做 HTTPS 204 探测
+	// （域名层入口通常是 HTTPS，如 Cloudflare Tunnel 的 cfargotunnel.com）。
+	if probeURL == "" && line.Layer == "domain" {
+		if host := domainHost(line.Address); host != "" {
+			probeURL = "https://" + host
+		}
+	}
+	if probeURL == "" {
 		return res
 	}
 
 	httpStart := time.Now()
 	client := &http.Client{Timeout: timeout, Transport: p.transportFor()}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, line.ProbeURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
 	if err != nil {
 		res.Err = &ProbeError{Reason: err.Error()}
 		return res
@@ -309,6 +321,19 @@ func effectiveLatency(r ProbeResult) time.Duration {
 		return r.HTTPLatency
 	}
 	return r.TCPLatency
+}
+
+// domainHost 从 host:port 形式的地址中提取 host（域名层探测用）。
+func domainHost(address string) string {
+	if address == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		// 无端口时视为纯 host
+		return address
+	}
+	return host
 }
 
 // usable 判断线路当前是否可用：最近一次探测成功；或失败但连续失败次数未达

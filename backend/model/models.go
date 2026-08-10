@@ -575,6 +575,24 @@ type CftunnelConfig struct {
 	Remark    string `gorm:"size:500" json:"remark"`
 }
 
+// ===== 穿透服务（用户视角） =====
+
+// TunService 穿透服务：一个「目标服务」由多条线路（frp/nps/easytier/wg/cf…）提供访问
+type TunService struct {
+	BaseModel
+	Name     string `gorm:"size:100;not null" json:"name"`
+	Enable   bool   `gorm:"default:false" json:"enable"`
+	// 目标地址（IP/域名）
+	TargetAddress string `gorm:"size:255;not null" json:"target_address"`
+	TargetPort    int    `gorm:"not null" json:"target_port"`
+	Protocol      string `gorm:"size:10;default:'tcp'" json:"protocol"` // tcp/udp
+	// LineRefs 关联线路 ID 列表（JSON 数组，如 ["frp:1","cftunnel:2"]）
+	LineRefs  string `gorm:"type:text" json:"line_refs"`
+	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError string `gorm:"type:text" json:"last_error"`
+	Remark    string `gorm:"size:500" json:"remark"`
+}
+
 // ===== DDNS =====
 
 // DDNSTask DDNS 任务

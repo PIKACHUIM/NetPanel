@@ -39,6 +39,7 @@ import (
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
+	"github.com/netpanel/netpanel/service/tunservice"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -217,6 +218,10 @@ func startServer() *http.Server {
 	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
 	lineregMgr := linereg.NewManager(db, log, 0)
 
+	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
+	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,
+		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr)
+
 	wireguardMgr.StartAll()
 
 	// 非管理员时：将数据库中所有 EasyTier 客户端/服务端的 no_tun 强制置为 true
@@ -267,6 +272,7 @@ func startServer() *http.Server {
 		FirewallMgr:    firewallMgr,
 		WireguardMgr:   wireguardMgr,
 		MeshNodeMgr:    meshNodeMgr,
+		TunserviceMgr:  tunserviceMgr,
 		DnsmasqMgr:     dnsmasqMgr,
 		WolMgr:         wolMgr,
 		CertMgr:        certMgr,
