@@ -63,7 +63,6 @@ const MonitorTerminal: React.FC = () => {
         background: '#0A0D12',
         foreground: '#F8F8F2',
         cursor: '#F8F8F2',
-        selection: 'rgba(248, 248, 242, 0.3)',
         black: '#000000',
         red: '#FF5555',
         green: '#50FA7B',

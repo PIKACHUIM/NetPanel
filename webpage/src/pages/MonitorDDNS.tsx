@@ -74,8 +74,8 @@ const MonitorDDNS: React.FC = () => {
     setLoading(true);
     try {
       const [bindingsRes, serversRes, tasksRes] = await Promise.all([
-        monitorApi.getDDNSBindings(),
-        monitorApi.getServers(),
+        monitorApi.listDDNSBindings(),
+        monitorApi.listServers(),
         fetch('/api/v1/ddns').then(res => res.json()),
       ]);
       
