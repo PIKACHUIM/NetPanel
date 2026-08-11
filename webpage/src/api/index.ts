@@ -94,6 +94,32 @@ export const easytierServerApi = {
   getPeers: (id: number) => request.get(`/v1/easytier/server/${id}/peers`),
 }
 
+// ===== Cloudflare Tunnel =====
+export const cftunnelApi = {
+  list: () => request.get('/v1/cftunnel'),
+  create: (data: any) => request.post('/v1/cftunnel', data),
+  update: (id: number, data: any) => request.put(`/v1/cftunnel/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/cftunnel/${id}`),
+  start: (id: number) => request.post(`/v1/cftunnel/${id}/start`),
+  stop: (id: number) => request.post(`/v1/cftunnel/${id}/stop`),
+  getStatus: (id: number) => request.get(`/v1/cftunnel/${id}/status`),
+  getLogs: (id: number) => request.get(`/v1/cftunnel/${id}/logs`),
+  getBinaryPath: () => request.get('/v1/cftunnel/binary'),
+}
+
+// ===== 穿透服务（统一内网穿透管理） =====
+export const tunserviceApi = {
+  list: () => request.get('/v1/tunservice'),
+  get: (id: number) => request.get(`/v1/tunservice/${id}`),
+  create: (data: any) => request.post('/v1/tunservice', data),
+  update: (id: number, data: any) => request.put(`/v1/tunservice/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/tunservice/${id}`),
+  start: (id: number) => request.post(`/v1/tunservice/${id}/start`),
+  stop: (id: number) => request.post(`/v1/tunservice/${id}/stop`),
+  candidates: (id: number) => request.get(`/v1/tunservice/${id}/candidates`),
+  history: (id: number, limit = 100) => request.get(`/v1/tunservice/${id}/history?limit=${limit}`),
+}
+
 // ===== WireGuard =====
 export const wireguardApi = {
   list: () => request.get('/v1/wireguard'),

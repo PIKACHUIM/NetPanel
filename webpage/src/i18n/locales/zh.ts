@@ -51,6 +51,8 @@ const zh = {
     stun: 'STUN内网穿透',
     frpc: 'FRP 客户管理',
     frps: 'FRP 服务管理',
+    cftunnel: 'CF 隧道(Cloudflare)',
+    tunservice: '内网穿透管理',
     npsServer: 'NPS 服务管理',
     npsClient: 'NPS 客户管理',
     easytierClient: 'EasyTier组网',
@@ -1551,6 +1553,22 @@ const zh = {
     darkTheme: '深色',
     interfaceSettings: '界面设置',
     about: '关于',
+  },
+  // 内网穿透管理
+  tunservice: {
+    target: '目标服务',
+    targetAddress: '目标地址',
+    targetPort: '目标端口',
+    protocol: '协议',
+    lines: '线路',
+    lineRefs: '关联线路 (LineRefs)',
+    lineRefsTip: 'JSON 数组，如 ["frp:1","cftunnel:2"]',
+    lineRefsInvalid: 'LineRefs 必须是合法 JSON 数组',
+    noLines: '未关联线路',
+    detail: '详情',
+    latency: '延迟',
+    trend: '延迟趋势',
+    noHistory: '暂无历史记录',
   },
 }
 

@@ -79,6 +79,8 @@ const MainLayout: React.FC = () => {
                 {key: 'stun', icon: <WifiOutlined/>, label: t('menu.stun')},
                 {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
                 {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
+                {key: 'cftunnel', icon: <GlobalOutlined/>, label: t('menu.cftunnel')},
+                {key: 'tunservice', icon: <ApartmentOutlined/>, label: t('menu.tunservice')},
             ],
         },
         {

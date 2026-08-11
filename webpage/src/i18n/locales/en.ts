@@ -49,6 +49,8 @@ const en = {
     stun: 'STUN',
     frpc: 'FRP Client',
     frps: 'FRP Server',
+    cftunnel: 'CF Tunnel',
+    tunservice: 'Tunnel Services',
     npsServer: 'NPS Server',
     npsClient: 'NPS Client',
     easytierClient: 'ET Client',
@@ -1512,6 +1514,22 @@ const en = {
     darkTheme: 'Dark',
     interfaceSettings: 'Interface Settings',
     about: 'About',
+  },
+  // Tunnel services
+  tunservice: {
+    target: 'Target',
+    targetAddress: 'Target Address',
+    targetPort: 'Target Port',
+    protocol: 'Protocol',
+    lines: 'Lines',
+    lineRefs: 'Linked Lines (LineRefs)',
+    lineRefsTip: 'JSON array, e.g. ["frp:1","cftunnel:2"]',
+    lineRefsInvalid: 'LineRefs must be a valid JSON array',
+    noLines: 'No linked lines',
+    detail: 'Detail',
+    latency: 'Latency',
+    trend: 'Latency Trend',
+    noHistory: 'No history records',
   },
 }
 

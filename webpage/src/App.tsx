@@ -15,6 +15,8 @@ const NpsServer = lazy(() => import('./pages/NpsServer'))
 const NpsClient = lazy(() => import('./pages/NpsClient'))
 const EasytierClient = lazy(() => import('./pages/EasytierClient'))
 const EasytierServer = lazy(() => import('./pages/EasytierServer'))
+const CfTunnel = lazy(() => import('./pages/CfTunnel'))
+const TunService = lazy(() => import('./pages/TunService'))
 const Wireguard = lazy(() => import('./pages/Wireguard'))
 const Ddns = lazy(() => import('./pages/Ddns'))
 const Caddy = lazy(() => import('./pages/Caddy'))
@@ -79,6 +81,8 @@ const App: React.FC = () => {
         <Route path="nps/client" element={<Suspense fallback={<PageLoader />}><NpsClient /></Suspense>} />
         <Route path="easytier/client" element={<Suspense fallback={<PageLoader />}><EasytierClient /></Suspense>} />
         <Route path="easytier/server" element={<Suspense fallback={<PageLoader />}><EasytierServer /></Suspense>} />
+        <Route path="cftunnel" element={<Suspense fallback={<PageLoader />}><CfTunnel /></Suspense>} />
+        <Route path="tunservice" element={<Suspense fallback={<PageLoader />}><TunService /></Suspense>} />
         <Route path="wireguard" element={<Suspense fallback={<PageLoader />}><Wireguard /></Suspense>} />
         <Route path="ddns" element={<Suspense fallback={<PageLoader />}><Ddns /></Suspense>} />
         <Route path="caddy" element={<Suspense fallback={<PageLoader />}><Caddy /></Suspense>} />

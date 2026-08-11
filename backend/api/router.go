@@ -10,6 +10,7 @@ import (
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
+	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
@@ -20,6 +21,7 @@ import (
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
+	"github.com/netpanel/netpanel/service/tunservice"
 	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
@@ -37,6 +39,7 @@ type RouterOptions struct {
 	FrpMgr         *frp.Manager
 	NpsMgr         *nps.Manager
 	EasytierMgr    *easytier.Manager
+	CftunnelMgr    *cftunnel.Manager
 	DdnsMgr        *ddns.Manager
 	CaddyMgr       *caddy.Manager
 	CronMgr        *cron.Manager
@@ -50,6 +53,7 @@ type RouterOptions struct {
 	SyslogMgr      *syslog.Manager
 	WireguardMgr   *wireguard.Manager
 	MeshNodeMgr    *meshnode.Manager
+	TunserviceMgr  *tunservice.Manager
 }
 
 // NewRouter 创建路由
@@ -178,6 +182,30 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/easytier/server/:id/stop", etsHandler.Stop)
 	auth.GET("/easytier/server/:id/logs", etsHandler.GetLogs)
 	auth.GET("/easytier/server/:id/peers", etsHandler.GetPeers)
+
+	// Cloudflare Tunnel（cloudflared）
+	cfHandler := handlers.NewCftunnelHandler(opts.DB, opts.Log, opts.CftunnelMgr)
+	auth.GET("/cftunnel", cfHandler.List)
+	auth.POST("/cftunnel", cfHandler.Create)
+	auth.PUT("/cftunnel/:id", cfHandler.Update)
+	auth.DELETE("/cftunnel/:id", cfHandler.Delete)
+	auth.POST("/cftunnel/:id/start", cfHandler.Start)
+	auth.POST("/cftunnel/:id/stop", cfHandler.Stop)
+	auth.GET("/cftunnel/:id/status", cfHandler.GetStatus)
+	auth.GET("/cftunnel/:id/logs", cfHandler.GetLogs)
+	auth.GET("/cftunnel/binary", cfHandler.GetBinaryPath)
+
+	// 穿透服务（用户视角的统一内网穿透管理）
+	tsHandler := handlers.NewTunserviceHandler(opts.DB, opts.Log, opts.TunserviceMgr)
+	auth.GET("/tunservice", tsHandler.List)
+	auth.GET("/tunservice/:id", tsHandler.Get)
+	auth.POST("/tunservice", tsHandler.Create)
+	auth.PUT("/tunservice/:id", tsHandler.Update)
+	auth.DELETE("/tunservice/:id", tsHandler.Delete)
+	auth.POST("/tunservice/:id/start", tsHandler.Start)
+	auth.POST("/tunservice/:id/stop", tsHandler.Stop)
+	auth.GET("/tunservice/:id/candidates", tsHandler.Candidates)
+	auth.GET("/tunservice/:id/history", tsHandler.History)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)

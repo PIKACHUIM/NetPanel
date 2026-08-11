@@ -25,18 +25,21 @@ import (
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
+	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/linereg"
 	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
+	"github.com/netpanel/netpanel/service/tunservice"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -198,6 +201,7 @@ func startServer() *http.Server {
 	frpMgr := frp.NewManager(db, logFrp)
 	npsMgr := nps.NewManager(db, logNps, *dataDir)
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
+	cftunnelMgr := cftunnel.NewManager(db, log, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
 	caddyMgr := caddy.NewManager(db, logCaddy, *dataDir)
 	wolMgr := wol.NewManager(db, logWol)
@@ -210,6 +214,13 @@ func startServer() *http.Server {
 	firewallMgr := firewall.NewManager(db, logFirewall)
 	wireguardMgr := wireguard.NewManager(db, logWireguard, *dataDir)
 	meshNodeMgr := meshnode.NewManager(db, logMeshNode)
+
+	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
+	lineregMgr := linereg.NewManager(db, log, 0)
+
+	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
+	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,
+		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr)
 
 	wireguardMgr.StartAll()
 
@@ -224,6 +235,7 @@ func startServer() *http.Server {
 	frpMgr.StartAll()
 	npsMgr.StartAll()
 	easytierMgr.StartAll()
+	cftunnelMgr.StartAll()
 	ddnsMgr.StartAll()
 	caddyMgr.StartAll()
 	cronMgr.StartAll()
@@ -232,6 +244,7 @@ func startServer() *http.Server {
 	certMgr.StartAll()
 	callbackMgr.Start()
 	meshNodeMgr.Start()
+	lineregMgr.Start()
 
 	// 设置 Gin 模式
 	if cfg.Debug {
@@ -250,6 +263,7 @@ func startServer() *http.Server {
 		FrpMgr:         frpMgr,
 		NpsMgr:         npsMgr,
 		EasytierMgr:    easytierMgr,
+		CftunnelMgr:    cftunnelMgr,
 		DdnsMgr:        ddnsMgr,
 		CaddyMgr:       caddyMgr,
 		CronMgr:        cronMgr,
@@ -258,6 +272,7 @@ func startServer() *http.Server {
 		FirewallMgr:    firewallMgr,
 		WireguardMgr:   wireguardMgr,
 		MeshNodeMgr:    meshNodeMgr,
+		TunserviceMgr:  tunserviceMgr,
 		DnsmasqMgr:     dnsmasqMgr,
 		WolMgr:         wolMgr,
 		CertMgr:        certMgr,
@@ -313,7 +328,7 @@ func startServer() *http.Server {
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
-		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr)
+		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr)
 
 	return srv
 }
@@ -374,6 +389,8 @@ func registerStopHandlers(
 	callbackMgr interface{ Stop() },
 	wireguardMgr interface{ StopAll() },
 	meshNodeMgr interface{ Stop() },
+	lineregMgr interface{ Stop() },
+	cftunnelMgr interface{ StopAll() },
 ) {
 	stopAllFn = func() {
 		log.Info("正在停止所有服务...")
@@ -390,6 +407,8 @@ func registerStopHandlers(
 		callbackMgr.Stop()
 		wireguardMgr.StopAll()
 		meshNodeMgr.Stop()
+		lineregMgr.Stop()
+		cftunnelMgr.StopAll()
 		log.Info("所有服务已停止")
 	}
 }
