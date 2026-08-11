@@ -9,7 +9,7 @@ import {
   Select,
   Switch,
   Space,
-  message,
+  App,
   Tag,
   Popconfirm,
   Tabs,
@@ -59,6 +59,7 @@ interface AlertRecord {
 
 const MonitorAlerts: React.FC = () => {
   const { t } = useTranslation()
+  const { message, modal } = App.useApp()
   const [loading, setLoading] = useState(false)
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [alertRecords, setAlertRecords] = useState<AlertRecord[]>([])

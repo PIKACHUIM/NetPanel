@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Card, Select, Button, Space, message, Typography } from 'antd'
+import { Card, Select, Button, Space, App, Typography } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
@@ -20,6 +20,7 @@ interface Server {
 
 const MonitorTerminal: React.FC = () => {
   const { t } = useTranslation()
+  const { message } = App.useApp()
   const [servers, setServers] = useState<Server[]>([])
   const [selectedServerId, setSelectedServerId] = useState<number | null>(null)
   const [connected, setConnected] = useState(false)

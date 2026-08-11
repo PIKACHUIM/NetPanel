@@ -9,7 +9,7 @@ import {
   Select,
   Switch,
   Space,
-  message,
+  App,
   Tag,
   Popconfirm,
   Drawer,
@@ -60,6 +60,7 @@ interface TaskLog {
 
 const MonitorTasks: React.FC = () => {
   const { t } = useTranslation()
+  const { message, modal } = App.useApp()
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<Task[]>([])
   const [modalVisible, setModalVisible] = useState(false)

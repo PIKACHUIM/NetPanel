@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Modal, Form, Input, Select, Switch, Space, message, Tag, Popconfirm } from 'antd'
+import { Card, Table, Button, Modal, Form, Input, Select, Switch, Space, App, Tag, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
@@ -28,6 +28,7 @@ interface ProbeResult {
 
 const MonitorProbes: React.FC = () => {
   const { t } = useTranslation()
+  const { message, modal } = App.useApp()
   const [loading, setLoading] = useState(false)
   const [probes, setProbes] = useState<Probe[]>([])
   const [modalVisible, setModalVisible] = useState(false)

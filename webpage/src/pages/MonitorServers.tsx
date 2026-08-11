@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Table, Tag, Statistic, Space, Button, Modal, Form, Input, Select, Switch, message } from 'antd';
+import { Card, Row, Col, Table, Tag, Statistic, Space, Button, Modal, Form, Input, Select, Switch, App } from 'antd';
 import { CloudServerOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import { monitorApi } from '../api';
 
@@ -31,6 +31,7 @@ interface MonitorMetric {
 }
 
 const MonitorServers: React.FC = () => {
+  const { message, modal } = App.useApp();
   const [servers, setServers] = useState<MonitorServer[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -46,7 +47,7 @@ const MonitorServers: React.FC = () => {
   const fetchServers = async () => {
     setLoading(true);
     try {
-      const response = await monitorApi.getServers();
+      const response = await monitorApi.listServers();
       setServers(response.data || []);
     } catch (error) {
       message.error('获取服务器列表失败');
@@ -68,7 +69,7 @@ const MonitorServers: React.FC = () => {
   };
 
   const handleDelete = async (id: number) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除',
       content: '确定要删除这个服务器吗？这将删除所有相关的监控数据。',
       onOk: async () => {

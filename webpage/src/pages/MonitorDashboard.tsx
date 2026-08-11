@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Row, Col, Statistic, Table, Tag, Space, Button, message, Spin } from 'antd'
+import { Card, Row, Col, Statistic, Table, Tag, Space, Button, App, Spin } from 'antd'
 import {
   CloudServerOutlined,
   CheckCircleOutlined,
@@ -40,6 +40,7 @@ interface Metric {
 
 const MonitorDashboard: React.FC = () => {
   const { t } = useTranslation()
+  const { message } = App.useApp()
   const [loading, setLoading] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [servers, setServers] = useState<Server[]>([])
