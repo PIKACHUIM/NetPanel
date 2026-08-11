@@ -10,6 +10,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { caddyApi } from '../api'
 import StatusTag from '../components/StatusTag'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { Text } = Typography
@@ -23,6 +24,7 @@ const SITE_TYPES = [
 
 const Caddy: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -156,7 +158,7 @@ const Caddy: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
-        size="middle" style={{ background: '#fff', borderRadius: 8 }}
+        size="middle" style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

@@ -20,6 +20,7 @@ import NpsClient from './NpsClient'
 import NpsServer from './NpsServer'
 import EasytierClient from './EasytierClient'
 import EasytierServer from './EasytierServer'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 
@@ -49,6 +50,7 @@ const TUNNEL_COMPONENTS: Record<string, React.FC> = {
 
 const MeshTunnels: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [nodes, setNodes] = useState<any[]>([])
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null)
   const [selectedType, setSelectedType] = useState('frpc')

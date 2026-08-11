@@ -12,6 +12,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { ipdbApi } from '../api'
 import dayjs from 'dayjs'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -19,6 +20,7 @@ const { Text } = Typography
 // ===== IP 条目 Tab =====
 const EntryTab: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
@@ -281,7 +283,7 @@ const EntryTab: React.FC = () => {
       {/* 数据表格 */}
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle"
-        style={{ background: '#fff', borderRadius: 8 }}
+        style={tableStyle}
         pagination={{
           current: page, pageSize, total,
           showSizeChanger: true, showQuickJumper: true,
@@ -597,7 +599,7 @@ const SubscriptionTab: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle"
-        style={{ background: '#fff', borderRadius: 8 }}
+        style={tableStyle}
         pagination={false}
       />
 

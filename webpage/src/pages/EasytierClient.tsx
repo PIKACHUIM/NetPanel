@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next'
 import { easytierClientApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 
@@ -139,6 +140,7 @@ const randomStr = (len: number, chars = 'abcdefghijklmnopqrstuvwxyz0123456789') 
 // ---- 主组件 ----
 const EasytierClient: React.FC = () => {
   const tunnelCtx = useTunnelApi()
+  const tableStyle = useTableStyle()
   const api = tunnelCtx?.api || easytierClientApi
   const isRemote = tunnelCtx?.isRemoteMode || false
   const { t } = useTranslation()
@@ -1201,7 +1203,7 @@ const EasytierClient: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
-        size="middle" style={{ background: '#fff', borderRadius: 8 }}
+        size="middle" style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { domainRecordApi } from '../api'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { Text } = Typography
@@ -20,6 +21,7 @@ const RECORD_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA', 'PT
 
 const DomainRecordDetail: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const navigate = useNavigate()
   const { domainInfoId } = useParams<{ domainInfoId: string }>()
   const location = useLocation()
@@ -216,7 +218,7 @@ const DomainRecordDetail: React.FC = () => {
         loading={loading}
         size="middle"
         scroll={{ x: isCloudflare ? 1000 : 900 }}
-        style={{ background: '#fff', borderRadius: 8 }}
+        style={tableStyle}
         pagination={{ pageSize: 50, showSizeChanger: true, showTotal: total => `共 ${total} 条` }}
       />
 

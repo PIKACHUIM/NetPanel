@@ -12,12 +12,14 @@ import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { systemApi } from '../api'
 import i18n from '../i18n'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { Title, Text } = Typography
 
 const Settings: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const { language, setLanguage, logout } = useAppStore()
   const navigate = useNavigate()
   const [pwdForm] = Form.useForm()

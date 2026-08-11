@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { domainAccountApi } from '../api'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { Text } = Typography
@@ -195,6 +196,7 @@ const getAuthMode = (provider: string, authType: string) => {
 
 const DomainAccount: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -330,7 +332,7 @@ const DomainAccount: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
-        size="middle" style={{ background: '#fff', borderRadius: 8 }}
+        size="middle" style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

@@ -4,11 +4,13 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, StopOut
 import { useTranslation } from 'react-i18next'
 import { storageApi } from '../api'
 import StatusTag from '../components/StatusTag'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 
 const Storage: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -53,7 +55,7 @@ const Storage: React.FC = () => {
         <Typography.Title level={4} style={{ margin: 0 }}>{t('storage.title')}</Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); form.setFieldsValue({ enable: true, protocol: 'webdav', listen_addr: '0.0.0.0', listen_port: 8888 }); setModalOpen(true) }}>{t('common.create')}</Button>
       </div>
-      <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={{ background: '#fff', borderRadius: 8 }} pagination={{ pageSize: 20 }} />
+      <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={tableStyle} pagination={{ pageSize: 20 }} />
       <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={520} destroyOnHidden>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}><Input style={{ width: '100%' }} /></Form.Item>

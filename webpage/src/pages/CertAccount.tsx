@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { certAccountApi } from '../api'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { Text } = Typography
@@ -39,6 +40,7 @@ const EAB_MANUAL_TIPS: Record<string, string> = {
 
 const CertAccount: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -187,7 +189,7 @@ const CertAccount: React.FC = () => {
         rowKey="id"
         loading={loading}
         size="middle"
-        style={{ background: '#fff', borderRadius: 8 }}
+        style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

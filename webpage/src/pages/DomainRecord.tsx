@@ -16,6 +16,7 @@ import 'dayjs/locale/zh-cn'
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 import { domainInfoApi, domainAccountApi } from '../api'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 // 自动同步间隔预设选项（分钟）
 const SYNC_INTERVAL_OPTIONS = [
@@ -46,6 +47,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 const DomainRecord: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const navigate = useNavigate()
   const [data, setData] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
@@ -345,7 +347,7 @@ const DomainRecord: React.FC = () => {
         loading={loading}
         size="middle"
         scroll={{ x: 1100 }}
-        style={{ background: '#fff', borderRadius: 8 }}
+        style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true, showTotal: total => `共 ${total} 条` }}
       />
 

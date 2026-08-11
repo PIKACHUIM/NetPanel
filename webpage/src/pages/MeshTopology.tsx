@@ -7,6 +7,7 @@ import {
   CheckCircleOutlined, CloseCircleOutlined,
 } from '@ant-design/icons'
 import { meshNodeApi } from '../api'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text, Title } = Typography
 

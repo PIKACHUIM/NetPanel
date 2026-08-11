@@ -10,12 +10,14 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { wafApi, caddyApi } from '../api'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { TextArea } = Input
 
 const Waf: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -280,7 +282,7 @@ const Waf: React.FC = () => {
         rowKey="id"
         loading={loading}
         size="middle"
-        style={{ background: '#fff', borderRadius: 8 }}
+        style={tableStyle}
         pagination={{ pageSize: 20 }}
       />
 

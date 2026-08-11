@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore, wallpaperList, getWallpaperBg } from '../store/appStore'
 import request from '../api/request'
 import i18n from '../i18n'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Title, Text } = Typography
 
@@ -146,6 +147,7 @@ const wpOptions = wallpaperList
 
 const LoginPage: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { token, setToken, setUsername, uiMode, setUIMode, wallpaper, setWallpaper, language, setLanguage } = useAppStore()

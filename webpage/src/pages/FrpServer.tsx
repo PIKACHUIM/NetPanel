@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next'
 import { frpsApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 const { Option } = Select
@@ -28,6 +29,7 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 
 const FrpServer: React.FC = () => {
   const tunnelCtx = useTunnelApi()
+  const tableStyle = useTableStyle()
   const api = tunnelCtx?.api || frpsApi
   const isRemote = tunnelCtx?.isRemoteMode || false
   const { t } = useTranslation()
@@ -631,7 +633,7 @@ const FrpServer: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
-        size="middle" style={{ background: '#fff', borderRadius: 8 }}
+        size="middle" style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

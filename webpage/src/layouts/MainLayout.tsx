@@ -70,7 +70,6 @@ const MainLayout: React.FC = () => {
             icon: <DashboardOutlined/>,
             label: t('menu.dashboard'),
         },
-        // ── 端口映射 ──
         {
             key: 'port-mapping',
             icon: <SwapOutlined/>,
@@ -82,7 +81,6 @@ const MainLayout: React.FC = () => {
                 {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
             ],
         },
-        // ── 组网管理 ──
         {
             key: 'network',
             icon: <ApartmentOutlined/>,
@@ -95,7 +93,6 @@ const MainLayout: React.FC = () => {
                 {key: 'wireguard', icon: <SafetyOutlined/>, label: t('menu.wireguard')},
             ],
         },
-        // ── 节点管理 ──
         {
             key: 'mesh',
             icon: <ClusterOutlined/>,
@@ -107,7 +104,6 @@ const MainLayout: React.FC = () => {
                 {key: 'mesh/events', icon: <HistoryOutlined/>, label: t('menu.meshEvents')},
             ],
         },
-        // ── 网页服务 ──
         {
             key: 'web-service',
             icon: <GlobalOutlined/>,
@@ -117,7 +113,6 @@ const MainLayout: React.FC = () => {
                 {key: 'caddy', icon: <LinkOutlined/>, label: t('menu.caddy')},
             ],
         },
-        // ── 安全防护 ──
         {
             key: 'security',
             icon: <SafetyOutlined/>,
@@ -129,7 +124,6 @@ const MainLayout: React.FC = () => {
                 {key: 'security/waf', icon: <BugOutlined/>, label: t('menu.waf')},
             ],
         },
-        // ── 内网工具 ──
         {
             key: 'intranet',
             icon: <ControlOutlined/>,
@@ -141,7 +135,6 @@ const MainLayout: React.FC = () => {
                 {key: 'cron', icon: <ClockCircleOutlined/>, label: t('menu.cron')},
             ],
         },
-        // ── 域名管理 ──
         {
             key: 'domain',
             icon: <KeyOutlined/>,
@@ -155,7 +148,6 @@ const MainLayout: React.FC = () => {
 
             ],
         },
-        // ── 回调管理 ──
         {
             key: 'callback',
             icon: <BellOutlined/>,
@@ -165,7 +157,6 @@ const MainLayout: React.FC = () => {
                 {key: 'callback/task', icon: <ClockCircleOutlined/>, label: t('menu.callbackTask')},
             ],
         },
-        // ── 系统管理 ──
         {
             key: 'admin',
             icon: <SettingOutlined/>,

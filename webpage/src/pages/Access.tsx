@@ -3,6 +3,7 @@ import { Table, Button, Space, Switch, Modal, Form, Input, Select, Popconfirm, m
 import { PlusOutlined, EditOutlined, DeleteOutlined, LockOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { accessApi } from '../api'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 
@@ -17,6 +18,7 @@ interface UserItem {
 
 const Access: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -147,7 +149,7 @@ const Access: React.FC = () => {
         <Typography.Title level={4} style={{ margin: 0 }}>{t('access.title')}</Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); form.setFieldsValue({ enable: true, mode: 'blacklist', bind_ipdb_ids: [], bind_site_ids: [], auth_mode: '', allowed_user_ids: [] }); setAuthMode(''); setModalOpen(true) }}>{t('common.create')}</Button>
       </div>
-      <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={{ background: '#fff', borderRadius: 8 }} pagination={{ pageSize: 20 }} />
+      <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={tableStyle} pagination={{ pageSize: 20 }} />
       <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={680} destroyOnHidden>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}><Input /></Form.Item>

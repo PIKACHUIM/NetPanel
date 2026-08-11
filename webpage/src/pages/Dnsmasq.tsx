@@ -4,9 +4,11 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, StopOut
 import { useTranslation } from 'react-i18next'
 import { dnsmasqApi } from '../api'
 import StatusTag from '../components/StatusTag'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const Dnsmasq: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [config, setConfig] = useState<any>({})
   const [records, setRecords] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -82,7 +84,7 @@ const Dnsmasq: React.FC = () => {
         <Typography.Text strong>自定义解析记录</Typography.Text>
         <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); recordForm.resetFields(); recordForm.setFieldsValue({ enable: true }); setRecordModalOpen(true) }}>添加记录</Button>
       </div>
-      <Table dataSource={records} columns={recordColumns} rowKey="id" loading={loading} size="small" style={{ background: '#fff', borderRadius: 8 }} pagination={{ pageSize: 20 }} />
+      <Table dataSource={records} columns={recordColumns} rowKey="id" loading={loading} size="small" style={tableStyle} pagination={{ pageSize: 20 }} />
 
       <Modal title={editRecord ? t('common.edit') : '添加解析记录'} open={recordModalOpen} onOk={handleRecordSubmit} onCancel={() => setRecordModalOpen(false)} width={400} destroyOnHidden>
         <Form form={recordForm} layout="vertical" style={{ marginTop: 16 }}>

@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next'
 import { npsClientApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 const { Option } = Select
@@ -27,6 +28,7 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 
 const NpsClient: React.FC = () => {
   const tunnelCtx = useTunnelApi()
+  const tableStyle = useTableStyle()
   const api = tunnelCtx?.api || npsClientApi
   const isRemote = tunnelCtx?.isRemoteMode || false
   const { t } = useTranslation()
@@ -436,7 +438,7 @@ const NpsClient: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
-        size="middle" style={{ background: '#fff', borderRadius: 8 }}
+        size="middle" style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

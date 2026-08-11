@@ -14,6 +14,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { domainCertApi, domainAccountApi, certAccountApi, domainInfoApi } from '../api'
 import dayjs from 'dayjs'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { Text } = Typography
@@ -150,6 +151,7 @@ const DomainListEditor: React.FC<{
 
 const DomainCert: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])       // DNS 域名账号
   const [certAccounts, setCertAccounts] = useState<any[]>([]) // ACME 证书账号
@@ -777,7 +779,7 @@ const DomainCert: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
-        size="middle" style={{ background: '#fff', borderRadius: 8 }}
+        size="middle" style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

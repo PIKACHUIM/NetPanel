@@ -10,11 +10,13 @@ import {
 import { useTranslation } from 'react-i18next'
 import { meshNodeApi } from '../api'
 import FormModal, { FormSection } from '../components/FormModal'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 
 const MeshNodes: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)

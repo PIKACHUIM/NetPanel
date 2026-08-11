@@ -4,11 +4,13 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { callbackTaskApi, callbackAccountApi } from '../api'
 import dayjs from 'dayjs'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 
 const CallbackTask: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -54,7 +56,7 @@ const CallbackTask: React.FC = () => {
         <Typography.Title level={4} style={{ margin: 0 }}>{t('callback.taskTitle')}</Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); form.setFieldsValue({ enable: true, trigger_type: 'stun_ip_change' }); setModalOpen(true) }}>{t('common.create')}</Button>
       </div>
-      <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={{ background: '#fff', borderRadius: 8 }} pagination={{ pageSize: 20 }} />
+      <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={tableStyle} pagination={{ pageSize: 20 }} />
       <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={480} destroyOnHidden>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}><Input /></Form.Item>

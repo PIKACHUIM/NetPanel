@@ -3,6 +3,7 @@ import { Table, Button, Modal, Form, Input, Switch, Select, Space, message, Tag,
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import request from '../api/request'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 interface OAuthProviderItem {
   id: number
@@ -24,6 +25,7 @@ interface OAuthProviderItem {
 
 const OAuthProviders: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<OAuthProviderItem[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)

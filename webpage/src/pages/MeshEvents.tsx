@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { meshNodeApi } from '../api'
 import dayjs from 'dayjs'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 
@@ -25,6 +26,7 @@ const EVENT_TYPE_CONFIG: Record<string, { color: string; icon: React.ReactNode; 
 
 const MeshEvents: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)

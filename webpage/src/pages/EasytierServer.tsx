@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next'
 import { easytierServerApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 
@@ -51,6 +52,7 @@ const joinListenPorts = (ports: string[]): string => (ports || []).filter(Boolea
 
 const EasytierServer: React.FC = () => {
   const tunnelCtx = useTunnelApi()
+  const tableStyle = useTableStyle()
   const api = tunnelCtx?.api || easytierServerApi
   const isRemote = tunnelCtx?.isRemoteMode || false
   const { t } = useTranslation()
@@ -962,7 +964,7 @@ const EasytierServer: React.FC = () => {
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
-        size="middle" style={{ background: '#fff', borderRadius: 8 }}
+        size="middle" style={tableStyle}
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 

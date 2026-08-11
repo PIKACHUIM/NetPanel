@@ -13,6 +13,7 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { adminApi } from '../api'
 import { useAppStore } from '../store/appStore'
+import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 
