@@ -319,25 +319,73 @@ const Ddns: React.FC = () => {
                     </Col>
                   </Row>
                   <Divider orientation="left" plain style={{ fontSize: 13 }}>DNS 服务商</Divider>
+                  <Form.Item name="domain_account_id" label="域名账号（可选）"
+                    extra="选择已有域名账号可自动填充凭证，也可以直接在下方手动填写">
+                    <Select placeholder="不使用域名账号，直接填写凭证" allowClear
+                      onChange={(val) => {
+                        if (val) {
+                          const account = accounts.find(a => a.id === val)
+                          if (account) {
+                            form.setFieldsValue({
+                              provider: account.provider,
+                              access_id: account.access_id,
+                              access_secret: account.access_secret,
+                            })
+                          }
+                        }
+                      }}>
+                      {accounts.map(a => (
+                        <Option key={a.id} value={a.id}>
+                          {a.name} ({PROVIDERS.find(p => p.value === a.provider)?.label || a.provider})
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
                   <Form.Item name="provider" label={t('ddns.provider')} rules={[{ required: true }]}>
                     <Select placeholder="选择DNS服务商">
                       {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
                     </Select>
                   </Form.Item>
-                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider}>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider || prev.domain_account_id !== cur.domain_account_id}>
                     {({ getFieldValue }) => {
                       const provider = getFieldValue('provider')
+                      const useDomainAccount = getFieldValue('domain_account_id')
                       if (provider === 'callback') return null
+                      
+                      // 根据不同服务商显示不同的字段标签
+                      let idLabel = 'Access Key ID'
+                      let idPlaceholder = 'Access Key ID'
+                      let secretLabel = 'Access Key Secret'
+                      let secretPlaceholder = 'Access Key Secret'
+                      let idExtra = ''
+                      
+                      if (provider === 'cloudflare') {
+                        idLabel = 'Zone ID（可选）'
+                        idPlaceholder = 'Cloudflare Zone ID（留空自动查询）'
+                        secretLabel = 'API Token'
+                        secretPlaceholder = '输入 Cloudflare API Token'
+                        idExtra = '留空时将自动根据域名查询 Zone ID'
+                      } else if (provider === 'alidns') {
+                        idLabel = 'AccessKey ID'
+                        secretLabel = 'AccessKey Secret'
+                      } else if (provider === 'dnspod') {
+                        idLabel = 'SecretId'
+                        secretLabel = 'SecretKey'
+                      }
+                      
                       return (
                         <Row gutter={16}>
                           <Col span={12}>
-                            <Form.Item name="access_id" label={t('ddns.accessID')}>
-                              <Input placeholder="Access Key ID" style={{ width: '100%' }} />
+                            <Form.Item name="access_id" label={idLabel} extra={idExtra}>
+                              <Input placeholder={idPlaceholder} style={{ width: '100%' }} 
+                                disabled={!!useDomainAccount} />
                             </Form.Item>
                           </Col>
                           <Col span={12}>
-                            <Form.Item name="access_secret" label={t('ddns.accessSecret')}>
-                              <Input.Password placeholder="Access Key Secret" style={{ width: '100%' }} />
+                            <Form.Item name="access_secret" label={secretLabel} 
+                              rules={provider !== 'callback' ? [{ required: !useDomainAccount, message: '请填写凭证或选择域名账号' }] : []}>
+                              <Input.Password placeholder={secretPlaceholder} style={{ width: '100%' }} 
+                                disabled={!!useDomainAccount} />
                             </Form.Item>
                           </Col>
                         </Row>
