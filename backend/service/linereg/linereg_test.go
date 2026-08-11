@@ -2,6 +2,7 @@ package linereg
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -387,6 +388,54 @@ func TestApplyDNSSwitchDomainEntrySkipped(t *testing.T) {
 	// 但该服务只关联 cftunnel:1，所以不应触发
 	if calls != 0 {
 		t.Fatalf("域名入口线路不应触发 DNS 切换, got %d calls", calls)
+	}
+}
+
+func TestApplyCaddySwitchRollback(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	db.Create(&model.TunService{
+		Name:          "回滚测试服务",
+		Enable:        true,
+		TargetAddress: "127.0.0.1",
+		TargetPort:    8080,
+		LineRefs:      `["frp:1","nps:1"]`,
+		CaddySiteID:   9,
+	})
+
+	prober := &fakeProber{latencies: map[string]time.Duration{
+		"frp:1": 1 * time.Millisecond,
+	}}
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(prober, 0)
+
+	var applied []string
+	m.SetCaddyUpdater(func(siteID uint, upstream string) error {
+		// 模拟切换到 nps:1（5.6.7.8:8024）时 Caddy API 失败
+		if upstream == "5.6.7.8:8024" {
+			return fmt.Errorf("模拟 Caddy API 失败")
+		}
+		applied = append(applied, upstream)
+		return nil
+	})
+
+	// 第一次刷新：frp:1 延迟最低，成功切换到 1.2.3.4:7000
+	m.refresh(context.Background())
+	if len(applied) != 1 || applied[0] != "1.2.3.4:7000" {
+		t.Fatalf("第一次切换期望成功到 1.2.3.4:7000, got %v", applied)
+	}
+
+	// 第二次刷新：nps:1 延迟最低，切换 5.6.7.8:8024 失败，应回滚到上次成功的 1.2.3.4:7000
+	prober.latencies = map[string]time.Duration{
+		"nps:1": 1 * time.Millisecond,
+		"frp:1": 100 * time.Millisecond,
+	}
+	m.refresh(context.Background())
+	if len(applied) != 2 {
+		t.Fatalf("切换失败后应触发回滚调用, applied=%v", applied)
+	}
+	if applied[1] != "1.2.3.4:7000" {
+		t.Errorf("回滚应恢复到上次成功的 1.2.3.4:7000, got %q", applied[1])
 	}
 }
 

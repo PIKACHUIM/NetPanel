@@ -185,6 +185,9 @@ func (m *Manager) UpdateUpstream(id uint, upstream string) error {
 	if upstream == "" {
 		return fmt.Errorf("上游目标地址不能为空")
 	}
+	if err := validateUpstream(upstream); err != nil {
+		return err
+	}
 	if err := m.ensureCaddyRunning(); err != nil {
 		return fmt.Errorf("Caddy 引擎未就绪: %w", err)
 	}
@@ -645,6 +648,27 @@ func (m *Manager) setError(id uint, errMsg string) {
 // GetCaddyDataDir 获取 Caddy 数据目录
 func (m *Manager) GetCaddyDataDir() string {
 	return filepath.Join(m.dataDir, "caddy")
+}
+
+// validateUpstream 校验上游目标地址格式，防止非法值损坏 Caddy 配置。
+// 允许 host:port（如 1.2.3.4:7000）或带协议前缀（http:// / https://）的形式；
+// 复用 normalizeUpstreamDial 的规范化逻辑，能解析出合法 host:port 即通过。
+func validateUpstream(upstream string) error {
+	addr := normalizeUpstreamDial(upstream)
+	if addr == "" {
+		return fmt.Errorf("非法上游目标地址: %q", upstream)
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return fmt.Errorf("非法上游目标地址: %q", upstream)
+	}
+	// 拒绝含空白/控制字符的地址（可能注入 Caddy 配置）
+	for _, r := range addr {
+		if r <= ' ' {
+			return fmt.Errorf("非法上游目标地址（含空白字符）: %q", upstream)
+		}
+	}
+	return nil
 }
 
 // normalizeUpstreamDial 将上游地址转换为 Caddy reverse_proxy 的 dial 格式 (host:port)

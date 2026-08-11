@@ -42,6 +42,11 @@ type Manager struct {
 	// 由上层注入（main.go），避免本包依赖 dnsmasq。
 	dnsUpdater func(domain, ip string) error
 
+	// lastUpstream 记录每个 Caddy 站点最近一次成功切换的上游目标（siteID -> upstream）。
+	// 切换失败时回滚到该值，避免 Caddy 反代目标与选中线路不一致。
+	lastUpstream map[uint]string
+	lastMu       sync.Mutex
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -52,10 +57,11 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 		log = logrus.New()
 	}
 	return &Manager{
-		db:       db,
-		log:      log,
-		interval: DefaultInterval,
-		selector: selector.NewSelector(nil, tolerance),
+		db:           db,
+		log:          log,
+		interval:     DefaultInterval,
+		selector:     selector.NewSelector(nil, tolerance),
+		lastUpstream: make(map[uint]string),
 	}
 }
 
@@ -176,8 +182,25 @@ func (m *Manager) applyCaddySwitch(lineID string) {
 				continue
 			}
 			if err := m.caddyUpdater(svc.CaddySiteID, line.Address); err != nil {
-				m.log.Warnf("[线路选择] 更新 Caddy 站点 %d 失败: %v", svc.CaddySiteID, err)
+				m.log.Errorf("[线路选择] 更新 Caddy 站点 %d 失败: %v", svc.CaddySiteID, err)
+				// 回滚到上一次成功切换的上游目标，避免 Caddy 与新线路不一致
+				m.lastMu.Lock()
+				old, ok := m.lastUpstream[svc.CaddySiteID]
+				m.lastMu.Unlock()
+				if ok && old != "" && old != line.Address {
+					if rerr := m.caddyUpdater(svc.CaddySiteID, old); rerr != nil {
+						m.log.Errorf("[线路选择] 回滚 Caddy 站点 %d 到 %s 失败: %v", svc.CaddySiteID, old, rerr)
+					} else {
+						m.log.Warnf("[线路选择] Caddy 站点 %d 已回滚到 %s", svc.CaddySiteID, old)
+					}
+				}
+				// 记录错误供 UI 排查
+				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
 			} else {
+				m.lastMu.Lock()
+				m.lastUpstream[svc.CaddySiteID] = line.Address
+				m.lastMu.Unlock()
+				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
 				m.log.Infof("[线路选择] Caddy 站点 %d 反代目标已切换为 %s", svc.CaddySiteID, line.Address)
 			}
 			break
@@ -221,7 +244,10 @@ func (m *Manager) applyDNSSwitch(lineID string) {
 			}
 			if err := m.dnsUpdater(svc.Domain, host); err != nil {
 				m.log.Warnf("[线路选择] 更新 DNS 解析 %s -> %s 失败: %v", svc.Domain, host, err)
+				// 记录错误供 UI 排查
+				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
 			} else {
+				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
 				m.log.Infof("[线路选择] DNS 解析 %s -> %s 已切换", svc.Domain, host)
 			}
 			break

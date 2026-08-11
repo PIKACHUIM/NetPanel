@@ -105,8 +105,13 @@ func (m *Manager) GetStatus() string {
 // 用于自动选线的 DNS 层切换：把服务域名指向当前线路入口 IP。
 func (m *Manager) SetRecord(domain, ip string) error {
 	domain = strings.TrimSuffix(strings.TrimSpace(domain), ".")
-	if domain == "" || strings.TrimSpace(ip) == "" {
+	ip = strings.TrimSpace(ip)
+	if domain == "" || ip == "" {
 		return fmt.Errorf("域名和 IP 不能为空")
+	}
+	// 校验 IP 合法性，防止非法值污染 DNS 解析
+	if net.ParseIP(ip) == nil {
+		return fmt.Errorf("非法 IP 地址: %s", ip)
 	}
 	var record model.DnsmasqRecord
 	err := m.db.Where("domain = ?", domain).First(&record).Error
