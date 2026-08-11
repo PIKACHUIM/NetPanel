@@ -33,6 +33,13 @@ import {
     UserOutlined,
     WifiOutlined,
     FileTextOutlined,
+    RobotOutlined,
+    MessageOutlined,
+    MonitorOutlined,
+    DesktopOutlined,
+    EyeOutlined,
+    CodeOutlined,
+    NotificationOutlined,
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {useAppStore, wallpaperList, hasWallpaper, getWallpaperBg} from '../store/appStore'
@@ -157,6 +164,34 @@ const MainLayout: React.FC = () => {
             children: [
                 {key: 'callback/account', icon: <UserOutlined/>, label: t('menu.callbackAccount')},
                 {key: 'callback/task', icon: <ClockCircleOutlined/>, label: t('menu.callbackTask')},
+            ],
+        },
+        {
+            key: 'ai',
+            icon: <RobotOutlined/>,
+            label: t('menu.aiManagement'),
+            children: [
+                {key: 'ai/chat', icon: <MessageOutlined/>, label: t('menu.aiChat')},
+                {key: 'ai/assistant', icon: <RobotOutlined/>, label: t('menu.aiAssistant')},
+                {key: 'ai/cron-task', icon: <ClockCircleOutlined/>, label: t('menu.aiCronTask')},
+                {key: 'ai/plugin', icon: <ApiOutlined/>, label: t('menu.aiPlugin')},
+                {key: 'ai/provider', icon: <CloudServerOutlined/>, label: t('menu.aiProvider')},
+            ],
+        },
+        {
+            key: 'monitor',
+            icon: <MonitorOutlined/>,
+            label: t('menu.serverMonitor'),
+            children: [
+                {key: 'monitor/dashboard', icon: <DashboardOutlined/>, label: t('menu.monitorDashboard')},
+                {key: 'monitor/servers', icon: <DesktopOutlined/>, label: t('menu.monitorServers')},
+                {key: 'monitor/probes', icon: <EyeOutlined/>, label: t('menu.monitorProbes')},
+                {key: 'monitor/tasks', icon: <ClockCircleOutlined/>, label: t('menu.monitorTasks')},
+                {key: 'monitor/alerts', icon: <BellOutlined/>, label: t('menu.monitorAlerts')},
+                {key: 'monitor/ddns', icon: <GlobalOutlined/>, label: t('menu.monitorDDNS')},
+                {key: 'monitor/notifications', icon: <NotificationOutlined/>, label: t('menu.monitorNotifications')},
+                {key: 'monitor/tunnels', icon: <ApiOutlined/>, label: t('menu.monitorTunnels')},
+                {key: 'monitor/terminal', icon: <CodeOutlined/>, label: t('menu.monitorTerminal')},
             ],
         },
         {
@@ -324,7 +359,7 @@ const MainLayout: React.FC = () => {
                             textAlign: 'center',
                         }}>
                             <Text style={{color: hasWp && !isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.2)', fontSize: 11, letterSpacing: '0.5px'}}>
-                                v0.1.0
+                                v0.2.0
                             </Text>
                         </div>
                     )}
@@ -511,6 +546,7 @@ function getOpenKeys(pathname: string): string[] {
     if (pathname.startsWith('/dnsmasq') || pathname.startsWith('/wol') || pathname.startsWith('/storage') || pathname.startsWith('/cron')) return ['intranet']
     if (pathname.startsWith('/domain')) return ['domain']
     if (pathname.startsWith('/callback')) return ['callback']
+    if (pathname.startsWith('/ai')) return ['ai']
     if (pathname.startsWith('/admin') || pathname.startsWith('/settings')) return ['admin']
     return []
 }

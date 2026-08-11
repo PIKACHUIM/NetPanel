@@ -84,6 +84,7 @@ const PortForward: React.FC = () => {
     const tunnelCtx = useTunnelApi()
     const api = tunnelCtx?.api || portForwardApi
     const isRemote = tunnelCtx?.isRemoteMode || false
+    const tableStyle = useTableStyle()
     const [data, setData] = useState<PortForwardRule[]>([])
     const [loading, setLoading] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)

@@ -61,6 +61,7 @@ interface QueryResult {
 }
 
 const SystemLogs: React.FC = () => {
+  const tableStyle = useTableStyle()
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<QueryResult>({ total: 0, items: [] })
   const [services, setServices] = useState<string[]>([])

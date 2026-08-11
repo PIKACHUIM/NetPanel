@@ -104,6 +104,11 @@ func (m *Manager) GetBinaryPath() string {
 	return m.getBinaryPath()
 }
 
+// GetBinDir 返回 bin 目录路径（用于下载）
+func (m *Manager) GetBinDir() string {
+	return filepath.Join(m.dataDir, "bin")
+}
+
 // StartAll 启动所有启用状态的隧道
 func (m *Manager) StartAll() {
 	var tunnels []model.CftunnelConfig

@@ -105,6 +105,8 @@ export const cftunnelApi = {
   getStatus: (id: number) => request.get(`/v1/cftunnel/${id}/status`),
   getLogs: (id: number) => request.get(`/v1/cftunnel/${id}/logs`),
   getBinaryPath: () => request.get('/v1/cftunnel/binary'),
+  getDownloadInfo: () => request.get('/v1/cftunnel/download/info'),
+  downloadBinary: () => '/api/v1/cftunnel/download', // 返回 SSE 流式 URL
 }
 
 // ===== 穿透服务（统一内网穿透管理） =====
@@ -453,4 +455,115 @@ export function createRemoteTunnelApi(tunnelType: string, nodeId: number, isLoca
     // EasyTier 节点信息
     getPeers: (id: number) => meshNodeApi.proxyGet(nodeId, `${basePath}/${id}/peers`),
   }
+}
+
+// ===== AI 管理 =====
+
+// AI API 来源
+export const aiProviderApi = {
+  list: () => request.get('/v1/ai/providers'),
+  create: (data: any) => request.post('/v1/ai/providers', data),
+  update: (id: number, data: any) => request.put(`/v1/ai/providers/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/ai/providers/${id}`),
+  fetchModels: (id: number) => request.post(`/v1/ai/providers/${id}/fetch-models`),
+  test: (id: number) => request.post(`/v1/ai/providers/${id}/test`),
+}
+
+// AI 对话
+export const aiChatApi = {
+  listConversations: () => request.get('/v1/ai/conversations'),
+  createConversation: (data: any) => request.post('/v1/ai/conversations', data),
+  updateConversation: (id: number, data: any) => request.put(`/v1/ai/conversations/${id}`, data),
+  deleteConversation: (id: number) => request.delete(`/v1/ai/conversations/${id}`),
+  listMessages: (id: number) => request.get(`/v1/ai/conversations/${id}/messages`),
+  sendMessage: (id: number, content: string) => request.post(`/v1/ai/conversations/${id}/send`, { content }),
+  exportConversation: (id: number) => request.get(`/v1/ai/conversations/${id}/export`),
+  importConversation: (data: any) => request.post('/v1/ai/conversations/import', data),
+}
+
+// AI 助理
+export const aiAssistantApi = {
+  list: () => request.get('/v1/ai/assistants'),
+  create: (data: any) => request.post('/v1/ai/assistants', data),
+  update: (id: number, data: any) => request.put(`/v1/ai/assistants/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/ai/assistants/${id}`),
+}
+
+// AI 定时任务
+export const aiCronTaskApi = {
+  list: () => request.get('/v1/ai/cron-tasks'),
+  create: (data: any) => request.post('/v1/ai/cron-tasks', data),
+  update: (id: number, data: any) => request.put(`/v1/ai/cron-tasks/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/ai/cron-tasks/${id}`),
+  enable: (id: number) => request.post(`/v1/ai/cron-tasks/${id}/enable`),
+  disable: (id: number) => request.post(`/v1/ai/cron-tasks/${id}/disable`),
+  run: (id: number) => request.post(`/v1/ai/cron-tasks/${id}/run`),
+  getLogs: (id: number, limit?: number) => request.get(`/v1/ai/cron-tasks/${id}/logs`, { params: { limit } }),
+}
+
+// AI 插件
+export const aiPluginApi = {
+  list: (type?: string) => request.get('/v1/ai/plugins', { params: { type } }),
+  create: (data: any) => request.post('/v1/ai/plugins', data),
+  update: (id: number, data: any) => request.put(`/v1/ai/plugins/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/ai/plugins/${id}`),
+  toggle: (id: number, isActive: boolean) => request.post(`/v1/ai/plugins/${id}/toggle`, { is_active: isActive }),
+}
+
+// ===== 服务监控 =====
+export const monitorApi = {
+  // 服务器管理
+  listServers: (params?: any) => request.get('/v1/monitor/servers', { params }),
+  getServer: (id: number) => request.get(`/v1/monitor/servers/${id}`),
+  createServer: (data: any) => request.post('/v1/monitor/servers', data),
+  updateServer: (id: number, data: any) => request.put(`/v1/monitor/servers/${id}`, data),
+  deleteServer: (id: number) => request.delete(`/v1/monitor/servers/${id}`),
+  syncFromMeshNode: (nodeId: number) => request.post(`/v1/monitor/servers/sync/${nodeId}`),
+  
+  // 监控指标
+  getLatestMetrics: (id: number) => request.get(`/v1/monitor/servers/${id}/metrics/latest`),
+  getMetricsHistory: (id: number, params: any) => request.get(`/v1/monitor/servers/${id}/metrics/history`, { params }),
+  
+  // 服务探测
+  listProbes: (params?: any) => request.get('/v1/monitor/probes', { params }),
+  createProbe: (data: any) => request.post('/v1/monitor/probes', data),
+  updateProbe: (id: number, data: any) => request.put(`/v1/monitor/probes/${id}`, data),
+  deleteProbe: (id: number) => request.delete(`/v1/monitor/probes/${id}`),
+  getProbeResults: (id: number, params?: any) => request.get(`/v1/monitor/probes/${id}/results`, { params }),
+  
+  // 任务管理
+  listTasks: (params?: any) => request.get('/v1/monitor/tasks', { params }),
+  createTask: (data: any) => request.post('/v1/monitor/tasks', data),
+  updateTask: (id: number, data: any) => request.put(`/v1/monitor/tasks/${id}`, data),
+  deleteTask: (id: number) => request.delete(`/v1/monitor/tasks/${id}`),
+  executeTask: (id: number) => request.post(`/v1/monitor/tasks/${id}/execute`),
+  getTaskLogs: (params?: any) => request.get('/v1/monitor/tasks/logs', { params }),
+  
+  // 告警规则
+  listAlerts: (params?: any) => request.get('/v1/monitor/alerts', { params }),
+  createAlert: (data: any) => request.post('/v1/monitor/alerts', data),
+  updateAlert: (id: number, data: any) => request.put(`/v1/monitor/alerts/${id}`, data),
+  deleteAlert: (id: number) => request.delete(`/v1/monitor/alerts/${id}`),
+  getAlertRecords: (params?: any) => request.get('/v1/monitor/alerts/records', { params }),
+  
+  // DDNS 绑定
+  listDDNSBindings: (params?: any) => request.get('/v1/monitor/ddns', { params }),
+  createDDNSBinding: (data: any) => request.post('/v1/monitor/ddns', data),
+  updateDDNSBinding: (id: number, data: any) => request.put(`/v1/monitor/ddns/${id}`, data),
+  deleteDDNSBinding: (id: number) => request.delete(`/v1/monitor/ddns/${id}`),
+  triggerDDNSUpdate: (id: number) => request.post(`/v1/monitor/ddns/${id}/trigger`),
+  
+  // 通知渠道
+  listNotifications: (params?: any) => request.get('/v1/monitor/notifications', { params }),
+  createNotification: (data: any) => request.post('/v1/monitor/notifications', data),
+  updateNotification: (id: number, data: any) => request.put(`/v1/monitor/notifications/${id}`, data),
+  deleteNotification: (id: number) => request.delete(`/v1/monitor/notifications/${id}`),
+  sendTestNotification: (data: any) => request.post('/v1/monitor/notifications/test', data),
+  
+  // 隧道绑定
+  listTunnelBindings: (params?: any) => request.get('/v1/monitor/tunnels', { params }),
+  createTunnelBinding: (data: any) => request.post('/v1/monitor/tunnels', data),
+  updateTunnelBinding: (id: number, data: any) => request.put(`/v1/monitor/tunnels/${id}`, data),
+  deleteTunnelBinding: (id: number) => request.delete(`/v1/monitor/tunnels/${id}`),
+  syncTunnelStatus: (id: number) => request.post(`/v1/monitor/tunnels/${id}/sync`),
 }

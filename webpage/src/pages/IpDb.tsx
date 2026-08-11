@@ -405,6 +405,7 @@ style={{ fontFamily: "'MapleMono', monospace", fontSize: 13 }}
 // ===== 订阅管理 Tab =====
 const SubscriptionTab: React.FC = () => {
   const { t } = useTranslation()
+  const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [refreshingId, setRefreshingId] = useState<number | null>(null)

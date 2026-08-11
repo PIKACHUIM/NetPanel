@@ -97,6 +97,26 @@ func autoMigrate(db *gorm.DB) error {
 		&WireguardPeer{}, WireguardPeer{},
 		&MeshNode{},
 		&MeshNodeEvent{},
+		// AI 管理模块
+		&AiProvider{},
+		&AiConversation{},
+		&AiMessage{},
+		&AiAssistant{},
+		&AiCronTask{},
+		&AiCronLog{},
+		&AiPlugin{},
+		// 服务监控模块
+		&MonitorServer{},
+		&MonitorMetric{},
+		&MonitorProbe{},
+		&MonitorProbeResult{},
+		&MonitorTask{},
+		&MonitorTaskLog{},
+		&MonitorAlert{},
+		&MonitorAlertRecord{},
+		&MonitorNotificationChannel{},
+		&MonitorDDNSBinding{},
+		&MonitorTunnelBinding{},
 	)
 }
 

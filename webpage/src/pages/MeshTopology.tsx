@@ -53,6 +53,7 @@ interface TopologyEdge {
 }
 
 const MeshTopology: React.FC = () => {
+  const tableStyle = useTableStyle()
   const [loading, setLoading] = useState(false)
   const [nodes, setNodes] = useState<TopologyNode[]>([])
   const [edges, setEdges] = useState<TopologyEdge[]>([])

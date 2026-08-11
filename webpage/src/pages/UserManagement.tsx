@@ -30,6 +30,7 @@ interface UserItem {
 
 const UserManagement: React.FC = () => {
   const { username: currentUsername } = useAppStore()
+  const tableStyle = useTableStyle()
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserItem[]>([])
   const [modalOpen, setModalOpen] = useState(false)

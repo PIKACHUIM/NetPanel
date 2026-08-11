@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package monitor;
+
+option go_package = "netpanel/proto";
+
+// MonitorAgent 服务定义
+service MonitorAgent {
+  // 心跳上报（双向流式）
+  rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse);
+  
+  // 上报监控指标
+  rpc ReportMetrics(MetricsRequest) returns (MetricsResponse);
+  
+  // 执行命令
+  rpc ExecuteCommand(CommandRequest) returns (CommandResponse);
+  
+  // 终端会话（双向流式）
+  rpc Terminal(stream TerminalData) returns (stream TerminalData);
+  
+  // 文件传输（用于脚本下发）
+  rpc TransferFile(stream FileChunk) returns (FileTransferResponse);
+}
+
+// ===== 心跳相关 =====
+
+// 心跳请求
+message HeartbeatRequest {
+  string server_id = 1;     // 服务器 ID（UUID）
+  string token = 2;         // 认证 Token
+  int64 timestamp = 3;      // 时间戳（Unix 毫秒）
+  SystemInfo system_info = 4; // 系统信息
+}
+
+// 心跳响应
+message HeartbeatResponse {
+  bool success = 1;
+  string message = 2;
+  int64 timestamp = 3;
+  // 服务端下发的配置或命令
+  repeated ServerCommand commands = 4;
+}
+
+// 系统信息
+message SystemInfo {
+  string hostname = 1;
+  string os = 2;            // linux/windows/darwin
+  string arch = 3;          // amd64/arm64/386
+  string kernel_version = 4;
+  int64 boot_time = 5;      // 系统启动时间（Unix 秒）
+  string agent_version = 6; // Agent 版本
+}
+
+// 服务端命令
+message ServerCommand {
+  string command_id = 1;
+  string command_type = 2;  // execute/update_config/restart
+  string payload = 3;       // JSON 格式的命令内容
+}
+
+// ===== 监控指标相关 =====
+
+// 监控指标请求
+message MetricsRequest {
+  string server_id = 1;
+  string token = 2;
+  int64 timestamp = 3;
+  CPUMetrics cpu = 4;
+  MemoryMetrics memory = 5;
+  repeated DiskMetrics disks = 6;
+  repeated NetworkMetrics networks = 7;
+  ProcessMetrics process = 8;
+  SystemMetrics system = 9;
+}
+
+// 监控指标响应
+message MetricsResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// CPU 指标
+message CPUMetrics {
+  double usage = 1;         // CPU 总使用率（%）
+  int32 cores = 2;          // CPU 核心数
+  repeated double per_core_usage = 3; // 各核心使用率
+  double load_avg_1 = 4;    // 1 分钟负载
+  double load_avg_5 = 5;    // 5 分钟负载
+  double load_avg_15 = 6;   // 15 分钟负载
+}
+
+// 内存指标
+message MemoryMetrics {
+  uint64 total = 1;         // 总量（字节）
+  uint64 used = 2;          // 已用
+  uint64 available = 3;     // 可用
+  double usage = 4;         // 使用率（%）
+  uint64 swap_total = 5;    // 交换区总量
+  uint64 swap_used = 6;     // 交换区已用
+  double swap_usage = 7;    // 交换区使用率
+}
+
+// 硬盘指标
+message DiskMetrics {
+  string device = 1;        // 设备名称
+  string mount_point = 2;   // 挂载点
+  string fs_type = 3;       // 文件系统类型
+  uint64 total = 4;         // 总量（字节）
+  uint64 used = 5;          // 已用
+  uint64 available = 6;     // 可用
+  double usage = 7;         // 使用率（%）
+  uint64 read_bytes = 8;    // 读取速度（字节/秒）
+  uint64 write_bytes = 9;   // 写入速度（字节/秒）
+}
+
+// 网络指标
+message NetworkMetrics {
+  string interface = 1;     // 网卡名称
+  uint64 bytes_sent = 2;    // 上行速度（字节/秒）
+  uint64 bytes_recv = 3;    // 下行速度（字节/秒）
+  uint64 packets_sent = 4;  // 发送包数
+  uint64 packets_recv = 5;  // 接收包数
+  uint64 err_in = 6;        // 接收错误
+  uint64 err_out = 7;       // 发送错误
+  uint64 drop_in = 8;       // 接收丢包
+  uint64 drop_out = 9;      // 发送丢包
+}
+
+// 进程指标
+message ProcessMetrics {
+  int32 process_count = 1;  // 进程数
+  int32 thread_count = 2;   // 线程数
+  int32 fd_count = 3;       // 文件描述符数
+  repeated TopProcess top_cpu = 4;     // CPU 占用最高的进程
+  repeated TopProcess top_memory = 5;  // 内存占用最高的进程
+}
+
+// 单个进程信息
+message TopProcess {
+  int32 pid = 1;
+  string name = 2;
+  double cpu_percent = 3;
+  uint64 memory_bytes = 4;
+  string user = 5;
+}
+
+// 系统指标
+message SystemMetrics {
+  int64 uptime = 1;         // 运行时长（秒）
+  int32 connection_count = 2; // TCP 连接数
+  double temperature = 3;   // 温度（如果支持）
+}
+
+// ===== 命令执行相关 =====
+
+// 命令执行请求
+message CommandRequest {
+  string server_id = 1;
+  string token = 2;
+  string command_id = 3;    // 命令 ID（用于关联日志）
+  string command = 4;       // 要执行的命令
+  string shell = 5;         // 使用的 shell（bash/sh/powershell/cmd）
+  int32 timeout = 6;        // 超时时间（秒）
+  string working_dir = 7;   // 工作目录
+  map<string, string> env = 8; // 环境变量
+}
+
+// 命令执行响应
+message CommandResponse {
+  bool success = 1;
+  string command_id = 2;
+  int32 exit_code = 3;
+  string stdout = 4;
+  string stderr = 5;
+  string error_msg = 6;
+  int64 start_time = 7;     // 开始时间（Unix 毫秒）
+  int64 end_time = 8;       // 结束时间
+}
+
+// ===== 终端会话相关 =====
+
+// 终端数据
+message TerminalData {
+  string session_id = 1;    // 会话 ID
+  string server_id = 2;
+  string token = 3;
+  TerminalDataType type = 4;
+  bytes data = 5;           // 终端数据（输入/输出）
+  int32 rows = 6;           // 终端行数（用于 resize）
+  int32 cols = 7;           // 终端列数
+}
+
+enum TerminalDataType {
+  TERMINAL_DATA_UNKNOWN = 0;
+  TERMINAL_DATA_INPUT = 1;    // 用户输入
+  TERMINAL_DATA_OUTPUT = 2;   // 终端输出
+  TERMINAL_RESIZE = 3;        // 终端大小调整
+  TERMINAL_CLOSE = 4;         // 关闭会话
+  TERMINAL_ERROR = 5;         // 错误信息
+}
+
+// ===== 文件传输相关 =====
+
+// 文件块
+message FileChunk {
+  string file_id = 1;       // 文件 ID
+  string file_name = 2;     // 文件名
+  string target_path = 3;   // 目标路径
+  int64 file_size = 4;      // 文件总大小
+  int64 offset = 5;         // 当前块偏移量
+  bytes data = 6;           // 文件数据块
+  bool is_last = 7;         // 是否最后一块
+  int32 permissions = 8;    // 文件权限（Unix）
+}
+
+// 文件传输响应
+message FileTransferResponse {
+  bool success = 1;
+  string file_id = 2;
+  string message = 3;
+  int64 bytes_received = 4; // 已接收字节数
+}

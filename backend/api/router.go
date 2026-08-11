@@ -22,6 +22,7 @@ import (
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
@@ -54,6 +55,7 @@ type RouterOptions struct {
 	WireguardMgr   *wireguard.Manager
 	MeshNodeMgr    *meshnode.Manager
 	TunserviceMgr  *tunservice.Manager
+	AiMgr          *ai.Manager
 }
 
 // NewRouter 创建路由
@@ -194,6 +196,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/cftunnel/:id/status", cfHandler.GetStatus)
 	auth.GET("/cftunnel/:id/logs", cfHandler.GetLogs)
 	auth.GET("/cftunnel/binary", cfHandler.GetBinaryPath)
+	auth.GET("/cftunnel/download/info", cfHandler.GetDownloadInfo)
+	auth.POST("/cftunnel/download", cfHandler.DownloadBinary)
 
 	// 穿透服务（用户视角的统一内网穿透管理）
 	tsHandler := handlers.NewTunserviceHandler(opts.DB, opts.Log, opts.TunserviceMgr)
@@ -431,6 +435,99 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/mesh/ping", meshHandler.Ping)
 	// 代理请求到远程节点
 	auth.Any("/mesh/proxy/:nodeId/*path", meshHandler.ProxyToNode)
+
+	// ── AI 管理 ────────────────────────────────────────────────────────────────
+	aiHandler := handlers.NewAiHandler(opts.DB, opts.Log, opts.AiMgr)
+	// API 来源
+	auth.GET("/ai/providers", aiHandler.ListProviders)
+	auth.POST("/ai/providers", aiHandler.CreateProvider)
+	auth.PUT("/ai/providers/:id", aiHandler.UpdateProvider)
+	auth.DELETE("/ai/providers/:id", aiHandler.DeleteProvider)
+	auth.POST("/ai/providers/:id/fetch-models", aiHandler.FetchModels)
+	auth.POST("/ai/providers/:id/test", aiHandler.TestProvider)
+	// 对话
+	auth.GET("/ai/conversations", aiHandler.ListConversations)
+	auth.POST("/ai/conversations", aiHandler.CreateConversation)
+	auth.PUT("/ai/conversations/:id", aiHandler.UpdateConversation)
+	auth.DELETE("/ai/conversations/:id", aiHandler.DeleteConversation)
+	auth.GET("/ai/conversations/:id/messages", aiHandler.ListMessages)
+	auth.POST("/ai/conversations/:id/send", aiHandler.SendMessage)
+	auth.POST("/ai/conversations/:id/stream", aiHandler.StreamMessage)
+	auth.GET("/ai/conversations/:id/export", aiHandler.ExportConversation)
+	auth.POST("/ai/conversations/import", aiHandler.ImportConversation)
+	// AI 助理
+	auth.GET("/ai/assistants", aiHandler.ListAssistants)
+	auth.POST("/ai/assistants", aiHandler.CreateAssistant)
+	auth.PUT("/ai/assistants/:id", aiHandler.UpdateAssistant)
+	auth.DELETE("/ai/assistants/:id", aiHandler.DeleteAssistant)
+	// AI 定时任务
+	auth.GET("/ai/cron-tasks", aiHandler.ListCronTasks)
+	auth.POST("/ai/cron-tasks", aiHandler.CreateCronTask)
+	auth.PUT("/ai/cron-tasks/:id", aiHandler.UpdateCronTask)
+	auth.DELETE("/ai/cron-tasks/:id", aiHandler.DeleteCronTask)
+	auth.POST("/ai/cron-tasks/:id/enable", aiHandler.EnableCronTask)
+	auth.POST("/ai/cron-tasks/:id/disable", aiHandler.DisableCronTask)
+	auth.POST("/ai/cron-tasks/:id/run", aiHandler.RunCronTask)
+	auth.GET("/ai/cron-tasks/:id/logs", aiHandler.ListCronLogs)
+	// AI 插件
+	auth.GET("/ai/plugins", aiHandler.ListPlugins)
+	auth.POST("/ai/plugins", aiHandler.CreatePlugin)
+	auth.PUT("/ai/plugins/:id", aiHandler.UpdatePlugin)
+	auth.DELETE("/ai/plugins/:id", aiHandler.DeletePlugin)
+	auth.POST("/ai/plugins/:id/toggle", aiHandler.TogglePlugin)
+
+	// ── 服务监控 ────────────────────────────────────────────────────────────────
+	monitorHandler := handlers.NewMonitorHandler(opts.DB)
+	// 服务器管理
+	auth.GET("/monitor/servers", monitorHandler.ListServers)
+	auth.GET("/monitor/servers/:id", monitorHandler.GetServer)
+	auth.POST("/monitor/servers", monitorHandler.CreateServer)
+	auth.PUT("/monitor/servers/:id", monitorHandler.UpdateServer)
+	auth.DELETE("/monitor/servers/:id", monitorHandler.DeleteServer)
+	auth.POST("/monitor/servers/sync/:nodeId", monitorHandler.SyncFromMeshNode)
+	// 监控指标
+	auth.GET("/monitor/servers/:id/metrics/latest", monitorHandler.GetLatestMetrics)
+	auth.GET("/monitor/servers/:id/metrics/history", monitorHandler.GetMetricsHistory)
+	// 服务探测
+	auth.GET("/monitor/probes", monitorHandler.ListProbes)
+	auth.POST("/monitor/probes", monitorHandler.CreateProbe)
+	auth.PUT("/monitor/probes/:id", monitorHandler.UpdateProbe)
+	auth.DELETE("/monitor/probes/:id", monitorHandler.DeleteProbe)
+	auth.GET("/monitor/probes/:id/results", monitorHandler.GetProbeResults)
+	// 任务管理
+	auth.GET("/monitor/tasks", monitorHandler.ListTasks)
+	auth.POST("/monitor/tasks", monitorHandler.CreateTask)
+	auth.PUT("/monitor/tasks/:id", monitorHandler.UpdateTask)
+	auth.DELETE("/monitor/tasks/:id", monitorHandler.DeleteTask)
+	auth.POST("/monitor/tasks/:id/execute", monitorHandler.ExecuteTask)
+	auth.GET("/monitor/tasks/logs", monitorHandler.GetTaskLogs)
+	// 告警规则
+	auth.GET("/monitor/alerts", monitorHandler.ListAlerts)
+	auth.POST("/monitor/alerts", monitorHandler.CreateAlert)
+	auth.PUT("/monitor/alerts/:id", monitorHandler.UpdateAlert)
+	auth.DELETE("/monitor/alerts/:id", monitorHandler.DeleteAlert)
+	auth.GET("/monitor/alerts/records", monitorHandler.GetAlertRecords)
+	// DDNS 绑定
+	auth.GET("/monitor/ddns", monitorHandler.GetDDNSBindings)
+	auth.POST("/monitor/ddns", monitorHandler.CreateDDNSBinding)
+	auth.PUT("/monitor/ddns/:id", monitorHandler.UpdateDDNSBinding)
+	auth.DELETE("/monitor/ddns/:id", monitorHandler.DeleteDDNSBinding)
+	auth.POST("/monitor/ddns/:id/trigger", monitorHandler.TriggerDDNSUpdate)
+	// 通知渠道
+	auth.GET("/monitor/notifications", monitorHandler.GetNotificationChannels)
+	auth.POST("/monitor/notifications", monitorHandler.CreateNotificationChannel)
+	auth.PUT("/monitor/notifications/:id", monitorHandler.UpdateNotificationChannel)
+	auth.DELETE("/monitor/notifications/:id", monitorHandler.DeleteNotificationChannel)
+	auth.POST("/monitor/notifications/test", monitorHandler.SendTestNotification)
+	// 隧道绑定
+	auth.GET("/monitor/tunnels", monitorHandler.GetTunnelBindings)
+	auth.POST("/monitor/tunnels", monitorHandler.CreateTunnelBinding)
+	auth.PUT("/monitor/tunnels/:id", monitorHandler.UpdateTunnelBinding)
+	auth.DELETE("/monitor/tunnels/:id", monitorHandler.DeleteTunnelBinding)
+	auth.POST("/monitor/tunnels/:id/sync", monitorHandler.SyncTunnelStatus)
+	
+	// WebSocket 终端（无需 JWT，通过 query 参数认证）
+	r.GET("/ws/terminal", monitorHandler.HandleTerminal)
 
 	return r
 }

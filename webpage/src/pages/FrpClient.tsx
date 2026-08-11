@@ -64,6 +64,7 @@ const FrpClient: React.FC = () => {
     const tunnelCtx = useTunnelApi()
     const api = tunnelCtx?.api || frpcApi
     const isRemote = tunnelCtx?.isRemoteMode || false
+    const tableStyle = useTableStyle()
     const [data, setData] = useState<any[]>([])
     const [loading, setLoading] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)

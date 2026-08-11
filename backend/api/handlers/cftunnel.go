@@ -110,3 +110,52 @@ func (h *CftunnelHandler) GetLogs(c *gin.Context) {
 func (h *CftunnelHandler) GetBinaryPath(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"binary_path": h.mgr.GetBinaryPath()}})
 }
+
+// GetDownloadInfo 获取下载信息
+func (h *CftunnelHandler) GetDownloadInfo(c *gin.Context) {
+	info := cftunnel.GetDownloadInfo()
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": info})
+}
+
+// DownloadBinary 下载 cloudflared 二进制
+func (h *CftunnelHandler) DownloadBinary(c *gin.Context) {
+	if !cftunnel.IsBinaryDownloadSupported() {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "当前平台不支持自动下载"})
+		return
+	}
+
+	binDir := h.mgr.GetBinDir()
+	
+	// 使用 Server-Sent Events 报告进度
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "不支持流式传输"})
+		return
+	}
+
+	// 发送进度回调
+	progressCallback := func(downloaded, total int64) {
+		percent := float64(0)
+		if total > 0 {
+			percent = float64(downloaded) / float64(total) * 100
+		}
+		fmt.Fprintf(c.Writer, "data: {\"downloaded\": %d, \"total\": %d, \"percent\": %.2f}\n\n", downloaded, total, percent)
+		flusher.Flush()
+	}
+
+	finalPath, err := cftunnel.DownloadBinary(binDir, progressCallback)
+	if err != nil {
+		fmt.Fprintf(c.Writer, "data: {\"error\": \"%s\"}\n\n", err.Error())
+		flusher.Flush()
+		logger.WriteLog("error", "cftunnel", fmt.Sprintf("下载 cloudflared 失败: %v", err))
+		return
+	}
+
+	fmt.Fprintf(c.Writer, "data: {\"done\": true, \"path\": \"%s\"}\n\n", finalPath)
+	flusher.Flush()
+	logger.WriteLog("info", "cftunnel", fmt.Sprintf("下载 cloudflared 成功: %s", finalPath))
+}

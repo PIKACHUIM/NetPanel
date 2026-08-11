@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react'
 import {
+    Alert,
     Badge,
     Button,
     Drawer,
@@ -8,6 +9,7 @@ import {
     message,
     Modal,
     Popconfirm,
+    Progress,
     Select,
     Space,
     Switch,
@@ -18,6 +20,7 @@ import {
 } from 'antd'
 import {
     DeleteOutlined,
+    DownloadOutlined,
     EditOutlined,
     PlayCircleOutlined,
     PlusOutlined,
@@ -30,7 +33,7 @@ import {cftunnelApi} from '../api'
 import StatusTag from '../components/StatusTag'
 
 const {Option} = Select
-const {Text} = Typography
+const {Text, Link} = Typography
 
 const modeColor: Record<string, string> = {
     quick: 'green',
@@ -48,6 +51,13 @@ const CfTunnel: React.FC = () => {
     const [logs, setLogs] = useState<string[]>([])
     const [logsLoading, setLogsLoading] = useState(false)
     const [form] = Form.useForm()
+    
+    // 二进制检测和下载
+    const [binaryPath, setBinaryPath] = useState<string>('')
+    const [binaryExists, setBinaryExists] = useState(false)
+    const [downloadInfo, setDownloadInfo] = useState<any>(null)
+    const [downloading, setDownloading] = useState(false)
+    const [downloadProgress, setDownloadProgress] = useState(0)
 
     const load = async () => {
         setLoading(true)
@@ -59,8 +69,24 @@ const CfTunnel: React.FC = () => {
         }
     }
 
+    const checkBinary = async () => {
+        try {
+            const pathRes = await cftunnelApi.getBinaryPath()
+            const path = pathRes?.data?.binary_path || ''
+            setBinaryPath(path)
+            // 简单检测：如果路径存在且不为空，认为存在
+            setBinaryExists(!!path)
+            
+            const infoRes = await cftunnelApi.getDownloadInfo()
+            setDownloadInfo(infoRes?.data || null)
+        } catch (e) {
+            console.error('检测二进制失败:', e)
+        }
+    }
+
     useEffect(() => {
         load()
+        checkBinary()
         // 周期刷新状态
         const timer = setInterval(load, 5000)
         return () => clearInterval(timer)
@@ -135,6 +161,47 @@ const CfTunnel: React.FC = () => {
             setLogs(res?.data || [])
         } finally {
             setLogsLoading(false)
+        }
+    }
+
+    const downloadBinary = async () => {
+        if (!downloadInfo?.supported) {
+            message.error(t('cftunnel.downloadFailed') + ': ' + t('common.unsupported'))
+            return
+        }
+
+        setDownloading(true)
+        setDownloadProgress(0)
+        message.loading({content: t('cftunnel.downloadingBinary'), key: 'download', duration: 0})
+
+        const url = cftunnelApi.downloadBinary()
+        const eventSource = new EventSource(url)
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data)
+                if (data.error) {
+                    message.error({content: t('cftunnel.downloadFailed') + ': ' + data.error, key: 'download'})
+                    setDownloading(false)
+                    eventSource.close()
+                } else if (data.done) {
+                    message.success({content: t('cftunnel.downloadSuccess'), key: 'download'})
+                    setDownloading(false)
+                    setDownloadProgress(100)
+                    eventSource.close()
+                    checkBinary() // 重新检测
+                } else if (data.percent !== undefined) {
+                    setDownloadProgress(Math.round(data.percent))
+                }
+            } catch (e) {
+                console.error('解析下载进度失败:', e)
+            }
+        }
+
+        eventSource.onerror = () => {
+            message.error({content: t('cftunnel.downloadFailed'), key: 'download'})
+            setDownloading(false)
+            eventSource.close()
         }
     }
 
@@ -214,6 +281,45 @@ const CfTunnel: React.FC = () => {
 
     return (
         <div>
+            {!binaryExists && (
+                <Alert
+                    message={t('cftunnel.binaryNotFound')}
+                    description={
+                        <div>
+                            <p>{t('cftunnel.binaryNotFoundDesc')}</p>
+                            {binaryPath && <p><Text code>{binaryPath}</Text></p>}
+                            {downloadInfo?.supported && (
+                                <>
+                                    <p>{t('cftunnel.autoDownloadSupported')}</p>
+                                    <Button
+                                        type="primary"
+                                        icon={<DownloadOutlined/>}
+                                        onClick={downloadBinary}
+                                        loading={downloading}
+                                        disabled={downloading}
+                                    >
+                                        {t('cftunnel.downloadBinary')}
+                                    </Button>
+                                    {downloading && (
+                                        <Progress percent={downloadProgress} style={{marginTop: 12, maxWidth: 400}}/>
+                                    )}
+                                </>
+                            )}
+                            <p style={{marginTop: 12}}>
+                                {t('cftunnel.manualDownloadHint')}
+                                <Link href="https://github.com/cloudflare/cloudflared/releases" target="_blank" style={{marginLeft: 8}}>
+                                    GitHub Releases
+                                </Link>
+                            </p>
+                        </div>
+                    }
+                    type="warning"
+                    showIcon
+                    closable
+                    style={{marginBottom: 16}}
+                />
+            )}
+
             <Space style={{marginBottom: 16}}>
                 <Button type="primary" icon={<PlusOutlined/>} onClick={openCreate}>
                     {t('common.create')}
@@ -237,7 +343,6 @@ const CfTunnel: React.FC = () => {
                 open={modalOpen}
                 onOk={submit}
                 onCancel={() => setModalOpen(false)}
-                destroyOnClose
                 width={560}
             >
                 <Form form={form} layout="vertical">
