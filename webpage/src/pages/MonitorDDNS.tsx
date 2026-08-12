@@ -73,16 +73,20 @@ const MonitorDDNS: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // monitorApi 的响应拦截器已解包 data,运行时返回裸数组,此处仅修正 TS 类型
       const [bindingsRes, serversRes, tasksRes] = await Promise.all([
-        monitorApi.listDDNSBindings(),
-        monitorApi.listServers(),
+        monitorApi.listDDNSBindings() as unknown as DDNSBinding[],
+        monitorApi.listServers() as unknown as Server[],
         fetch('/api/v1/ddns').then(res => res.json()),
       ]);
-      
+
+      // fetch 接口返回 {code, data} 包装,统一解包
+      const ddnsTasks: DDNSTask[] = tasksRes?.data ?? tasksRes ?? [];
+
       // 关联服务器名称和DDNS任务名称
       const enrichedBindings = bindingsRes.map((binding: DDNSBinding) => {
         const server = serversRes.find((s: Server) => s.id === binding.server_id);
-        const task = tasksRes.find((t: DDNSTask) => t.id === binding.ddns_task_id);
+        const task = ddnsTasks.find((t: DDNSTask) => t.id === binding.ddns_task_id);
         return {
           ...binding,
           server_name: server?.display_name || server?.name,
@@ -93,7 +97,7 @@ const MonitorDDNS: React.FC = () => {
       
       setBindings(enrichedBindings);
       setServers(serversRes);
-      setDdnsTasks(tasksRes);
+      setDdnsTasks(ddnsTasks);
     } catch (error) {
       message.error(t('monitor.ddns.loadFailed'));
     } finally {
@@ -113,7 +117,7 @@ const MonitorDDNS: React.FC = () => {
 
   const handleEdit = (record: DDNSBinding) => {
     setEditingBinding(record);
-    form.setFieldsValues(record);
+    form.setFieldsValue(record);
     setModalVisible(true);
   };
 
@@ -296,9 +300,10 @@ const MonitorDDNS: React.FC = () => {
             <Select
               placeholder={t('monitor.ddns.selectServerPlaceholder')}
               showSearch
-              filterOption={(input, option) =>
-                (option?.children as string).toLowerCase().includes(input.toLowerCase())
-              }
+              filterOption={(input, option) => {
+                const text = typeof option?.children === 'string' ? option.children : String(option?.value ?? '');
+                return text.toLowerCase().includes(input.toLowerCase());
+              }}
             >
               {servers.map((server) => (
                 <Option key={server.id} value={server.id}>
@@ -317,9 +322,10 @@ const MonitorDDNS: React.FC = () => {
             <Select
               placeholder={t('monitor.ddns.selectDDNSTaskPlaceholder')}
               showSearch
-              filterOption={(input, option) =>
-                (option?.children as string).toLowerCase().includes(input.toLowerCase())
-              }
+              filterOption={(input, option) => {
+                const text = typeof option?.children === 'string' ? option.children : String(option?.value ?? '');
+                return text.toLowerCase().includes(input.toLowerCase());
+              }}
             >
               {ddnsTasks.map((task) => (
                 <Option key={task.id} value={task.id}>

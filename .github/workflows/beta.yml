@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.24'
+  GO_VERSION: '1.25'
   NODE_VERSION: '24'
   EASYTIER_VERSION: '2.5.0'
 
@@ -217,6 +217,7 @@ jobs:
           CGO_ENABLED: 1
           CC: ${{ matrix.cc }}
         run: |
+          mkdir -p ../dist
           BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           VERSION="beta-$(echo ${{ github.sha }} | cut -c1-7)"
           go build \
@@ -324,6 +325,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
+          mkdir -p ../dist
           BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           VERSION="beta-$(echo ${{ github.sha }} | cut -c1-7)"
           go build \
@@ -665,14 +667,14 @@ jobs:
         shell: bash
         run: |
           echo "=== Electron build output ==="
-          ls -lh desktop/dist/ 2>/dev/null || true
+          ls -lh desktop/release/ 2>/dev/null || true
 
       - name: Collect Electron artifacts
         shell: bash
         run: |
           mkdir -p electron-release
-          # 收集所有可能的 Electron 输出文件
-          find desktop/dist/ -maxdepth 1 \( \
+          # 收集所有可能的 Electron 输出文件（electron-builder 输出到 desktop/release/）
+          find desktop/release/ -maxdepth 1 \( \
             -name "*.exe" -o -name "*.dmg" -o \
             -name "*.AppImage" -o -name "*.zip" -o \
             -name "*.tar.gz" \
@@ -689,8 +691,8 @@ jobs:
           echo "has_files=$([ "${COUNT}" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
           if [ "${COUNT}" -eq 0 ]; then
             echo "⚠️ No Electron artifacts found, skipping upload and release."
-            echo "=== desktop/dist/ contents ==="
-            ls -lh desktop/dist/ 2>/dev/null || echo "(empty or not found)"
+            echo "=== desktop/release/ contents ==="
+            ls -lh desktop/release/ 2>/dev/null || echo "(empty or not found)"
           fi
 
       - name: Upload Electron artifact

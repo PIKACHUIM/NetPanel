@@ -70,13 +70,17 @@ const MonitorNotifications: React.FC = () => {
     setLoading(true);
     try {
       // 获取通知渠道和已有的回调账号
+      // monitorApi 的响应拦截器已解包 data,运行时返回裸数组,此处仅修正 TS 类型
       const [channelsRes, accountsRes] = await Promise.all([
-        monitorApi.listNotifications(),
+        monitorApi.listNotifications() as unknown as NotificationChannel[],
         fetch('/api/v1/callback/accounts').then(res => res.json()),
       ]);
-      
+
+      // fetch 接口返回 {code, data} 包装,统一解包
+      const callbackList: CallbackAccount[] = accountsRes?.data ?? accountsRes ?? [];
+
       setChannels(channelsRes);
-      setCallbackAccounts(accountsRes);
+      setCallbackAccounts(callbackList);
     } catch (error) {
       message.error(t('monitor.notifications.loadFailed'));
     } finally {
@@ -193,9 +197,10 @@ const MonitorNotifications: React.FC = () => {
                 placeholder={t('monitor.notifications.selectCallbackAccountPlaceholder')}
                 allowClear
                 showSearch
-                filterOption={(input, option) =>
-                  (option?.children as string).toLowerCase().includes(input.toLowerCase())
-                }
+                filterOption={(input, option) => {
+                  const text = typeof option?.children === 'string' ? option.children : String(option?.value ?? '');
+                  return text.toLowerCase().includes(input.toLowerCase());
+                }}
               >
                 {callbackAccounts
                   .filter(acc => acc.type === 'webhook')

@@ -85,16 +85,25 @@ const MonitorTunnels: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // monitorApi 的响应拦截器已解包 data,运行时返回裸数组,此处仅修正 TS 类型
       const [bindingsRes, serversRes, frpRes, npsRes, easytierRes, cftunnelRes, wireguardRes] = await Promise.all([
-        monitorApi.listTunnelBindings(),
-        monitorApi.listServers(),
-        fetch('/api/v1/frp/clients').then(res => res.json()).catch(() => []),
-        fetch('/api/v1/nps/clients').then(res => res.json()).catch(() => []),
-        fetch('/api/v1/easytier').then(res => res.json()).catch(() => []),
-        fetch('/api/v1/cftunnel').then(res => res.json()).catch(() => []),
-        fetch('/api/v1/wireguard/peers').then(res => res.json()).catch(() => []),
+        monitorApi.listTunnelBindings() as unknown as TunnelBinding[],
+        monitorApi.listServers() as unknown as Server[],
+        fetch('/api/v1/frpc').then(res => res.json()).catch(() => ({ data: [] })),
+        fetch('/api/v1/nps/client').then(res => res.json()).catch(() => ({ data: [] })),
+        fetch('/api/v1/easytier/client').then(res => res.json()).catch(() => ({ data: [] })),
+        fetch('/api/v1/cftunnel').then(res => res.json()).catch(() => ({ data: [] })),
+        fetch('/api/v1/wireguard').then(res => res.json()).catch(() => ({ data: [] })),
       ]);
-      
+
+      // fetch 接口返回 {code, data} 包装,统一解包
+      const unwrap = (res: any) => res?.data ?? res ?? [];
+      const frpList: TunnelConfig[] = unwrap(frpRes);
+      const npsList: TunnelConfig[] = unwrap(npsRes);
+      const easytierList: TunnelConfig[] = unwrap(easytierRes);
+      const cftunnelList: TunnelConfig[] = unwrap(cftunnelRes);
+      const wireguardList: TunnelConfig[] = unwrap(wireguardRes);
+
       // 关联服务器名称和隧道配置
       const enrichedBindings = bindingsRes.map((binding: TunnelBinding) => {
         const server = serversRes.find((s: Server) => s.id === binding.server_id);
@@ -103,19 +112,19 @@ const MonitorTunnels: React.FC = () => {
         
         switch (binding.tunnel_type) {
           case 'frp':
-            tunnelConfig = frpRes.find((t: TunnelConfig) => t.id === binding.tunnel_id);
+            tunnelConfig = frpList.find((t: TunnelConfig) => t.id === binding.tunnel_id);
             break;
           case 'nps':
-            tunnelConfig = npsRes.find((t: TunnelConfig) => t.id === binding.tunnel_id);
+            tunnelConfig = npsList.find((t: TunnelConfig) => t.id === binding.tunnel_id);
             break;
           case 'easytier':
-            tunnelConfig = easytierRes.find((t: TunnelConfig) => t.id === binding.tunnel_id);
+            tunnelConfig = easytierList.find((t: TunnelConfig) => t.id === binding.tunnel_id);
             break;
           case 'cftunnel':
-            tunnelConfig = cftunnelRes.find((t: TunnelConfig) => t.id === binding.tunnel_id);
+            tunnelConfig = cftunnelList.find((t: TunnelConfig) => t.id === binding.tunnel_id);
             break;
           case 'wireguard':
-            tunnelConfig = wireguardRes.find((t: TunnelConfig) => t.id === binding.tunnel_id);
+            tunnelConfig = wireguardList.find((t: TunnelConfig) => t.id === binding.tunnel_id);
             break;
         }
         
@@ -132,11 +141,11 @@ const MonitorTunnels: React.FC = () => {
       setBindings(enrichedBindings);
       setServers(serversRes);
       setTunnelConfigs({
-        frp: frpRes,
-        nps: npsRes,
-        easytier: easytierRes,
-        cftunnel: cftunnelRes,
-        wireguard: wireguardRes,
+        frp: frpList,
+        nps: npsList,
+        easytier: easytierList,
+        cftunnel: cftunnelList,
+        wireguard: wireguardList,
       });
     } catch (error) {
       message.error(t('monitor.tunnels.loadFailed'));
@@ -418,9 +427,10 @@ const MonitorTunnels: React.FC = () => {
             <Select
               placeholder={t('monitor.tunnels.selectServerPlaceholder')}
               showSearch
-              filterOption={(input, option) =>
-                (option?.children as string).toLowerCase().includes(input.toLowerCase())
-              }
+              filterOption={(input, option) => {
+                const text = typeof option?.children === 'string' ? option.children : String(option?.value ?? '');
+                return text.toLowerCase().includes(input.toLowerCase());
+              }}
             >
               {servers.map((server) => (
                 <Option key={server.id} value={server.id}>
@@ -484,9 +494,10 @@ const MonitorTunnels: React.FC = () => {
                   <Select
                     placeholder={t('monitor.tunnels.selectTunnelPlaceholder')}
                     showSearch
-                    filterOption={(input, option) =>
-                      (option?.children as string).toLowerCase().includes(input.toLowerCase())
-                    }
+                    filterOption={(input, option) => {
+                      const text = typeof option?.children === 'string' ? option.children : String(option?.value ?? '');
+                      return text.toLowerCase().includes(input.toLowerCase());
+                    }}
                   >
                     {configs.map((config: TunnelConfig) => (
                       <Option key={config.id} value={config.id}>

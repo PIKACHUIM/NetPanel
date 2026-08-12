@@ -11,8 +11,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  GO_VERSION: '1.21'
-  NODE_VERSION: '20'
+  GO_VERSION: '1.25'
+  NODE_VERSION: '24'
 
 jobs:
   # ===== 构建前端 =====
