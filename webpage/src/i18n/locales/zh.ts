@@ -1924,6 +1924,18 @@ const zh = {
       tip2: '支持 FRP、NPS、EasyTier、Cloudflare Tunnel、WireGuard',
       tip3: '自动配置功能会在服务器上线时自动建立隧道连接',
     },
+  // CF 隧道
+  cftunnel: {
+    mode: '模式',
+    modeQuick: 'Quick（临时隧道）',
+    modeNamed: 'Named（命名隧道）',
+    modeToken: 'Token（远程配置）',
+    localUrl: '本地服务地址',
+    tunnelName: '隧道名称',
+    credentialsFile: '凭据文件',
+    configFile: '配置文件',
+    token: 'Token',
+    quickUrl: 'Quick 入口',
   },
 }
 
