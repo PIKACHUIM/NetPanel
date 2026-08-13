@@ -439,6 +439,73 @@ func TestApplyCaddySwitchRollback(t *testing.T) {
 	}
 }
 
+// TestApplyPortSwitch 端口层切换：仅未绑定 Caddy/DNS 的服务触发重绑回调。
+func TestApplyPortSwitch(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	// 端口层服务：无 Caddy 站点、无域名，关联 frp:1
+	portSvc := model.TunService{
+		Name:          "SSH 服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.10",
+		TargetPort:    22,
+		Protocol:      "tcp",
+		LineRefs:      `["frp:1"]`,
+	}
+	db.Create(&portSvc)
+	// 域名层服务：绑定了 Caddy 站点，不应触发端口层重绑
+	db.Create(&model.TunService{
+		Name:          "Web 服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.10",
+		TargetPort:    80,
+		Protocol:      "tcp",
+		LineRefs:      `["frp:1"]`,
+		CaddySiteID:   9,
+	})
+	// DNS 层服务：配置了域名，不应触发端口层重绑
+	db.Create(&model.TunService{
+		Name:          "带域名服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.10",
+		TargetPort:    8080,
+		Protocol:      "tcp",
+		LineRefs:      `["frp:1"]`,
+		Domain:        "svc.example.com",
+	})
+
+	m := NewManager(db, nil, 0)
+	var calls []string
+	m.SetPortRebinder(func(svcID uint, lineID string) error {
+		calls = append(calls, fmt.Sprintf("%d:%s", svcID, lineID))
+		return nil
+	})
+
+	m.applyPortSwitch("frp:1")
+	if len(calls) != 1 || calls[0] != fmt.Sprintf("%d:frp:1", portSvc.ID) {
+		t.Fatalf("端口层重绑应只触发端口层服务 %d, got %v", portSvc.ID, calls)
+	}
+
+	// 未关联线路不触发
+	m.applyPortSwitch("easytier:1:0")
+	if len(calls) != 1 {
+		t.Fatalf("未关联线路不应触发重绑, got %d calls", len(calls))
+	}
+
+	// 重绑失败写入 last_error，成功清空
+	m.SetPortRebinder(func(svcID uint, lineID string) error {
+		return fmt.Errorf("模拟重绑失败")
+	})
+	m.applyPortSwitch("frp:1")
+	var got model.TunService
+	if err := db.First(&got, portSvc.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.LastError == "" {
+		t.Fatal("重绑失败应写入 last_error")
+	}
+}
+
 func TestLineHost(t *testing.T) {
 	cases := map[string]string{
 		"1.2.3.4:7000":                   "1.2.3.4",

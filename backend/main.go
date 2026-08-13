@@ -235,6 +235,8 @@ func startServer() *http.Server {
 	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
 	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,
 		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr)
+	// 端口层切换落地：选线变化时自动重绑未绑定 Caddy/DNS 的 TCP/UDP 穿透服务
+	lineregMgr.SetPortRebinder(tunserviceMgr.RebindPort)
 
 	wireguardMgr.StartAll()
 
