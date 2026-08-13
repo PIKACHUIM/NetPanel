@@ -586,3 +586,9 @@ export const initApi = {
   status: () => request.get('/v1/init/status'),
   setup: (data: { username: string; password: string }) => request.post('/v1/init/setup', data),
 }
+
+// ===== 线路探测策略（linereg） =====
+export const lineregApi = {
+  getConfig: () => request.get('/v1/linereg/config'),
+  updateConfig: (data: any) => request.put('/v1/linereg/config', data),
+}

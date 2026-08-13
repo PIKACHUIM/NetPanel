@@ -24,9 +24,10 @@ import {
     PlusOutlined,
     ReloadOutlined,
     StopOutlined,
+    SettingOutlined,
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
-import {tunserviceApi} from '../api'
+import {lineregApi, tunserviceApi} from '../api'
 import StatusTag from '../components/StatusTag'
 
 const {Option} = Select
@@ -55,6 +56,9 @@ const TunService: React.FC = () => {
     const [detail, setDetail] = useState<any>(null)
     const [history, setHistory] = useState<Record<string, any[]>>({})
     const [form] = Form.useForm()
+    const [probeOpen, setProbeOpen] = useState(false)
+    const [probeLoading, setProbeLoading] = useState(false)
+    const [probeForm] = Form.useForm()
 
     const load = async () => {
         setLoading(true)
@@ -140,6 +144,35 @@ const TunService: React.FC = () => {
             await tunserviceApi.delete(id)
             message.success(t('common.deleted'))
             load()
+        } catch (e: any) {
+            message.error(e?.response?.data?.message || t('common.failed'))
+        }
+    }
+
+    const openProbe = async () => {
+        setProbeOpen(true)
+        setProbeLoading(true)
+        try {
+            const res = await lineregApi.getConfig()
+            probeForm.setFieldsValue({
+                interval_sec: res?.data?.interval_sec ?? 60,
+                failure_threshold: res?.data?.failure_threshold ?? 2,
+                tolerance_ms: res?.data?.tolerance_ms ?? 50,
+                max_concurrent: res?.data?.max_concurrent ?? 8,
+            })
+        } catch {
+            message.error(t('tunservice.loadFailed'))
+        } finally {
+            setProbeLoading(false)
+        }
+    }
+
+    const saveProbe = async () => {
+        const values = await probeForm.validateFields()
+        try {
+            await lineregApi.updateConfig(values)
+            message.success(t('tunservice.saved'))
+            setProbeOpen(false)
         } catch (e: any) {
             message.error(e?.response?.data?.message || t('common.failed'))
         }
@@ -282,6 +315,9 @@ const TunService: React.FC = () => {
                 <Button icon={<ReloadOutlined/>} onClick={load}>
                     {t('common.refresh')}
                 </Button>
+                <Button icon={<SettingOutlined/>} onClick={openProbe}>
+                    {t('tunservice.probeConfig')}
+                </Button>
             </Space>
 
             <Table
@@ -324,11 +360,44 @@ const TunService: React.FC = () => {
                     >
                         <Input.TextArea rows={3} placeholder='["frp:1","cftunnel:2"]'/>
                     </Form.Item>
+                    <Form.Item name="locked_line" label={t('tunservice.lockLine')}>
+                        <Select allowClear placeholder={t('tunservice.auto')}>
+                            <Option value="">{t('tunservice.auto')}</Option>
+                            {editing?.lines?.map((l: any) => (
+                                <Option key={l.id} value={l.id}>{l.name || l.id}</Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
                     <Form.Item name="enable" label={t('common.enable')} valuePropName="checked">
                         <Switch/>
                     </Form.Item>
                     <Form.Item name="remark" label={t('common.remark')}>
                         <Input.TextArea rows={2}/>
+                    </Form.Item>
+                </Form>
+            </Modal>
+
+            <Modal
+                title={t('tunservice.probeConfig')}
+                open={probeOpen}
+                onOk={saveProbe}
+                onCancel={() => setProbeOpen(false)}
+                destroyOnClose
+                width={480}
+                confirmLoading={probeLoading}
+            >
+                <Form form={probeForm} layout="vertical">
+                    <Form.Item name="interval_sec" label={t('tunservice.probeInterval')} rules={[{required: true}]}>
+                        <InputNumber min={5} max={3600} style={{width: '100%'}}/>
+                    </Form.Item>
+                    <Form.Item name="failure_threshold" label={t('tunservice.failureThreshold')} rules={[{required: true}]}>
+                        <InputNumber min={1} max={10} style={{width: '100%'}}/>
+                    </Form.Item>
+                    <Form.Item name="tolerance_ms" label={t('tunservice.toleranceMs')} rules={[{required: true}]}>
+                        <InputNumber min={0} max={5000} style={{width: '100%'}}/>
+                    </Form.Item>
+                    <Form.Item name="max_concurrent" label={t('tunservice.maxConcurrent')} rules={[{required: true}]}>
+                        <InputNumber min={1} max={64} style={{width: '100%'}}/>
                     </Form.Item>
                 </Form>
             </Modal>

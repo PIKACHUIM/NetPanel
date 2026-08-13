@@ -225,6 +225,17 @@ func (s *Selector) SetFailureThreshold(n int) {
 	s.failureThreshold = n
 }
 
+// SetTolerance 设置选线防抖容差（须在首次 ProbeAll 前调用，否则不保证生效）。
+// d<=0 时重置为默认 50ms。容差越大越不敏感于延迟波动（抖动更少）。
+func (s *Selector) SetTolerance(d time.Duration) {
+	if d <= 0 {
+		d = 50 * time.Millisecond
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tolerance = d
+}
+
 // SetLines 全量替换线路集合（保留锁线与当前选择；失效的锁线自动解除）。
 // 拷贝传入 slice，避免调用方后续修改污染内部状态。
 func (s *Selector) SetLines(lines []Line) {

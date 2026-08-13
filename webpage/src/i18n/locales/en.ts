@@ -1616,6 +1616,15 @@ const en = {
     latency: 'Latency',
     trend: 'Latency Trend',
     noHistory: 'No history records',
+    probeConfig: 'Line Policy',
+    probeInterval: 'Probe Interval (sec)',
+    failureThreshold: 'Failure Threshold',
+    toleranceMs: 'Tolerance (ms)',
+    maxConcurrent: 'Max Concurrent',
+    lockLine: 'Lock Line',
+    auto: 'Auto',
+    saved: 'Saved',
+    loadFailed: 'Load Failed',
   },
   // AI Management
   ai: {
