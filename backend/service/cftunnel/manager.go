@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 
@@ -28,6 +29,10 @@ const (
 	// configDirName named 模式临时配置目录
 	configDirName = "cftunnel"
 )
+
+// quickURLRe 匹配 cloudflared quick 模式日志中的临时隧道地址，
+// 形如 https://<random>.trycloudflare.com
+var quickURLRe = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
 
 // processEntry 单个 cloudflared 进程
 type processEntry struct {
@@ -181,7 +186,16 @@ func (m *Manager) Start(id uint) error {
 	go func() {
 		scanner := bufio.NewScanner(stdoutPipe)
 		for scanner.Scan() {
-			logBuf.write(scanner.Text())
+			line := scanner.Text()
+			logBuf.write(line)
+			// quick 模式：隧道地址每次启动随机生成，从日志中提取并落库，
+			// 前端可直接展示可访问入口，无需翻日志
+			if cfg.Mode == "quick" {
+				if url := quickURLRe.FindString(line); url != "" {
+					m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("quick_url", url)
+					m.log.Infof("[CF隧道][%d] quick 入口已更新: %s", id, url)
+				}
+			}
 		}
 	}()
 	go func() {
@@ -204,6 +218,7 @@ func (m *Manager) Start(id uint) error {
 			m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
 				"status":     "error",
 				"last_error": errMsg,
+				"quick_url":  "",
 			})
 			// 自动重启（延迟 5 秒，关闭期间不重启）
 			time.Sleep(5 * time.Second)
@@ -221,7 +236,10 @@ func (m *Manager) Start(id uint) error {
 				}
 			}
 		} else {
-			m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("status", "stopped")
+			m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+				"status":    "stopped",
+				"quick_url": "",
+			})
 			m.log.Infof("[CF隧道][%d] 进程已退出", id)
 		}
 	}()
@@ -245,7 +263,11 @@ func (m *Manager) Stop(id uint) {
 		<-entry.done
 		m.tunnels.Delete(id)
 	}
-	m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("status", "stopped")
+	// 进程停止后 quick 隧道地址随即失效，一并清理
+	m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":    "stopped",
+		"quick_url": "",
+	})
 }
 
 // Restart 重启指定隧道
