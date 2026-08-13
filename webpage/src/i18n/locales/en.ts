@@ -1908,6 +1908,19 @@ const en = {
     token: 'Token',
     quickUrl: 'Quick URL',
   },
+  // CF Tunnel
+  cftunnel: {
+    mode: 'Mode',
+    modeQuick: 'Quick (temporary tunnel)',
+    modeNamed: 'Named (named tunnel)',
+    modeToken: 'Token (remote config)',
+    localUrl: 'Local URL',
+    tunnelName: 'Tunnel Name',
+    credentialsFile: 'Credentials File',
+    configFile: 'Config File',
+    token: 'Token',
+    quickUrl: 'Quick URL',
+  },
 }
 
 export default en
