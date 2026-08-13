@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -525,7 +526,7 @@ func (m *Manager) StepObtain(id uint) error {
 				}
 			}
 		}
-		return m.setError(id, fmt.Errorf(errMsg))
+		return m.setError(id, errors.New(errMsg))
 	}
 
 	if order.Status != "ready" && order.Status != "valid" {

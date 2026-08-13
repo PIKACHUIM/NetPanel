@@ -3,6 +3,7 @@ package wireguard
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -140,7 +141,7 @@ func (m *Manager) Start(id uint) error {
 			"status":     "error",
 			"last_error": errMsg,
 		})
-		return fmt.Errorf(errMsg)
+		return errors.New(errMsg)
 	}
 
 	m.running.Store(id, true)
