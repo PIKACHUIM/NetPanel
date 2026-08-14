@@ -21,6 +21,8 @@ const (
 	cfgKeyFailureThreshold = "probe_failure_threshold"
 	cfgKeyToleranceMs      = "probe_tolerance_ms"
 	cfgKeyMaxConcurrent    = "probe_max_concurrent"
+	cfgKeyToolFilter       = "probe_tool_filter"
+	cfgKeyRebindMode       = "port_rebind_mode"
 )
 
 // 探测参数默认值（与 linereg.DefaultInterval / selector 默认一致）。
@@ -57,18 +59,22 @@ func NewLineregHandler(db *gorm.DB, log *logrus.Logger, mgr *linereg.Manager) *L
 
 // probeConfigResponse 前端回填用响应体。
 type probeConfigResponse struct {
-	IntervalSec      int `json:"interval_sec"`
-	FailureThreshold int `json:"failure_threshold"`
-	ToleranceMs      int `json:"tolerance_ms"`
-	MaxConcurrent    int `json:"max_concurrent"`
+	IntervalSec      int    `json:"interval_sec"`
+	FailureThreshold int    `json:"failure_threshold"`
+	ToleranceMs      int    `json:"tolerance_ms"`
+	MaxConcurrent    int    `json:"max_concurrent"`
+	ToolFilter       string `json:"tool_filter"` // 逗号分隔的工具名；空 = 全部参与
+	RebindMode       string `json:"rebind_mode"` // auto / manual / off
 }
 
 // probeConfigRequest 前端提交的配置更新请求体。
 type probeConfigRequest struct {
-	IntervalSec      int `json:"interval_sec"`
-	FailureThreshold int `json:"failure_threshold"`
-	ToleranceMs      int `json:"tolerance_ms"`
-	MaxConcurrent    int `json:"max_concurrent"`
+	IntervalSec      int    `json:"interval_sec"`
+	FailureThreshold int    `json:"failure_threshold"`
+	ToleranceMs      int    `json:"tolerance_ms"`
+	MaxConcurrent    int    `json:"max_concurrent"`
+	ToolFilter       string `json:"tool_filter"`
+	RebindMode       string `json:"rebind_mode"`
 }
 
 // getConfigInt 从 SystemConfig 读取一个整型参数；缺失或解析失败时返回 def。
@@ -84,15 +90,37 @@ func getConfigInt(db *gorm.DB, key string, def int) int {
 	return v
 }
 
-// GetConfig 读取探测策略四项参数（无记录返回默认值）。
+// GetConfig 读取探测策略参数（无记录返回默认值）。
 func (h *LineregHandler) GetConfig(c *gin.Context) {
 	resp := probeConfigResponse{
 		IntervalSec:      getConfigInt(h.db, cfgKeyIntervalSec, defaultIntervalSec),
 		FailureThreshold: getConfigInt(h.db, cfgKeyFailureThreshold, defaultFailureThreshold),
 		ToleranceMs:      getConfigInt(h.db, cfgKeyToleranceMs, defaultToleranceMs),
 		MaxConcurrent:    getConfigInt(h.db, cfgKeyMaxConcurrent, defaultMaxConcurrent),
+		ToolFilter:       getConfigString(h.db, cfgKeyToolFilter, ""),
+		RebindMode:       h.mgr.RebindMode(),
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": resp})
+}
+
+// getConfigString 从 SystemConfig 读取一个字符串参数；缺失时返回 def。
+func getConfigString(db *gorm.DB, key, def string) string {
+	var cfg model.SystemConfig
+	if err := db.Where("key = ?", key).First(&cfg).Error; err != nil {
+		return def
+	}
+	return cfg.Value
+}
+
+// setConfigUpsertString 写入（或更新）一条 SystemConfig 字符串参数。
+func setConfigUpsertString(db *gorm.DB, key, value string) {
+	var cfg model.SystemConfig
+	if err := db.Where("key = ?", key).First(&cfg).Error; err == nil {
+		cfg.Value = value
+		db.Save(&cfg)
+		return
+	}
+	db.Create(&model.SystemConfig{Key: key, Value: value})
 }
 
 // setConfigUpsert 写入（或更新）一条 SystemConfig 整型参数。
@@ -135,15 +163,41 @@ func (h *LineregHandler) UpdateConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": field + " out of range"})
 		return
 	}
+	// 重绑模式校验
+	switch req.RebindMode {
+	case "", linereg.RebindModeAuto, linereg.RebindModeManual, linereg.RebindModeOff:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "rebind_mode must be auto/manual/off"})
+		return
+	}
 	// 持久化
 	setConfigUpsert(h.db, cfgKeyIntervalSec, req.IntervalSec)
 	setConfigUpsert(h.db, cfgKeyFailureThreshold, req.FailureThreshold)
 	setConfigUpsert(h.db, cfgKeyToleranceMs, req.ToleranceMs)
 	setConfigUpsert(h.db, cfgKeyMaxConcurrent, req.MaxConcurrent)
 	// 立即应用（间隔需在下一轮探测循环生效，其余透传到 selector 即时生效）
+	setConfigUpsertString(h.db, cfgKeyToolFilter, req.ToolFilter)
+	setConfigUpsertString(h.db, cfgKeyRebindMode, req.RebindMode)
 	h.mgr.SetInterval(time.Duration(req.IntervalSec) * time.Second)
 	h.mgr.SetFailureThreshold(req.FailureThreshold)
 	h.mgr.SetTolerance(time.Duration(req.ToleranceMs) * time.Millisecond)
 	h.mgr.SetMaxConcurrent(req.MaxConcurrent)
+	h.mgr.SetToolFilter(req.ToolFilter)
+	h.mgr.SetRebindMode(req.RebindMode)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已更新"})
+}
+
+// PendingRebinds 返回 manual 模式下待重绑的服务清单（svcID -> 目标线路）。
+func (h *LineregHandler) PendingRebinds(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": h.mgr.PendingRebinds()})
+}
+
+// ApplyRebinds 手动触发全部待重绑服务（manual 模式使用）。
+func (h *LineregHandler) ApplyRebinds(c *gin.Context) {
+	applied, err := h.mgr.ApplyPendingRebinds()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error(), "applied": applied})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已重绑", "applied": applied})
 }

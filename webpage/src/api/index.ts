@@ -598,4 +598,6 @@ export interface ProbeConfig {
 export const lineregApi = {
     getConfig: () => request.get<ProbeConfig>('/v1/linereg/config'),
     updateConfig: (data: ProbeConfig) => request.put('/v1/linereg/config', data),
+    rebindPending: () => request.get('/v1/linereg/rebind-pending'),
+    rebindApply: () => request.post('/v1/linereg/rebind-apply'),
 }

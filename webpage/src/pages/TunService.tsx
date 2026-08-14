@@ -159,6 +159,8 @@ const TunService: React.FC = () => {
                 failure_threshold: res?.data?.failure_threshold ?? 2,
                 tolerance_ms: res?.data?.tolerance_ms ?? 50,
                 max_concurrent: res?.data?.max_concurrent ?? 8,
+                tool_filter: res?.data?.tool_filter ?? '',
+                rebind_mode: res?.data?.rebind_mode ?? 'auto',
             })
         } catch {
             // 加载失败时回填默认值，用户仍可直接修改后保存
@@ -180,6 +182,22 @@ const TunService: React.FC = () => {
             await lineregApi.updateConfig(values)
             message.success(t('tunservice.saved'))
             setProbeOpen(false)
+        } catch (e: any) {
+            message.error(e?.response?.data?.message || t('common.failed'))
+        }
+    }
+
+    // 半自动模式：手动触发全部待重绑的端口层服务（先提示数量，再执行）。
+    const applyPendingRebinds = async () => {
+        try {
+            const pending = await lineregApi.rebindPending()
+            const n = Object.keys(pending?.data || {}).length
+            if (n === 0) {
+                message.info(t('tunservice.rebindApplied', {n: 0}))
+                return
+            }
+            const res = await lineregApi.rebindApply()
+            message.success(t('tunservice.rebindApplied', {n: res?.data?.applied ?? n}))
         } catch (e: any) {
             message.error(e?.response?.data?.message || t('common.failed'))
         }
@@ -405,6 +423,21 @@ const TunService: React.FC = () => {
                     </Form.Item>
                     <Form.Item name="max_concurrent" label={t('tunservice.maxConcurrent')} rules={[{required: true}]}>
                         <InputNumber min={1} max={64} style={{width: '100%'}}/>
+                    </Form.Item>
+                    <Form.Item name="tool_filter" label={t('tunservice.toolFilter')} tooltip={t('tunservice.toolFilterTip')}>
+                        <Input placeholder="wireguard"/>
+                    </Form.Item>
+                    <Form.Item name="rebind_mode" label={t('tunservice.rebindMode')}>
+                        <Select>
+                            <Option value="auto">{t('tunservice.rebindAuto')}</Option>
+                            <Option value="manual">{t('tunservice.rebindManual')}</Option>
+                            <Option value="off">{t('tunservice.rebindOff')}</Option>
+                        </Select>
+                    </Form.Item>
+                    <Form.Item>
+                        <Button block onClick={applyPendingRebinds} icon={<ReloadOutlined/>}>
+                            {t('tunservice.rebindApply')}
+                        </Button>
                     </Form.Item>
                 </Form>
             </Modal>
