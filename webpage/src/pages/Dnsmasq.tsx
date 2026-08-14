@@ -76,6 +76,18 @@ const Dnsmasq: React.FC = () => {
             <Col span={8}><Form.Item name="listen_port" label={t('dnsmasq.listenPort')}><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={8}><Form.Item name="upstream_dns" label={t('dnsmasq.upstreamDNS')}><Input placeholder="8.8.8.8,114.114.114.114" style={{ width: '100%' }} /></Form.Item></Col>
           </Row>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="enable_dns64" label={t('dnsmasq.enableDns64')} valuePropName="checked" tooltip={t('dnsmasq.dns64Tip')}>
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="nat64_prefix" label={t('dnsmasq.nat64Prefix')}>
+                <Input placeholder="64:ff9b::/96" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
           <Button type="primary" onClick={handleSaveConfig}>{t('common.save')}</Button>
         </Form>
       </Card>

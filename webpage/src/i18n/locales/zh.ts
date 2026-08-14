@@ -1281,6 +1281,9 @@ const zh = {
     listenPort: '监听端口',
     upstreamDNS: '上游DNS',
     customRecords: '自定义解析',
+    enableDns64: '启用 DNS64(IPv6→IPv4 转换)',
+    nat64Prefix: 'NAT64 前缀',
+    dns64Tip: '纯 IPv6 客户端查询无 AAAA 记录的域名时,用 A 记录 + NAT64 前缀合成 AAAA,配合 NAT64 网关即可访问 IPv4 服务',
   },
   // 计划任务
   cron: {

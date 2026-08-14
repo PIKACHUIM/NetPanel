@@ -173,6 +173,13 @@ func (m *Manager) forwardToUpstream(w dns.ResponseWriter, r *dns.Msg) {
 		}
 		resp, _, err := c.Exchange(r, upstream)
 		if err == nil {
+			// DNS64:纯 IPv6 客户端请求 AAAA 但上游无 AAAA 记录时,
+			// 用 A 记录 + NAT64 前缀合成 AAAA,让 IPv6 客户端可访问 IPv4 服务
+			if cfg.EnableDNS64 && len(r.Question) > 0 && r.Question[0].Qtype == dns.TypeAAAA && !hasAAAA(resp.Answer) {
+				if aResp, _, aErr := c.Exchange(aQueryFromAAAA(r), upstream); aErr == nil {
+					resp.Answer = append(resp.Answer, synthesizeAAAA(aResp.Answer, cfg.NAT64Prefix)...)
+				}
+			}
 			resp.SetReply(r)
 			w.WriteMsg(resp)
 			return
@@ -183,4 +190,53 @@ func (m *Manager) forwardToUpstream(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
 	msg.SetRcode(r, dns.RcodeServerFailure)
 	w.WriteMsg(msg)
+}
+
+// aQueryFromAAAA 由 AAAA 查询构造同域名的 A 查询
+func aQueryFromAAAA(r *dns.Msg) *dns.Msg {
+	q := &dns.Msg{}
+	q.SetQuestion(r.Question[0].Name, dns.TypeA)
+	return q
+}
+
+// hasAAAA 判断应答中是否已有 AAAA 记录
+func hasAAAA(answers []dns.RR) bool {
+	for _, rr := range answers {
+		if _, ok := rr.(*dns.AAAA); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// synthesizeAAAA 用 A 记录与 NAT64 前缀合成 AAAA 记录
+// 前缀默认 64:ff9b::/96,合成规则:前缀前 96 位 + IPv4 后 32 位
+func synthesizeAAAA(aAnswers []dns.RR, prefix string) []dns.RR {
+	// 解析前缀
+	_, prefixNet, err := net.ParseCIDR(prefix)
+	if err != nil {
+		return nil
+	}
+	prefixBytes := prefixNet.IP.To16()
+	if prefixBytes == nil {
+		return nil
+	}
+
+	var out []dns.RR
+	for _, rr := range aAnswers {
+		a, ok := rr.(*dns.A)
+		if !ok || a.A == nil {
+			continue
+		}
+		ipv6 := make(net.IP, 16)
+		// 前缀前 12 字节(96 位)
+		copy(ipv6[:12], prefixBytes[:12])
+		// IPv4 后 4 字节(32 位)
+		copy(ipv6[12:], a.A.To4())
+		out = append(out, &dns.AAAA{
+			Hdr:  dns.RR_Header{Name: a.Hdr.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
+			AAAA: ipv6,
+		})
+	}
+	return out
 }

@@ -1254,6 +1254,9 @@ const en = {
     listenPort: 'Listen Port',
     upstreamDNS: 'Upstream DNS',
     customRecords: 'Custom Records',
+    enableDns64: 'Enable DNS64 (IPv6→IPv4 translation)',
+    nat64Prefix: 'NAT64 Prefix',
+    dns64Tip: 'For pure-IPv6 clients querying domains without AAAA records, synthesize AAAA from A records + NAT64 prefix so they can reach IPv4 services via a NAT64 gateway',
   },
   cron: {
     title: 'Cron Job',
