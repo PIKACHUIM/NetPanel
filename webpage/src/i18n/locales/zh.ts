@@ -943,6 +943,8 @@ const zh = {
     // 表格列
     listenAddress: '监听地址',
     targetOrPath: '目标/路径',
+    ipv6Direct: 'IPv6 直达',
+    ipv6DirectTip: 'Caddy 双栈监听中:配置 DDNS IPv6(AAAA)任务并在防火墙放行 IPv6 端口后,外部 IPv6 客户端可通过 https://域名:端口 直达',
     // 表单
     namePlaceholder: '站点名称',
     listenSettings: '监听设置',
