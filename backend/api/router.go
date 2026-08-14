@@ -204,6 +204,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/tunservice/:id/stop", tsHandler.Stop)
 	auth.GET("/tunservice/:id/candidates", tsHandler.Candidates)
 	auth.GET("/tunservice/:id/history", tsHandler.History)
+	auth.GET("/tunservice/:id/speedtest", tsHandler.Speedtest)
 
 	// 线路探测策略（参数化配置）
 	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)

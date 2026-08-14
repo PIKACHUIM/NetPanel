@@ -125,3 +125,24 @@ func (h *TunserviceHandler) History(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": history})
 }
+
+// Speedtest 对服务关联线路做一次即时并发测速（延迟升序、失败排最后）。
+// 受 SystemConfig 键 speedtest_popup_enabled 控制（默认开启；设为 false 时 403）。
+func (h *TunserviceHandler) Speedtest(c *gin.Context) {
+	var cfg model.SystemConfig
+	enabled := "true"
+	if err := h.db.Where("key = ?", "speedtest_popup_enabled").First(&cfg).Error; err == nil {
+		enabled = cfg.Value
+	}
+	if enabled == "false" || enabled == "0" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "测速功能已禁用"})
+		return
+	}
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	lines, err := h.mgr.Speedtest(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": lines})
+}

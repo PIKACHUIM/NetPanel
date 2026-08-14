@@ -25,6 +25,7 @@ import {
     ReloadOutlined,
     StopOutlined,
     SettingOutlined,
+    ThunderboltOutlined,
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {lineregApi, tunserviceApi} from '../api'
@@ -59,6 +60,10 @@ const TunService: React.FC = () => {
     const [probeOpen, setProbeOpen] = useState(false)
     const [probeLoading, setProbeLoading] = useState(false)
     const [probeForm] = Form.useForm()
+    const [speedtestOpen, setSpeedtestOpen] = useState(false)
+    const [speedtestLoading, setSpeedtestLoading] = useState(false)
+    const [speedtestRow, setSpeedtestRow] = useState<any>(null)
+    const [speedtestData, setSpeedtestData] = useState<any[]>([])
 
     const load = async () => {
         setLoading(true)
@@ -203,6 +208,22 @@ const TunService: React.FC = () => {
         }
     }
 
+    // 测速：对服务关联线路做一次即时并发测速，弹窗展示（延迟升序、失败标红）。
+    const runSpeedtest = async (row: any) => {
+        setSpeedtestRow(row)
+        setSpeedtestOpen(true)
+        setSpeedtestLoading(true)
+        setSpeedtestData([])
+        try {
+            const res = await tunserviceApi.speedtest(row.id)
+            setSpeedtestData(res?.data || [])
+        } catch (e: any) {
+            message.error(e?.response?.data?.message || t('common.failed'))
+        } finally {
+            setSpeedtestLoading(false)
+        }
+    }
+
     const showDetail = async (id: number) => {
         setDetailOpen(true)
         setHistory({})
@@ -315,6 +336,9 @@ const TunService: React.FC = () => {
                             <Button size="small" type="primary" icon={<PlayCircleOutlined/>} onClick={() => start(row.id)}/>
                         </Tooltip>
                     )}
+                    <Tooltip title={t('tunservice.speedtest')}>
+                        <Button size="small" icon={<ThunderboltOutlined/>} onClick={() => runSpeedtest(row)}/>
+                    </Tooltip>
                     <Tooltip title={t('tunservice.detail')}>
                         <Button size="small" onClick={() => showDetail(row.id)}>{t('tunservice.detail')}</Button>
                     </Tooltip>
@@ -440,6 +464,51 @@ const TunService: React.FC = () => {
                         </Button>
                     </Form.Item>
                 </Form>
+            </Modal>
+
+            <Modal
+                title={`${t('tunservice.speedtest')} · ${speedtestRow?.name || ''}`}
+                open={speedtestOpen}
+                onCancel={() => setSpeedtestOpen(false)}
+                footer={[
+                    <Button key="retest" icon={<ThunderboltOutlined/>} loading={speedtestLoading} onClick={() => runSpeedtest(speedtestRow)}>
+                        {t('tunservice.speedtestRetest')}
+                    </Button>,
+                    <Button key="close" type="primary" onClick={() => setSpeedtestOpen(false)}>
+                        {t('common.close')}
+                    </Button>,
+                ]}
+                destroyOnClose
+                width={520}
+            >
+                <Table
+                    rowKey="id"
+                    size="small"
+                    loading={speedtestLoading}
+                    pagination={false}
+                    dataSource={speedtestData}
+                    columns={[
+                        {title: 'ID', dataIndex: 'id', width: 120},
+                        {title: t('common.name'), dataIndex: 'name'},
+                        {
+                            title: t('tunservice.latency'),
+                            dataIndex: 'latency',
+                            width: 110,
+                            render: (v: number, row: any) => {
+                                if (row.error) {
+                                    return <Text type="danger">{t('tunservice.speedtestDown')}</Text>
+                                }
+                                return v > 0 ? <Text strong style={{color: '#faad14'}}>{`${(v / 1e6).toFixed(1)} ms`}</Text> : '-'
+                            },
+                        },
+                        {
+                            title: t('common.status'),
+                            dataIndex: 'error',
+                            width: 90,
+                            render: (v: string) => (v ? <Badge status="error" text={t('tunservice.speedtestDown')}/> : <Badge status="success" text={t('common.normal')}/>),
+                        },
+                    ]}
+                />
             </Modal>
 
             <Drawer

@@ -305,6 +305,59 @@ func (s *Selector) Lines() []Line {
 	return append([]Line(nil), s.lines...)
 }
 
+// SetProber 替换探测器（测试注入用）。p 为 nil 时忽略。
+// 须在首次探测前调用，否则不保证生效。
+func (s *Selector) SetProber(p Prober) {
+	if p == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prober = p
+}
+
+// ProbeLines 对给定线路做一次即时并发测速，不刷新内部选线状态
+// （current/锁线/探测历史均不受影响）。用于「用户手动测速」等一次性场景。
+// 复用与 ProbeAll 相同的信号量限流；返回 lineID -> ProbeResult。
+func (s *Selector) ProbeLines(ctx context.Context, lines []Line) map[string]ProbeResult {
+	if len(lines) == 0 {
+		return map[string]ProbeResult{}
+	}
+	maxConcurrent := s.maxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = 8
+	}
+	s.mu.Lock()
+	prober := s.prober
+	s.mu.Unlock()
+
+	sem := make(chan struct{}, maxConcurrent)
+	results := make(map[string]ProbeResult, len(lines))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for _, line := range lines {
+		wg.Add(1)
+		go func(l Line) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				mu.Lock()
+				results[l.ID] = ProbeResult{LineID: l.ID, Err: &ProbeError{Reason: "probe canceled"}}
+				mu.Unlock()
+				return
+			}
+			r := prober.Probe(ctx, l)
+			mu.Lock()
+			results[l.ID] = r
+			mu.Unlock()
+		}(line)
+	}
+	wg.Wait()
+	return results
+}
+
 // ProbeAll 并发探测全部线路并刷新结果，返回按线路 id 索引的结果。
 // 并发数受 maxConcurrent 信号量限制，线路过多时不会同时打爆对端/本机连接。
 func (s *Selector) ProbeAll(ctx context.Context) map[string]ProbeResult {
