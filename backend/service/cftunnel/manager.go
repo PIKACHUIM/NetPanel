@@ -32,7 +32,7 @@ const (
 
 // quickURLRe 匹配 cloudflared quick 模式日志中的临时隧道地址，
 // 形如 https://<random>.trycloudflare.com
-var quickURLRe = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
+var quickURLRe = regexp.MustCompile(`(?i)https://[a-z0-9-]+\.trycloudflare\.com(?:\s|$)`)
 
 // processEntry 单个 cloudflared 进程
 type processEntry struct {
@@ -184,6 +184,7 @@ func (m *Manager) Start(id uint) error {
 	m.tunnels.Store(id, entry)
 
 	go func() {
+		defer m.log.Debugf("[CF隧道][%d] stdout 监听已退出", id)
 		scanner := bufio.NewScanner(stdoutPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -199,6 +200,7 @@ func (m *Manager) Start(id uint) error {
 		}
 	}()
 	go func() {
+		defer m.log.Debugf("[CF隧道][%d] stderr 监听已退出", id)
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
