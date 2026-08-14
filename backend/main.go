@@ -42,6 +42,7 @@ import (
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
+	"github.com/netpanel/netpanel/service/waf"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -225,6 +226,9 @@ func startServer() *http.Server {
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManager(db)
 	_ = logMonitor // 暂时不使用，预留给未来的日志集成
+
+	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）
+	waf.SetDefault(waf.NewManager(db))
 
 	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
 	lineregMgr := linereg.NewManager(db, log, 0)

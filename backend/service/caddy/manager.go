@@ -333,6 +333,14 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		return nil, fmt.Errorf("不支持的站点类型: %s", site.SiteType)
 	}
 
+	// WAF:站点绑定启用的 WAF 配置时,在 handler 链最前插入 WAF 检查中间件
+	if wafCfgID := m.findEnabledWafForSite(site.ID); wafCfgID != 0 {
+		mainHandlers = append([]interface{}{map[string]interface{}{
+			"handler":   "netpanel_waf",
+			"config_id": wafCfgID,
+		}}, mainHandlers...)
+	}
+
 	// 查询认证规则
 	authMode, authRule := m.findAuthRule(site.ID)
 
@@ -363,6 +371,28 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		}
 		return []interface{}{route}, nil
 	}
+}
+
+// findEnabledWafForSite 查找绑定到指定站点且已启用的 WAF 配置 ID,未找到返回 0
+func (m *Manager) findEnabledWafForSite(siteID uint) uint {
+	var configs []model.WafConfig
+	m.db.Where("enable = ?", true).Find(&configs)
+
+	for _, cfg := range configs {
+		if cfg.BindSiteIDs == "" {
+			continue
+		}
+		var siteIDs []uint
+		if err := json.Unmarshal([]byte(cfg.BindSiteIDs), &siteIDs); err != nil {
+			continue
+		}
+		for _, id := range siteIDs {
+			if id == siteID {
+				return cfg.ID
+			}
+		}
+	}
+	return 0
 }
 
 // findAuthRule 查找绑定到指定站点的认证规则
