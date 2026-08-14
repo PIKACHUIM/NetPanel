@@ -165,9 +165,7 @@ func (p *ProbeEngine) probeOnServer(probe model.MonitorProbe, serverID uint) {
 		}
 		success, responseTime, statusCode, err = p.manager.Collector.ProbeHTTP(url, probe.Timeout)
 	case "icmp":
-		// TODO: ICMP Ping 探测
-		log.Printf("[ProbeEngine] ICMP 探测暂未实现\n")
-		return
+		success, responseTime, err = p.manager.Collector.ProbeICMP(probe.TargetAddr, probe.Timeout)
 	default:
 		log.Printf("[ProbeEngine] 不支持的探测类型: %s\n", probe.ProbeType)
 		return
