@@ -246,10 +246,11 @@ func startServer() *http.Server {
 	// MCP 服务端（本地回环，供 AI 助手配置管理与异常诊断）
 	mcpSrv := mcp.NewServer(db, log, tunserviceMgr, lineregMgr,
 		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr, portforwardMgr,
-		":18090")
+		":18090", cfg.MCPToken)
 	if err := mcpSrv.Start(); err != nil {
 		log.Errorf("MCP 服务启动失败: %v", err)
 	}
+	log.Infof("[MCP] 访问令牌: %s（客户端需携带 Authorization: Bearer <token>）", cfg.MCPToken)
 
 	wireguardMgr.StartAll()
 

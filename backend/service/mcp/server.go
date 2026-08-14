@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,11 +46,13 @@ type Server struct {
 	cftunnelMgr    *cftunnel.Manager
 	portforwardMgr *portforward.Manager
 	addr           string
+	token          string // 访问令牌（Authorization: Bearer）
 	httpSrv        *http.Server
 }
 
 // NewServer 创建 MCP 服务端。addr 为监听地址（如 ":18090"），
-// 实际绑定时会强制为 127.0.0.1 本地回环。
+// 实际绑定时会强制为 127.0.0.1 本地回环。token 为访问令牌，
+// 客户端需在请求头携带 Authorization: Bearer <token>。
 func NewServer(
 	db *gorm.DB,
 	log *logrus.Logger,
@@ -62,6 +65,7 @@ func NewServer(
 	cftunnelMgr *cftunnel.Manager,
 	portforwardMgr *portforward.Manager,
 	addr string,
+	token string,
 ) *Server {
 	return &Server{
 		db:             db,
@@ -75,6 +79,7 @@ func NewServer(
 		cftunnelMgr:    cftunnelMgr,
 		portforwardMgr: portforwardMgr,
 		addr:           addr,
+		token:          token,
 	}
 }
 
@@ -144,6 +149,19 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 令牌认证：防止本地其他进程或意外暴露的端口被未授权调用
+	if s.token != "" && !s.authorized(r) {
+		s.log.Warnf("[MCP] 未授权访问被拒绝: %s %s", r.RemoteAddr, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      nil,
+			"error":   map[string]interface{}{"code": -32001, "message": "Unauthorized"},
+		})
+		return
+	}
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		s.writeRPCError(w, nil, -32700, "读取请求体失败: "+err.Error())
@@ -154,6 +172,7 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		s.writeRPCError(w, nil, -32700, "无效的 JSON 请求: "+err.Error())
 		return
 	}
+	s.log.Debugf("[MCP] 收到请求: method=%s", req.Method)
 
 	switch req.Method {
 	case "initialize":
@@ -175,6 +194,21 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.writeRPCError(w, req.ID, -32601, fmt.Sprintf("未知方法: %s", req.Method))
 	}
+}
+
+// authorized 校验请求是否携带有效令牌（恒定时间比较，防时序攻击）。
+// 未配置 token 时放行（兼容旧行为）。
+func (s *Server) authorized(r *http.Request) bool {
+	if s.token == "" {
+		return true
+	}
+	auth := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(auth, prefix) {
+		return false
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
 }
 
 // writeResult 写 JSON-RPC 成功响应。
@@ -397,7 +431,7 @@ func (s *Server) handleToolCall(raw json.RawMessage) map[string]interface{} {
 	}
 }
 
-// handleToolLogs 实现 tool_logs 工具：返回指定工具实例的实时日志。
+// handleToolLogs 实现 tool_logs 工具：返回指定工具实例的日志末尾若干行。
 // 经核对：easytier 提供 GetClientLogs、cftunnel 提供 GetLogs；
 // frp / nps / wireguard 当前没有日志读取接口，返回明确错误。
 func (s *Server) handleToolLogs(args map[string]interface{}) map[string]interface{} {
@@ -406,17 +440,36 @@ func (s *Server) handleToolLogs(args map[string]interface{}) map[string]interfac
 	if err != nil {
 		return s.textError(err.Error())
 	}
+	// tail 限制返回行数（默认 100，最大 1000），避免超大日志拖垮 AI 上下文
+	tail := 100
+	if t, ok := args["tail"]; ok {
+		if n, err := toInt(t); err != nil || n < 1 {
+			return s.textError("tail 参数非法（需为 >=1 的整数）")
+		} else if n > 1000 {
+			tail = 1000
+		} else {
+			tail = n
+		}
+	}
+
+	lines := func(logs []string) map[string]interface{} {
+		if len(logs) > tail {
+			logs = logs[len(logs)-tail:]
+		}
+		return s.textResult(map[string]interface{}{"lines": logs, "count": len(logs)})
+	}
+
 	switch tool {
 	case "easytier":
 		if s.easytierMgr == nil {
 			return s.textError("easytier 管理器未初始化")
 		}
-		return s.textResult(s.easytierMgr.GetClientLogs(id))
+		return lines(s.easytierMgr.GetClientLogs(id))
 	case "cftunnel":
 		if s.cftunnelMgr == nil {
 			return s.textError("cftunnel 管理器未初始化")
 		}
-		return s.textResult(s.cftunnelMgr.GetLogs(id))
+		return lines(s.cftunnelMgr.GetLogs(id))
 	case "frp", "nps", "wg":
 		return s.textError(fmt.Sprintf("工具 %s 暂不支持日志查询（未实现 GetLogs 接口）", tool))
 	default:
