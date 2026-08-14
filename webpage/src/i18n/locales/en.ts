@@ -1604,6 +1604,8 @@ const en = {
     lightTheme: 'Light',
     darkTheme: 'Dark',
     interfaceSettings: 'Interface Settings',
+    speedtestPopup: 'Speed Test Popup',
+    speedtestPopupTip: 'Show ⚡ speed test button on TunService page for instant line probing',
     about: 'About',
   },
   // Tunnel services
@@ -1635,6 +1637,9 @@ const en = {
     rebindPending: 'Pending',
     rebindApply: 'Apply Rebind',
     rebindApplied: 'Rebound {n} service(s)',
+    speedtest: 'Speed Test',
+    speedtestRetest: 'Retest',
+    speedtestDown: 'Unavailable',
     lockLine: 'Lock Line',
     auto: 'Auto',
     saved: 'Saved',

@@ -1643,6 +1643,8 @@ const zh = {
     lightTheme: '浅色',
     darkTheme: '深色',
     interfaceSettings: '界面设置',
+    speedtestPopup: '测速弹窗',
+    speedtestPopupTip: '开启后 TunService 页面显示 ⚡ 测速按钮，可手动触发线路即时测速',
     about: '关于',
   },
   // 内网穿透管理
@@ -1674,6 +1676,9 @@ const zh = {
     rebindPending: '待重绑',
     rebindApply: '手动重绑',
     rebindApplied: '已重绑 {n} 个服务',
+    speedtest: '测速',
+    speedtestRetest: '重新测速',
+    speedtestDown: '不可用',
     lockLine: '锁定线路',
     auto: '自动',
     saved: '已保存',

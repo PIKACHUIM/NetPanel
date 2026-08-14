@@ -5,8 +5,10 @@
 package tunservice
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -266,6 +268,75 @@ func latencyOf(r selector.ProbeResult) int64 {
 		return int64(r.HTTPLatency)
 	}
 	return int64(r.TCPLatency)
+}
+
+// SpeedtestLine 一次即时测速的单条线路结果。
+type SpeedtestLine struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Tool    string `json:"tool"`
+	Address string `json:"address"`
+	Layer   string `json:"layer"`
+	// Latency 有效延迟（ns）；探测失败为 0。
+	Latency int64  `json:"latency"`
+	// Error 非空表示本次探测失败（超时/拒绝等）。
+	Error string `json:"error,omitempty"`
+}
+
+// Speedtest 对服务的关联线路做一次即时并发测速（不刷新内部选线状态）。
+// 返回按有效延迟升序排列的结果，失败线路排最后。供「测速弹窗」等
+// 用户主动触发的一次性测速使用。
+func (m *Manager) Speedtest(svcID uint) ([]SpeedtestLine, error) {
+	var svc model.TunService
+	if err := m.db.First(&svc, svcID).Error; err != nil {
+		return nil, err
+	}
+	var refs []string
+	if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
+		refs = nil
+	}
+	// 从 selector 收集线路静态信息（地址/工具/名称/层次）
+	st := m.linereg.Selector().Snapshot()
+	byID := make(map[string]selector.Line, len(st.Lines))
+	for _, l := range st.Lines {
+		byID[l.ID] = l
+	}
+	var lines []selector.Line
+	for _, ref := range refs {
+		if l, ok := byID[ref]; ok {
+			lines = append(lines, l)
+		}
+	}
+	// 即时并发测速：不刷新内部状态（ProbeLines 语义）
+	results := m.linereg.Selector().ProbeLines(context.Background(), lines)
+
+	out := make([]SpeedtestLine, 0, len(refs))
+	for _, ref := range refs {
+		item := SpeedtestLine{ID: ref}
+		if l, ok := byID[ref]; ok {
+			item.Name = l.Name
+			item.Tool = l.Tool
+			item.Address = l.Address
+			item.Layer = layerFor(l)
+		}
+		if r, ok := results[ref]; ok && r.Err == nil {
+			item.Latency = latencyOf(r)
+		} else if ok && r.Err != nil {
+			item.Error = r.Err.Error()
+		} else {
+			item.Error = "未探测"
+		}
+		out = append(out, item)
+	}
+	// 延迟升序，失败（Error 非空）排最后
+	sort.SliceStable(out, func(i, j int) bool {
+		ei, ej := out[i].Error != "", out[j].Error != ""
+		if ei != ej {
+			return !ei
+		}
+		return out[i].Latency < out[j].Latency
+	})
+	return out, nil
 }
 
 // parseLineID 解析线路 ID："frp:3" -> ("frp", 3)；"easytier:1:0" -> ("easytier", 1)。
