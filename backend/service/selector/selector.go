@@ -167,6 +167,10 @@ type Selector struct {
 	lines []Line
 	// results 最近一次测速结果（lineID -> result）。
 	results map[string]ProbeResult
+	// toolFilter 参与自动选线的工具集合（key 为 Tool 名，如 "wireguard"）。
+	// 空集合 = 全部工具参与；非空时，仅 Tool 命中的线路进入自动选线，
+	// 其余线路仍注册在 lines 中（可展示/手动锁定），但不参与自动选线。
+	toolFilter map[string]struct{}
 
 	// failureThreshold 连续失败多少次后线路才判为不可用（默认 1：任何一次
 	// 失败都立即视为不可用；调大可容忍瞬时抖动，避免频繁切线）。
@@ -234,6 +238,35 @@ func (s *Selector) SetTolerance(d time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tolerance = d
+}
+
+// SetToolFilter 设置参与自动选线的工具集合（key 为 Tool 名）。
+// tools 为空（nil/空 slice）= 全部工具参与；非空时，仅 Tool 命中的线路
+// 参与自动选线，其余线路仍保留在 lines 中供展示与手动锁定。
+// 须在首次 ProbeAll 前调用，否则不保证生效。
+func (s *Selector) SetToolFilter(tools []string) {
+	filter := make(map[string]struct{}, len(tools))
+	for _, t := range tools {
+		if t != "" {
+			filter[t] = struct{}{}
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(filter) == 0 {
+		s.toolFilter = nil
+		return
+	}
+	s.toolFilter = filter
+}
+
+// toolAllowed 判断 Tool 是否参与自动选线（过滤为空 = 全部参与）。
+func (s *Selector) toolAllowed(tool string) bool {
+	if len(s.toolFilter) == 0 {
+		return true
+	}
+	_, ok := s.toolFilter[tool]
+	return ok
 }
 
 // SetLines 全量替换线路集合（保留锁线与当前选择；失效的锁线自动解除）。
@@ -394,7 +427,9 @@ func (s *Selector) Select() Selection {
 
 	// 防抖：当前线路仍可用，且不比最优慢超过 tolerance 时保持现状；
 	// 只有当当前线路比最优慢得更多（或更慢）才切换，避免频繁抖动。
-	if s.current != "" {
+	// 若当前线路的工具已不在自动选线过滤内（如用户临时切换过滤配置），
+	// 不做防抖，直接切换到允许工具中的最优线路。
+	if s.current != "" && s.toolAllowed(s.lineTool(s.current)) {
 		cur, curOK := s.results[s.current]
 		bestR, bestOK := s.results[best]
 		if curOK && bestOK && s.usable(cur) && s.latencyFor(cur)-s.latencyFor(bestR) <= s.tolerance {
@@ -407,24 +442,38 @@ func (s *Selector) Select() Selection {
 
 // bestUsable 返回可用线路中延迟最小的一条；无可用时返回空串。
 // 排序键为 effectiveLatency：配置了 ProbeURL 时优先按 HTTP 出网延迟，
-// 否则按 TCP 握手延迟。
+// 否则按 TCP 握手延迟。仅考虑 toolFilter 允许的工具线路。
 func (s *Selector) bestUsable() string {
 	type cand struct {
 		id  string
 		lat time.Duration
 	}
 	var cands []cand
-	for id, r := range s.results {
-		if !s.usable(r) {
+	for _, l := range s.lines {
+		if !s.toolAllowed(l.Tool) {
 			continue
 		}
-		cands = append(cands, cand{id: id, lat: s.latencyFor(r)})
+		r, ok := s.results[l.ID]
+		if !ok || !s.usable(r) {
+			continue
+		}
+		cands = append(cands, cand{id: l.ID, lat: s.latencyFor(r)})
 	}
 	if len(cands) == 0 {
 		return ""
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].lat < cands[j].lat })
 	return cands[0].id
+}
+
+// lineTool 返回线路 id 对应的工具名（不存在时返回空串）。
+func (s *Selector) lineTool(id string) string {
+	for _, l := range s.lines {
+		if l.ID == id {
+			return l.Tool
+		}
+	}
+	return ""
 }
 
 // Lock 手动锁定某条线路（必须存在于当前线路集合中，否则忽略）。

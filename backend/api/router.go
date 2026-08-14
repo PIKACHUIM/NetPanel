@@ -209,6 +209,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
 	auth.GET("/linereg/config", lineHandler.GetConfig)
 	auth.PUT("/linereg/config", lineHandler.UpdateConfig)
+	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
+	auth.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)
