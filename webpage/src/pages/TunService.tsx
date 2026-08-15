@@ -161,7 +161,14 @@ const TunService: React.FC = () => {
                 max_concurrent: res?.data?.max_concurrent ?? 8,
             })
         } catch {
-            message.error(t('tunservice.loadFailed'))
+            // 加载失败时回填默认值，用户仍可直接修改后保存
+            probeForm.setFieldsValue({
+                interval_sec: 60,
+                failure_threshold: 2,
+                tolerance_ms: 50,
+                max_concurrent: 8,
+            })
+            message.warning(t('tunservice.loadFailedFallback'))
         } finally {
             setProbeLoading(false)
         }

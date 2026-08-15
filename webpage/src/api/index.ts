@@ -588,7 +588,14 @@ export const initApi = {
 }
 
 // ===== 线路探测策略（linereg） =====
+export interface ProbeConfig {
+    interval_sec: number
+    failure_threshold: number
+    tolerance_ms: number
+    max_concurrent: number
+}
+
 export const lineregApi = {
-  getConfig: () => request.get('/v1/linereg/config'),
-  updateConfig: (data: any) => request.put('/v1/linereg/config', data),
+    getConfig: () => request.get<ProbeConfig>('/v1/linereg/config'),
+    updateConfig: (data: ProbeConfig) => request.put('/v1/linereg/config', data),
 }

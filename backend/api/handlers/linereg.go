@@ -106,6 +106,23 @@ func setConfigUpsert(db *gorm.DB, key string, value int) {
 	db.Create(&model.SystemConfig{Key: key, Value: strconv.Itoa(value)})
 }
 
+// validateProbeConfig 校验探测策略四项参数是否在允许范围内，返回首个越界项名。
+func validateProbeConfig(req probeConfigRequest) string {
+	if req.IntervalSec < minIntervalSec || req.IntervalSec > maxIntervalSec {
+		return "interval_sec"
+	}
+	if req.FailureThreshold < minFailureThreshold || req.FailureThreshold > maxFailureThreshold {
+		return "failure_threshold"
+	}
+	if req.ToleranceMs < minToleranceMs || req.ToleranceMs > maxToleranceMs {
+		return "tolerance_ms"
+	}
+	if req.MaxConcurrent < minMaxConcurrent || req.MaxConcurrent > maxMaxConcurrent {
+		return "max_concurrent"
+	}
+	return ""
+}
+
 // UpdateConfig 校验并写入探测策略四项参数，随后应用（透传到 selector）。
 func (h *LineregHandler) UpdateConfig(c *gin.Context) {
 	var req probeConfigRequest
@@ -114,20 +131,8 @@ func (h *LineregHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 	// 范围校验
-	if req.IntervalSec < minIntervalSec || req.IntervalSec > maxIntervalSec {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "interval_sec out of range"})
-		return
-	}
-	if req.FailureThreshold < minFailureThreshold || req.FailureThreshold > maxFailureThreshold {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "failure_threshold out of range"})
-		return
-	}
-	if req.ToleranceMs < minToleranceMs || req.ToleranceMs > maxToleranceMs {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "tolerance_ms out of range"})
-		return
-	}
-	if req.MaxConcurrent < minMaxConcurrent || req.MaxConcurrent > maxMaxConcurrent {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "max_concurrent out of range"})
+	if field := validateProbeConfig(req); field != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": field + " out of range"})
 		return
 	}
 	// 持久化
@@ -135,7 +140,7 @@ func (h *LineregHandler) UpdateConfig(c *gin.Context) {
 	setConfigUpsert(h.db, cfgKeyFailureThreshold, req.FailureThreshold)
 	setConfigUpsert(h.db, cfgKeyToleranceMs, req.ToleranceMs)
 	setConfigUpsert(h.db, cfgKeyMaxConcurrent, req.MaxConcurrent)
-	// 立即应用（间隔需在下一轮生效，其余透传到 selector）
+	// 立即应用（间隔需在下一轮探测循环生效，其余透传到 selector 即时生效）
 	h.mgr.SetInterval(time.Duration(req.IntervalSec) * time.Second)
 	h.mgr.SetFailureThreshold(req.FailureThreshold)
 	h.mgr.SetTolerance(time.Duration(req.ToleranceMs) * time.Millisecond)

@@ -1664,6 +1664,7 @@ const zh = {
     auto: '自动',
     saved: '已保存',
     loadFailed: '加载失败',
+    loadFailedFallback: '加载失败，已填充默认值，可直接修改后保存',
   },
   // AI 管理
   ai: {

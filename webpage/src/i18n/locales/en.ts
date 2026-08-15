@@ -1625,6 +1625,7 @@ const en = {
     auto: 'Auto',
     saved: 'Saved',
     loadFailed: 'Load Failed',
+    loadFailedFallback: 'Failed to load; defaults filled, you can edit and save',
   },
   // AI Management
   ai: {
