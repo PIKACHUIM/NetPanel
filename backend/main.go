@@ -228,6 +228,9 @@ func startServer() *http.Server {
 
 	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
 	lineregMgr := linereg.NewManager(db, log, 0)
+	// 切换落地：选线结果变化时热加载 Caddy 反代目标（域名层）与 DNS 解析（DNS 层）
+	lineregMgr.SetCaddyUpdater(caddyMgr.UpdateUpstream)
+	lineregMgr.SetDNSUpdater(dnsmasqMgr.SetRecord)
 
 	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
 	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,

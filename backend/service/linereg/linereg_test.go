@@ -2,6 +2,7 @@ package linereg
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.WireguardPeer{},
 		&model.CftunnelConfig{},
 		&model.ProbeHistory{},
+		&model.TunService{},
 	); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
@@ -143,10 +145,19 @@ func TestBuildLinesNilDB(t *testing.T) {
 }
 
 // fakeProber 注入式探测器：全部返回固定延迟，用于验证 Manager 接线。
-type fakeProber struct{}
+type fakeProber struct {
+	latencies map[string]time.Duration
+}
 
 func (f *fakeProber) Probe(_ context.Context, line selector.Line) selector.ProbeResult {
-	return selector.ProbeResult{LineID: line.ID, TCPLatency: 10 * time.Millisecond}
+	lat := time.Duration(0)
+	if f.latencies != nil {
+		lat = f.latencies[line.ID]
+	}
+	if lat <= 0 {
+		lat = 10 * time.Millisecond
+	}
+	return selector.ProbeResult{LineID: line.ID, TCPLatency: lat}
 }
 
 func TestManagerRefreshWiresLines(t *testing.T) {
@@ -233,5 +244,211 @@ func TestRefreshPrunesHistory(t *testing.T) {
 	}
 	if count > maxHistoryPerLine {
 		t.Fatalf("历史超出上限: got %d, want <= %d", count, maxHistoryPerLine)
+	}
+}
+
+func TestApplyCaddySwitch(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+
+	// 创建绑定 Caddy 站点(站点 ID=9)且关联 cftunnel:1 线路的穿透服务
+	db.Create(&model.TunService{
+		Name:          "测试服务",
+		Enable:        true,
+		TargetAddress: "127.0.0.1",
+		TargetPort:    8080,
+		LineRefs:      `["frp:1","cftunnel:1"]`,
+		CaddySiteID:   9,
+	})
+
+	// 注入 Caddy 切换回调，记录调用
+	var gotSiteID uint
+	var gotUpstream string
+	var calls int
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(&fakeProber{latencies: map[string]time.Duration{
+		"frp:1": 1 * time.Millisecond,
+	}}, 0)
+	m.SetCaddyUpdater(func(siteID uint, upstream string) error {
+		calls++
+		gotSiteID = siteID
+		gotUpstream = upstream
+		return nil
+	})
+
+	m.refresh(context.Background())
+
+	// fakeProber 全部线路延迟相同，应选到第一条 frp:1
+	if calls == 0 {
+		t.Fatal("期望触发 Caddy 切换回调")
+	}
+	if gotSiteID != 9 {
+		t.Errorf("期望更新站点 9, got %d", gotSiteID)
+	}
+	if gotUpstream != "1.2.3.4:7000" {
+		t.Errorf("期望上游指向 frp:1 的地址 1.2.3.4:7000, got %q", gotUpstream)
+	}
+}
+
+func TestApplyCaddySwitchNoBinding(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+
+	// 服务未绑定 Caddy 站点（CaddySiteID=0），不应触发回调
+	db.Create(&model.TunService{
+		Name:          "无绑定服务",
+		Enable:        true,
+		TargetAddress: "127.0.0.1",
+		TargetPort:    8080,
+		LineRefs:      `["frp:1"]`,
+	})
+
+	calls := 0
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(&fakeProber{}, 0)
+	m.SetCaddyUpdater(func(siteID uint, upstream string) error {
+		calls++
+		return nil
+	})
+
+	m.refresh(context.Background())
+	if calls != 0 {
+		t.Fatalf("未绑定 Caddy 站点不应触发切换, got %d calls", calls)
+	}
+}
+
+func TestApplyDNSSwitch(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+
+	// 创建配置了 Domain 且关联 frp:1（入口 1.2.3.4:7000，IP 地址）的穿透服务
+	db.Create(&model.TunService{
+		Name:          "DNS 服务",
+		Enable:        true,
+		TargetAddress: "127.0.0.1",
+		TargetPort:    8080,
+		Domain:        "nas.example.com",
+		LineRefs:      `["frp:1","cftunnel:1"]`,
+	})
+
+	// 注入 DNS 切换回调，记录调用
+	var gotDomain, gotIP string
+	var calls int
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(&fakeProber{latencies: map[string]time.Duration{
+		"frp:1": 1 * time.Millisecond,
+	}}, 0)
+	m.SetDNSUpdater(func(domain, ip string) error {
+		calls++
+		gotDomain = domain
+		gotIP = ip
+		return nil
+	})
+
+	m.refresh(context.Background())
+
+	if calls == 0 {
+		t.Fatal("期望触发 DNS 切换回调")
+	}
+	if gotDomain != "nas.example.com" {
+		t.Errorf("期望域名 nas.example.com, got %q", gotDomain)
+	}
+	if gotIP != "1.2.3.4" {
+		t.Errorf("期望解析到 1.2.3.4（frp:1 入口 IP）, got %q", gotIP)
+	}
+}
+
+func TestApplyDNSSwitchDomainEntrySkipped(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+
+	// 服务配置了 Domain，但选中线路 cftunnel:1 是域名入口（cfargotunnel.com），
+	// 无 IP 可解析，不应触发 DNS 切换（域名层走 Caddy）
+	db.Create(&model.TunService{
+		Name:          "域名入口服务",
+		Enable:        true,
+		TargetAddress: "127.0.0.1",
+		TargetPort:    8080,
+		Domain:        "web.example.com",
+		LineRefs:      `["cftunnel:1"]`,
+	})
+
+	calls := 0
+	m := NewManager(db, nil, 0)
+	// 只给 frp:1 一条线路无法复现，这里直接构造：让 selector 选中 cftunnel:1
+	// 通过 fakeProber 全同延迟时会选到 cftunnel:1（seedData 中仅该服务关联它）
+	m.selector = selector.NewSelector(&fakeProber{}, 0)
+	m.SetDNSUpdater(func(domain, ip string) error {
+		calls++
+		return nil
+	})
+
+	m.refresh(context.Background())
+	// seedData 有 6 条线路，fakeProber 全同延迟，选中的是第一条（frp:1），
+	// 但该服务只关联 cftunnel:1，所以不应触发
+	if calls != 0 {
+		t.Fatalf("域名入口线路不应触发 DNS 切换, got %d calls", calls)
+	}
+}
+
+func TestApplyCaddySwitchRollback(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	db.Create(&model.TunService{
+		Name:          "回滚测试服务",
+		Enable:        true,
+		TargetAddress: "127.0.0.1",
+		TargetPort:    8080,
+		LineRefs:      `["frp:1","nps:1"]`,
+		CaddySiteID:   9,
+	})
+
+	prober := &fakeProber{latencies: map[string]time.Duration{
+		"frp:1": 1 * time.Millisecond,
+	}}
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(prober, 0)
+
+	var applied []string
+	m.SetCaddyUpdater(func(siteID uint, upstream string) error {
+		// 模拟切换到 nps:1（5.6.7.8:8024）时 Caddy API 失败
+		if upstream == "5.6.7.8:8024" {
+			return fmt.Errorf("模拟 Caddy API 失败")
+		}
+		applied = append(applied, upstream)
+		return nil
+	})
+
+	// 第一次刷新：frp:1 延迟最低，成功切换到 1.2.3.4:7000
+	m.refresh(context.Background())
+	if len(applied) != 1 || applied[0] != "1.2.3.4:7000" {
+		t.Fatalf("第一次切换期望成功到 1.2.3.4:7000, got %v", applied)
+	}
+
+	// 第二次刷新：nps:1 延迟最低，切换 5.6.7.8:8024 失败，应回滚到上次成功的 1.2.3.4:7000
+	prober.latencies = map[string]time.Duration{
+		"nps:1": 1 * time.Millisecond,
+		"frp:1": 100 * time.Millisecond,
+	}
+	m.refresh(context.Background())
+	if len(applied) != 2 {
+		t.Fatalf("切换失败后应触发回滚调用, applied=%v", applied)
+	}
+	if applied[1] != "1.2.3.4:7000" {
+		t.Errorf("回滚应恢复到上次成功的 1.2.3.4:7000, got %q", applied[1])
+	}
+}
+
+func TestLineHost(t *testing.T) {
+	cases := map[string]string{
+		"1.2.3.4:7000":                   "1.2.3.4",
+		"my-tunnel.cfargotunnel.com:443": "my-tunnel.cfargotunnel.com",
+		"plain-host":                     "plain-host",
+		"":                               "",
+	}
+	for in, want := range cases {
+		if got := lineHost(in); got != want {
+			t.Errorf("lineHost(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
