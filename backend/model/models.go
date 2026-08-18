@@ -1013,6 +1013,22 @@ type WafLog struct {
 	Action      string `gorm:"size:20" json:"action"`   // block/detect
 }
 
+// WafBan WAF 封禁 / 黑白名单
+type WafBan struct {
+	BaseModel
+	IP       string `gorm:"size:100;not null;index" json:"ip"` // IP 或 CIDR
+	Type     string `gorm:"size:20;default:'black'" json:"type"` // black（黑名单/封禁）/ white（白名单）
+	Source   string `gorm:"size:20;default:'manual'" json:"source"` // manual（手动）/ auto（自动）
+	Reason   string `gorm:"size:500" json:"reason"`
+	ExpireAt *time.Time `json:"expire_at"` // 过期时间，nil=永久
+	Enable   bool   `gorm:"default:true" json:"enable"`
+	// 联动系统防火墙规则 ID（ApplyRule 创建，解除时 RemoveRule）
+	FirewallRuleID uint `json:"firewall_rule_id"`
+	ApplyStatus    string `gorm:"size:20;default:'pending'" json:"apply_status"` // pending/applied/error
+	LastError      string `gorm:"type:text" json:"last_error"`
+	Remark         string `gorm:"size:500" json:"remark"`
+}
+
 // ===== 系统防火墙 =====
 
 // FirewallRule 系统防火墙规则（支持 Linux iptables/nftables/ufw/firewalld 和 Windows 防火墙）

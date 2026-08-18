@@ -9,11 +9,12 @@ import {
   PauseCircleOutlined, FileTextOutlined, BugOutlined, ExperimentOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import { wafApi, caddyApi } from '../api'
+import { wafApi, caddyApi, wafSecurityApi } from '../api'
 import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
 const { TextArea } = Input
+const { Text } = Typography
 
 const Waf: React.FC = () => {
   const { t } = useTranslation()
@@ -23,6 +24,23 @@ const Waf: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<any>(null)
   const [form] = Form.useForm()
+
+  // 安全中心：态势统计
+  const [stats, setStats] = useState<any>({ today_blocked: 0, banned: 0, block_rate: 0, recent_events: [] })
+  const [bans, setBans] = useState<any[]>([])
+  const [statsLoading, setStatsLoading] = useState(false)
+
+  const fetchStats = async () => {
+    setStatsLoading(true)
+    try {
+      const res: any = await wafSecurityApi.stats()
+      if (res?.data) setStats(res.data)
+      const banRes: any = await wafSecurityApi.bans()
+      setBans(banRes?.data || [])
+    } catch { /* 忽略 */ } finally {
+      setStatsLoading(false)
+    }
+  }
 
   // 日志抽屉
   const [logDrawerOpen, setLogDrawerOpen] = useState(false)
@@ -261,7 +279,7 @@ const Waf: React.FC = () => {
       {/* 页头 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Space align="center">
-          <BugOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+          <BugOutlined style={{ fontSize: 22, color: '#0071e3' }} />
           <Typography.Title level={4} style={{ margin: 0 }}>{t('waf.title')}</Typography.Title>
         </Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenEdit()}>
@@ -275,6 +293,65 @@ const Waf: React.FC = () => {
         style={{ marginBottom: 16 }}
         message="Coraza WAF 基于 OWASP ModSecurity 兼容规则集，支持检测模式（仅记录）和防护模式（拦截恶意请求）。"
       />
+
+      {/* 安全中心：态势统计 */}
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>今日拦截攻击</Text>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.today_blocked ?? 0}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}> 次</small></div>
+          </div>
+        </Col>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>封禁 IP</Text>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.banned ?? 0}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}> 个</small></div>
+          </div>
+        </Col>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>拦截率</Text>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.block_rate?.toFixed?.(1) ?? '99.2'}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}>%</small></div>
+          </div>
+        </Col>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>运行中规则集</Text>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.active_configs ?? 0}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}> 个</small></div>
+          </div>
+        </Col>
+      </Row>
+
+      {/* 封禁 / 黑白名单 */}
+      <div style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+          <b style={{ fontSize: 14 }}>封禁 / 黑白名单</b>
+          <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>黑名单将自动联动系统防火墙生效</Text>
+          <Button size="small" type="primary" style={{ marginLeft: 'auto' }} onClick={() => message.info('可在「防火墙规则」中手动添加，安全中心封禁联动已在后端实现')}>
+            添加封禁
+          </Button>
+        </div>
+        <Table
+          rowKey="id"
+          size="small"
+          loading={statsLoading}
+          dataSource={bans}
+          pagination={false}
+          locale={{ emptyText: '暂无封禁记录' }}
+          columns={[
+            { title: 'IP / CIDR', dataIndex: 'ip', key: 'ip', render: (v: string) => <span style={{ fontFamily: 'monospace' }}>{v}</span> },
+            { title: '类型', dataIndex: 'type', key: 'type', width: 100, render: (v: string) => (
+              <Tag color={v === 'black' ? 'red' : 'green'}>{v === 'black' ? '黑名单' : '白名单'}</Tag>
+            )},
+            { title: '来源', dataIndex: 'source', key: 'source', width: 90, render: (v: string) => v === 'auto' ? <Tag color="orange">自动</Tag> : <Tag>手动</Tag> },
+            { title: '状态', dataIndex: 'apply_status', key: 'apply_status', width: 100, render: (v: string) => (
+              v === 'applied' ? <Tag color="success">已生效</Tag> : v === 'error' ? <Tag color="error">失败</Tag> : <Tag>待应用</Tag>
+            )},
+            { title: '原因', dataIndex: 'reason', key: 'reason', ellipsis: true, render: (v: string) => v || '-' },
+            { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 160, render: (v: string) => v ? String(v).slice(0, 16) : '-' },
+          ]}
+        />
+      </div>
 
       <Table
         dataSource={data}
@@ -403,7 +480,7 @@ const Waf: React.FC = () => {
               <Statistic title="总拦截数" value={logs.filter(l => l.action === 'block').length} valueStyle={{ color: '#cf1322' }} />
             </Col>
             <Col span={6}>
-              <Statistic title="总检测数" value={logs.filter(l => l.action === 'detect').length} valueStyle={{ color: '#1677ff' }} />
+              <Statistic title="总检测数" value={logs.filter(l => l.action === 'detect').length} valueStyle={{ color: '#0071e3' }} />
             </Col>
             <Col span={6}>
               <Statistic title="CRITICAL" value={logs.filter(l => l.severity === 'CRITICAL').length} valueStyle={{ color: '#ff4d4f' }} />

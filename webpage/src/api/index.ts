@@ -568,3 +568,22 @@ export const monitorApi = {
   deleteTunnelBinding: (id: number) => request.delete(`/v1/monitor/tunnels/${id}`),
   syncTunnelStatus: (id: number) => request.post(`/v1/monitor/tunnels/${id}/sync`),
 }
+
+// ===== 安全中心（WAF） =====
+export const wafSecurityApi = {
+  listConfigs: () => request.get('/v1/security/waf'),
+  createConfig: (data: any) => request.post('/v1/security/waf', data),
+  updateConfig: (id: number, data: any) => request.put(`/v1/security/waf/${id}`, data),
+  deleteConfig: (id: number) => request.delete(`/v1/security/waf/${id}`),
+  startConfig: (id: number) => request.post(`/v1/security/waf/${id}/start`),
+  stopConfig: (id: number) => request.post(`/v1/security/waf/${id}/stop`),
+  // 攻击事件
+  events: (params: any) => request.get('/v1/security/waf/events', { params }),
+  stats: () => request.get('/v1/security/waf/stats'),
+  // 封禁 / 黑白名单
+  bans: () => request.get('/v1/security/waf/bans'),
+  createBan: (data: any) => request.post('/v1/security/waf/bans', data),
+  deleteBan: (id: number) => request.delete(`/v1/security/waf/bans/${id}`),
+  applyBan: (id: number) => request.post(`/v1/security/waf/bans/${id}/apply`),
+  removeBan: (id: number) => request.post(`/v1/security/waf/bans/${id}/remove`),
+}
