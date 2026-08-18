@@ -13,149 +13,218 @@ import (
 	"gorm.io/gorm"
 )
 
-// CftunnelHandler Cloudflare Tunnel 处理器
-type CftunnelHandler struct {
+// ===== CF 隧道（Cloudflare Tunnel） =====
+
+type CfTunnelHandler struct {
 	db  *gorm.DB
 	log *logrus.Logger
 	mgr *cftunnel.Manager
 }
 
-func NewCftunnelHandler(db *gorm.DB, log *logrus.Logger, mgr *cftunnel.Manager) *CftunnelHandler {
-	return &CftunnelHandler{db: db, log: log, mgr: mgr}
+func NewCfTunnelHandler(db *gorm.DB, log *logrus.Logger, mgr *cftunnel.Manager) *CfTunnelHandler {
+	return &CfTunnelHandler{db: db, log: log, mgr: mgr}
 }
 
-func (h *CftunnelHandler) List(c *gin.Context) {
-	var tunnels []model.CftunnelConfig
+// tunnelResponse 响应体（Token 不回显）
+type tunnelResponse struct {
+	ID         uint   `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Enable     bool   `json:"enable"`
+	LocalURL   string `json:"local_url"`
+	TunnelName string `json:"tunnel_name"`
+	Hostname   string `json:"hostname"`
+	Status     string `json:"status"`
+	PublicURL  string `json:"public_url"`
+	LastError  string `json:"last_error"`
+	Remark     string `json:"remark"`
+	CreatedAt  string `json:"created_at"`
+	HasToken   bool   `json:"has_token"`
+}
+
+func toTunnelResponse(t model.CloudflareTunnel) tunnelResponse {
+	return tunnelResponse{
+		ID:         t.ID,
+		Name:       t.Name,
+		Type:       t.Type,
+		Enable:     t.Enable,
+		LocalURL:   t.LocalURL,
+		TunnelName: t.TunnelName,
+		Hostname:   t.Hostname,
+		Status:     t.Status,
+		PublicURL:  t.PublicURL,
+		LastError:  t.LastError,
+		Remark:     t.Remark,
+		CreatedAt:  t.CreatedAt.Format("2006-01-02 15:04:05"),
+		HasToken:   t.Token != "",
+	}
+}
+
+// List 隧道列表
+// GET /api/v1/cftunnel
+func (h *CfTunnelHandler) List(c *gin.Context) {
+	var tunnels []model.CloudflareTunnel
 	h.db.Order("id desc").Find(&tunnels)
-	for i := range tunnels {
-		tunnels[i].Status = h.mgr.GetStatus(tunnels[i].ID)
+	resp := make([]tunnelResponse, 0, len(tunnels))
+	for _, t := range tunnels {
+		// 实时校正运行状态
+		if st, err := h.mgr.GetStatus(t.ID); err == nil {
+			if running, _ := st["running"].(bool); running {
+				t.Status = "running"
+			}
+		}
+		resp = append(resp, toTunnelResponse(t))
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tunnels})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": resp})
 }
 
-func (h *CftunnelHandler) Create(c *gin.Context) {
-	var tunnel model.CftunnelConfig
-	if err := c.ShouldBindJSON(&tunnel); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
-		return
+// Create 创建隧道
+// POST /api/v1/cftunnel
+func (h *CfTunnelHandler) Create(c *gin.Context) {
+	var req struct {
+		Name       string `json:"name" binding:"required,min=1,max=100"`
+		Type       string `json:"type" binding:"required,oneof=quick named"`
+		Enable     bool   `json:"enable"`
+		LocalURL   string `json:"local_url"`
+		Token      string `json:"token"`
+		TunnelName string `json:"tunnel_name"`
+		Hostname   string `json:"hostname"`
+		Remark     string `json:"remark"`
 	}
-	if tunnel.Mode == "" {
-		tunnel.Mode = "quick"
-	}
-	tunnel.Status = "stopped"
-	h.db.Create(&tunnel)
-	if tunnel.Enable {
-		h.mgr.Start(tunnel.ID)
-	}
-	logger.WriteLog("info", "cftunnel", fmt.Sprintf("创建CF隧道 [%d] %s", tunnel.ID, tunnel.Name))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tunnel, "message": "创建成功"})
-}
-
-func (h *CftunnelHandler) Update(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var req model.CftunnelConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
 		return
 	}
-	h.mgr.Stop(uint(id))
-	req.ID = uint(id)
-	h.db.Save(&req)
-	if req.Enable {
-		h.mgr.Start(uint(id))
+	if req.Type == "quick" && req.LocalURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "快速隧道需要填写内网目标地址"})
+		return
 	}
-	logger.WriteLog("info", "cftunnel", fmt.Sprintf("更新CF隧道 [%d] %s", id, req.Name))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
+	if req.Type == "named" && req.Token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "命名隧道需要填写 Cloudflare Tunnel Token"})
+		return
+	}
+
+	tunnel := model.CloudflareTunnel{
+		Name:       req.Name,
+		Type:       req.Type,
+		Enable:     req.Enable,
+		LocalURL:   req.LocalURL,
+		Token:      req.Token,
+		TunnelName: req.TunnelName,
+		Hostname:   req.Hostname,
+		Status:     "stopped",
+		Remark:     req.Remark,
+	}
+	if err := h.db.Create(&tunnel).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建失败: " + err.Error()})
+		return
+	}
+	logger.WriteLog("info", "cftunnel", fmt.Sprintf("创建CF隧道 [%d] %s (%s)", tunnel.ID, tunnel.Name, tunnel.Type))
+	if req.Enable {
+		_ = h.mgr.Start(tunnel.ID)
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": toTunnelResponse(tunnel), "message": "创建成功"})
 }
 
-func (h *CftunnelHandler) Delete(c *gin.Context) {
+// Update 更新隧道
+// PUT /api/v1/cftunnel/:id
+func (h *CfTunnelHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.mgr.Stop(uint(id))
-	h.db.Delete(&model.CftunnelConfig{}, id)
+	var req struct {
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		Enable     *bool  `json:"enable"`
+		LocalURL   string `json:"local_url"`
+		Token      string `json:"token"` // 为空则不修改
+		TunnelName string `json:"tunnel_name"`
+		Hostname   string `json:"hostname"`
+		Remark     string `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+
+	var tunnel model.CloudflareTunnel
+	if err := h.db.First(&tunnel, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "隧道不存在"})
+		return
+	}
+
+	updates := map[string]any{}
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
+	if req.Type != "" {
+		updates["type"] = req.Type
+	}
+	if req.Enable != nil {
+		updates["enable"] = *req.Enable
+	}
+	if req.LocalURL != "" {
+		updates["local_url"] = req.LocalURL
+	}
+	if req.Token != "" {
+		updates["token"] = req.Token
+	}
+	updates["tunnel_name"] = req.TunnelName
+	updates["hostname"] = req.Hostname
+	updates["remark"] = req.Remark
+
+	if err := h.db.Model(&tunnel).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "更新失败: " + err.Error()})
+		return
+	}
+	logger.WriteLog("info", "cftunnel", fmt.Sprintf("更新CF隧道 [%d] %s", tunnel.ID, req.Name))
+	h.db.First(&tunnel, id)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": toTunnelResponse(tunnel), "message": "更新成功"})
+}
+
+// Delete 删除隧道（先停止）
+// DELETE /api/v1/cftunnel/:id
+func (h *CfTunnelHandler) Delete(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	_ = h.mgr.Stop(uint(id))
+	h.db.Delete(&model.CloudflareTunnel{}, id)
 	logger.WriteLog("info", "cftunnel", fmt.Sprintf("删除CF隧道 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
-func (h *CftunnelHandler) Start(c *gin.Context) {
+// Start 启动隧道
+// POST /api/v1/cftunnel/:id/start
+func (h *CfTunnelHandler) Start(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.mgr.Start(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("enable", true)
-	logger.WriteLog("info", "cftunnel", fmt.Sprintf("启动CF隧道 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
-func (h *CftunnelHandler) Stop(c *gin.Context) {
+// Stop 停止隧道
+// POST /api/v1/cftunnel/:id/stop
+func (h *CfTunnelHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.mgr.Stop(uint(id))
-	h.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("enable", false)
-	logger.WriteLog("info", "cftunnel", fmt.Sprintf("停止CF隧道 [%d]", id))
+	_ = h.mgr.Stop(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
-func (h *CftunnelHandler) GetStatus(c *gin.Context) {
+// GetStatus 获取隧道状态
+// GET /api/v1/cftunnel/:id/status
+func (h *CfTunnelHandler) GetStatus(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	status := h.mgr.GetStatus(uint(id))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"status": status}})
+	st, err := h.mgr.GetStatus(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "隧道不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": st})
 }
 
-func (h *CftunnelHandler) GetLogs(c *gin.Context) {
+// GetLogs 获取隧道日志
+// GET /api/v1/cftunnel/:id/logs
+func (h *CfTunnelHandler) GetLogs(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	logs := h.mgr.GetLogs(uint(id))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": logs})
-}
-
-func (h *CftunnelHandler) GetBinaryPath(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"binary_path": h.mgr.GetBinaryPath()}})
-}
-
-// GetDownloadInfo 获取下载信息
-func (h *CftunnelHandler) GetDownloadInfo(c *gin.Context) {
-	info := cftunnel.GetDownloadInfo()
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": info})
-}
-
-// DownloadBinary 下载 cloudflared 二进制
-func (h *CftunnelHandler) DownloadBinary(c *gin.Context) {
-	if !cftunnel.IsBinaryDownloadSupported() {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "当前平台不支持自动下载"})
-		return
-	}
-
-	binDir := h.mgr.GetBinDir()
-	
-	// 使用 Server-Sent Events 报告进度
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "不支持流式传输"})
-		return
-	}
-
-	// 发送进度回调
-	progressCallback := func(downloaded, total int64) {
-		percent := float64(0)
-		if total > 0 {
-			percent = float64(downloaded) / float64(total) * 100
-		}
-		fmt.Fprintf(c.Writer, "data: {\"downloaded\": %d, \"total\": %d, \"percent\": %.2f}\n\n", downloaded, total, percent)
-		flusher.Flush()
-	}
-
-	finalPath, err := cftunnel.DownloadBinary(binDir, progressCallback)
-	if err != nil {
-		fmt.Fprintf(c.Writer, "data: {\"error\": \"%s\"}\n\n", err.Error())
-		flusher.Flush()
-		logger.WriteLog("error", "cftunnel", fmt.Sprintf("下载 cloudflared 失败: %v", err))
-		return
-	}
-
-	fmt.Fprintf(c.Writer, "data: {\"done\": true, \"path\": \"%s\"}\n\n", finalPath)
-	flusher.Flush()
-	logger.WriteLog("info", "cftunnel", fmt.Sprintf("下载 cloudflared 成功: %s", finalPath))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"logs": logs}})
 }

@@ -76,6 +76,8 @@ const zh = {
     waf: 'Coraza防火墙',
     firewall: 'IP防火墙管理',
     security: '安全防护',
+    cfTunnel: 'CF 隧道',
+    help: '帮助与说明',
     // 分组
     tunnel: '内网穿透',
     network: '异地组网',

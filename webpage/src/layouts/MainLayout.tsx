@@ -127,10 +127,25 @@ const MainLayout: React.FC = () => {
             icon: <SafetyOutlined/>,
             label: t('menu.security'),
             children: [
-                {key: 'ipdb', icon: <DatabaseOutlined/>, label: t('menu.ipdb')},
+                {key: 'security/waf', icon: <BugOutlined/>, label: t('menu.waf')},
                 {key: 'security/firewall', icon: <FireOutlined/>, label: t('menu.firewall')},
                 {key: 'access', icon: <FilterOutlined/>, label: t('menu.access')},
-                {key: 'security/waf', icon: <BugOutlined/>, label: t('menu.waf')},
+                {key: 'ipdb', icon: <DatabaseOutlined/>, label: t('menu.ipdb')},
+            ],
+        },
+        // ── 内网穿透 ──
+        {
+            key: 'tunnel',
+            icon: <CloudOutlined/>,
+            label: t('menu.tunnel'),
+            children: [
+                {key: 'cftunnel', icon: <CloudOutlined/>, label: t('menu.cfTunnel')},
+                {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
+                {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
+                {key: 'nps/client', icon: <ApiOutlined/>, label: t('menu.npsClient')},
+                {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
+                {key: 'easytier/client', icon: <ApiOutlined/>, label: t('menu.easytierClient')},
+                {key: 'easytier/server', icon: <CloudServerOutlined/>, label: t('menu.easytierServer')},
             ],
         },
         {

@@ -191,20 +191,6 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/easytier/server/:id/logs", etsHandler.GetLogs)
 	auth.GET("/easytier/server/:id/peers", etsHandler.GetPeers)
 
-	// Cloudflare Tunnel（cloudflared）
-	cfHandler := handlers.NewCftunnelHandler(opts.DB, opts.Log, opts.CftunnelMgr)
-	auth.GET("/cftunnel", cfHandler.List)
-	auth.POST("/cftunnel", cfHandler.Create)
-	auth.PUT("/cftunnel/:id", cfHandler.Update)
-	auth.DELETE("/cftunnel/:id", cfHandler.Delete)
-	auth.POST("/cftunnel/:id/start", cfHandler.Start)
-	auth.POST("/cftunnel/:id/stop", cfHandler.Stop)
-	auth.GET("/cftunnel/:id/status", cfHandler.GetStatus)
-	auth.GET("/cftunnel/:id/logs", cfHandler.GetLogs)
-	auth.GET("/cftunnel/binary", cfHandler.GetBinaryPath)
-	auth.GET("/cftunnel/download/info", cfHandler.GetDownloadInfo)
-	auth.POST("/cftunnel/download", cfHandler.DownloadBinary)
-
 	// 穿透服务（用户视角的统一内网穿透管理）
 	tsHandler := handlers.NewTunserviceHandler(opts.DB, opts.Log, opts.TunserviceMgr)
 	auth.GET("/tunservice", tsHandler.List)
@@ -360,6 +346,17 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/ipdb/subscriptions/:id", ipdbHandler.UpdateSubscription)
 	auth.DELETE("/ipdb/subscriptions/:id", ipdbHandler.DeleteSubscription)
 	auth.POST("/ipdb/subscriptions/:id/refresh", ipdbHandler.RefreshSubscription)
+
+	// CF 隧道（Cloudflare Tunnel，cloudflared）
+	cftunnelHandler := handlers.NewCfTunnelHandler(opts.DB, opts.Log, opts.CftunnelMgr)
+	auth.GET("/cftunnel", cftunnelHandler.List)
+	auth.POST("/cftunnel", cftunnelHandler.Create)
+	auth.PUT("/cftunnel/:id", cftunnelHandler.Update)
+	auth.DELETE("/cftunnel/:id", cftunnelHandler.Delete)
+	auth.POST("/cftunnel/:id/start", cftunnelHandler.Start)
+	auth.POST("/cftunnel/:id/stop", cftunnelHandler.Stop)
+	auth.GET("/cftunnel/:id/status", cftunnelHandler.GetStatus)
+	auth.GET("/cftunnel/:id/logs", cftunnelHandler.GetLogs)
 
 	// 访问控制
 	accessHandler := handlers.NewAccessHandler(opts.DB, opts.Log, opts.AccessMgr, opts.CaddyMgr)

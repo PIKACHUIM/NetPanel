@@ -197,6 +197,7 @@ func startServer() *http.Server {
 	logFirewall := logger.NewDBLogger(log, "firewall")
 	logWireguard := logger.NewDBLogger(log, "wireguard")
 	logMeshNode := logger.NewDBLogger(log, "meshnode")
+	logCfTunnel := logger.NewDBLogger(log, "cftunnel")
 
 	// 初始化各服务管理器（使用带 DB Hook 的专属 logger）
 	portforwardMgr := portforward.NewManager(db, logPortforward)
@@ -204,7 +205,6 @@ func startServer() *http.Server {
 	frpMgr := frp.NewManager(db, logFrp)
 	npsMgr := nps.NewManager(db, logNps, *dataDir)
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
-	cftunnelMgr := cftunnel.NewManager(db, log, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
 	caddyMgr := caddy.NewManager(db, logCaddy, *dataDir)
 	wolMgr := wol.NewManager(db, logWol)
@@ -217,6 +217,7 @@ func startServer() *http.Server {
 	firewallMgr := firewall.NewManager(db, logFirewall)
 	wireguardMgr := wireguard.NewManager(db, logWireguard, *dataDir)
 	meshNodeMgr := meshnode.NewManager(db, logMeshNode)
+	cftunnelMgr := cftunnel.NewManager(db, logCfTunnel, *dataDir)
 
 	// AI 管理器
 	logAi := logger.NewDBLogger(log, "ai")

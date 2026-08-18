@@ -74,6 +74,8 @@ const en = {
     waf: 'WAF Firewall',
     firewall: 'IP Firewall',
     security: 'Security',
+    cfTunnel: 'CF Tunnel',
+    help: 'Help & Guide',
     tunnel: 'Tunnel',
     network: 'Network',
     domain: 'Domain',
