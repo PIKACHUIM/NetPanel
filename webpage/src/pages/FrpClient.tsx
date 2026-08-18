@@ -80,6 +80,11 @@ const FrpClient: React.FC = () => {
     const [proxyForm] = Form.useForm()
     const [proxyType, setProxyType] = useState('tcp')
 
+    // 线路测速
+    const [speedTestOpen, setSpeedTestOpen] = useState(false)
+    const [speedTestData, setSpeedTestData] = useState<any[]>([])
+    const [speedTesting, setSpeedTesting] = useState(false)
+
     const fetchData = async () => {
         setLoading(true)
         try {
@@ -98,6 +103,30 @@ const FrpClient: React.FC = () => {
         const res: any = await request.get(`/v1/frpc/${frpcId}/proxies`)
         setProxies(res.data || [])
     }
+
+    const runSpeedTest = async () => {
+        setSpeedTestOpen(true)
+        setSpeedTesting(true)
+        setSpeedTestData([])
+        try {
+            const res: any = await request.get('/v1/frpc/speedtest')
+            setSpeedTestData(res.data || [])
+        } catch (e: any) {
+            message.error(e?.message || t('frp.speedTestFailed'))
+        } finally {
+            setSpeedTesting(false)
+        }
+    }
+
+    // 测速结果表格列
+    const speedTestColumns = [
+        {title: t('frp.clientName'), dataIndex: 'name'},
+        {title: t('frp.serverAddr'), dataIndex: 'server_addr', render: (_: any, r: any) => `${r.server_addr}:${r.server_port}`},
+        {title: t('frp.latency'), dataIndex: 'latency_ms', render: (v: number, r: any) => (r.status === 'ok' ? `${v} ms` : '-')},
+        {title: t('frp.status'), dataIndex: 'status', render: (v: string) => (
+            <Tag color={v === 'ok' ? 'green' : 'red'}>{v === 'ok' ? t('frp.reachable') : t('frp.unreachable')}</Tag>
+        )},
+    ]
 
     const openProxyDrawer = (record: any) => {
         setCurrentFrpc(record)
@@ -1045,6 +1074,9 @@ const FrpClient: React.FC = () => {
                     >
                         FRP {t('common.officialSite')}
                     </Button>
+                    <Button icon={<ThunderboltOutlined/>} loading={speedTesting} onClick={runSpeedTest}>
+                        {t('frp.speedTest')}
+                    </Button>
                     <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>{t('common.create')}</Button>
                 </Space>
             </div>
@@ -1060,6 +1092,21 @@ const FrpClient: React.FC = () => {
                 size="middle" style={tableStyle}
                 pagination={{pageSize: 20, showSizeChanger: true}}
             />
+
+            {/* 线路测速结果弹窗 */}
+            <Modal
+                title={t('frp.speedTestResult')}
+                open={speedTestOpen}
+                onCancel={() => setSpeedTestOpen(false)}
+                footer={null}
+                width={720}
+            >
+                <Table
+                    dataSource={speedTestData} rowKey="id" loading={speedTesting}
+                    size="small" pagination={false} columns={speedTestColumns}
+                    locale={{emptyText: t('frp.noFrpc')}}
+                />
+            </Modal>
 
             {/* frpc 编辑弹窗 */}
             <Modal

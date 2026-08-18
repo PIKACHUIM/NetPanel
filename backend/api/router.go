@@ -121,6 +121,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/frpc/:id/start", frpcHandler.Start)
 	auth.POST("/frpc/:id/stop", frpcHandler.Stop)
 	auth.POST("/frpc/:id/restart", frpcHandler.Restart)
+	auth.GET("/frpc/speedtest", frpcHandler.SpeedTest)
 	// FRP 代理
 	auth.GET("/frpc/:id/proxies", frpcHandler.ListProxies)
 	auth.POST("/frpc/:id/proxies", frpcHandler.CreateProxy)

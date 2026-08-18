@@ -31,6 +31,7 @@ export const frpcApi = {
   delete: (id: number) => request.delete(`/v1/frpc/${id}`),
   start: (id: number) => request.post(`/v1/frpc/${id}/start`),
   stop: (id: number) => request.post(`/v1/frpc/${id}/stop`),
+  speedtest: () => request.get('/v1/frpc/speedtest'),
   restart: (id: number) => request.post(`/v1/frpc/${id}/restart`),
 }
 
