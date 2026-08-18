@@ -95,7 +95,7 @@ const MeshNodes: React.FC = () => {
       render: (name: string, r: any) => (
         <div>
           <Space>
-            <ClusterOutlined style={{ color: '#1677ff' }} />
+            <ClusterOutlined style={{ color: '#0071e3' }} />
             <Text strong>{name}</Text>
           </Space>
           {r.remark && <div><Text type="secondary" style={{ fontSize: 12 }}>{r.remark}</Text></div>}

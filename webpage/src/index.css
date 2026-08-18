@@ -9,18 +9,18 @@
 
 /* ===== CSS 变量系统 ===== */
 :root {
-  /* 主色调 */
-  --color-primary: #1677ff;
-  --color-primary-hover: #4096ff;
-  --color-primary-active: #0958d9;
+  /* 主色调（苹果蓝） */
+  --color-primary: #0071e3;
+  --color-primary-hover: #0077ed;
+  --color-primary-active: #0060df;
 
   /* 浅色主题 */
-  --bg-body: #f0f2f5;
+  --bg-body: #f5f5f7;
   --bg-card: #ffffff;
-  --bg-sider: #001529;
-  --bg-header: #ffffff;
+  --bg-sider: #ffffff;
+  --bg-header: rgba(255, 255, 255, 0.85);
   --border-color: rgba(0, 0, 0, 0.07);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 28px rgba(0, 0, 0, 0.06);
   --shadow-header: 0 1px 4px rgba(0, 0, 0, 0.06);
   --text-primary: rgba(0, 0, 0, 0.88);
   --text-secondary: rgba(0, 0, 0, 0.45);
@@ -39,12 +39,12 @@
 
 /* 暗黑模式变量 */
 [data-theme="dark"] {
-  --bg-body: #0a1028;
-  --bg-card: #0f1838;
-  --bg-sider: #0a1028;
-  --bg-header: #0f1838;
+  --bg-body: #0e0f14;
+  --bg-card: #17181f;
+  --bg-sider: #17181f;
+  --bg-header: rgba(23, 24, 31, 0.85);
   --border-color: rgba(255, 255, 255, 0.08);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.4);
   --shadow-header: 0 1px 4px rgba(0, 0, 0, 0.3);
   --text-primary: rgba(255, 255, 255, 0.88);
   --text-secondary: rgba(255, 255, 255, 0.45);
@@ -140,25 +140,23 @@ body::after {
 /* 必须是「有内容」的背景，纯色 + 低对比网格线模糊后看不到毛玻璃效果 */
 /* 注意：不要用 background-attachment: fixed！它会破坏 backdrop-filter 在 Chromium 下的合成 */
 [data-theme="light"][data-wallpaper="none"] .ant-layout-content {
-  background-color: #eef2f7 !important;
+  background-color: #f5f5f7 !important;
   background-image:
-    radial-gradient(circle at 15% 20%, rgba(22, 119, 255, 0.18), transparent 45%),
-    radial-gradient(circle at 85% 30%, rgba(236, 72, 153, 0.14), transparent 45%),
-    radial-gradient(circle at 50% 85%, rgba(34, 197, 94, 0.14), transparent 45%),
-    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px) !important;
-  background-size: auto, auto, auto, 48px 48px, 48px 48px !important;
+    radial-gradient(circle at 15% 20%, rgba(0, 113, 227, 0.08), transparent 45%),
+    radial-gradient(circle at 85% 30%, rgba(191, 90, 242, 0.06), transparent 45%),
+    linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px) !important;
+  background-size: auto, auto, 48px 48px, 48px 48px !important;
 }
 
 [data-theme="dark"][data-wallpaper="none"] .ant-layout-content {
-  background-color: #0a1028 !important;
+  background-color: #0e0f14 !important;
   background-image:
-    radial-gradient(circle at 15% 20%, rgba(22, 119, 255, 0.35), transparent 45%),
-    radial-gradient(circle at 85% 30%, rgba(147, 51, 234, 0.28), transparent 45%),
-    radial-gradient(circle at 50% 85%, rgba(14, 165, 233, 0.25), transparent 45%),
-    linear-gradient(rgba(100, 150, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(100, 150, 255, 0.06) 1px, transparent 1px) !important;
-  background-size: auto, auto, auto, 48px 48px, 48px 48px !important;
+    radial-gradient(circle at 15% 20%, rgba(0, 113, 227, 0.16), transparent 45%),
+    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.12), transparent 45%),
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) !important;
+  background-size: auto, auto, 48px 48px, 48px 48px !important;
 }
 
 /* ===== 滚动条美化 ===== */
@@ -286,12 +284,12 @@ body::after {
 }
 
 [data-theme="dark"] .ant-pagination .ant-pagination-item-active {
-  background: rgba(22, 119, 255, 0.2) !important;
-  border-color: #1677ff !important;
+  background: rgba(0, 113, 227, 0.2) !important;
+  border-color: #0071e3 !important;
 }
 
 [data-theme="dark"] .ant-pagination .ant-pagination-item-active a {
-  color: #1677ff !important;
+  color: #0071e3 !important;
 }
 
 [data-theme="dark"] .ant-pagination-mini .ant-pagination-item,
@@ -321,7 +319,7 @@ body::after {
 
 /* Popover */
 [data-theme="dark"] .ant-popover .ant-popover-inner {
-  background: #162044 !important;
+  background: #17181f !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 [data-theme="dark"] .ant-popover .ant-popover-title {
@@ -329,7 +327,7 @@ body::after {
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 [data-theme="dark"] .ant-popover-arrow::before {
-  background: #162044 !important;
+  background: #17181f !important;
 }
 
 
@@ -350,7 +348,7 @@ body::after {
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 [data-theme="dark"] .ant-alert-info {
-  background: rgba(22, 119, 255, 0.12) !important;
+  background: rgba(0, 113, 227, 0.12) !important;
 }
 [data-theme="dark"] .ant-alert-success {
   background: rgba(82, 196, 26, 0.12) !important;
@@ -370,7 +368,7 @@ body::after {
   background: rgba(255, 255, 255, 0.04) !important;
 }
 [data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td {
-  background: rgba(22, 119, 255, 0.12) !important;
+  background: rgba(0, 113, 227, 0.12) !important;
 }
 
 /* Input */
@@ -384,8 +382,8 @@ body::after {
 [data-theme="dark"] .ant-input:focus,
 [data-theme="dark"] .ant-input-affix-wrapper:focus,
 [data-theme="dark"] .ant-input-affix-wrapper-focused {
-  border-color: #1677ff !important;
-  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.2) !important;
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.2) !important;
 }
 [data-theme="dark"] .ant-input[disabled],
 [data-theme="dark"] .ant-input-affix-wrapper-disabled {
@@ -447,11 +445,11 @@ body::after {
 }
 
 .ant-btn-primary {
-  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.3) !important;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.3) !important;
 }
 
 .ant-btn-primary:hover {
-  box-shadow: 0 4px 16px rgba(22, 119, 255, 0.45) !important;
+  box-shadow: 0 4px 16px rgba(0, 113, 227, 0.45) !important;
   transform: translateY(-1px);
 }
 
@@ -473,7 +471,7 @@ body::after {
 
 /* ===== 渐变文字 ===== */
 .gradient-text {
-  background: linear-gradient(135deg, #1677ff, #0958d9);
+  background: linear-gradient(135deg, #0071e3, #0958d9);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -567,11 +565,11 @@ html body .ant-table-wrapper {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
 }
 
-/* 暗色 + 无壁纸：card 半透明深蓝 */
+/* 暗色 + 无壁纸：card 半透明深灰 */
 [data-theme="dark"][data-wallpaper="none"] .ant-card,
 [data-theme="dark"][data-wallpaper="none"] .dashboard-card,
 [data-theme="dark"][data-wallpaper="none"] .ant-table-wrapper {
-  background: rgba(15, 24, 56, 0.75) !important;
+  background: rgba(23, 24, 31, 0.75) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
@@ -580,7 +578,7 @@ html body .ant-table-wrapper {
 [data-theme="dark"][data-wallpaper]:not([data-wallpaper="none"]) .ant-card,
 [data-theme="dark"][data-wallpaper]:not([data-wallpaper="none"]) .dashboard-card,
 [data-theme="dark"][data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper {
-  background: rgba(15, 20, 40, 0.75) !important;
+  background: rgba(23, 24, 31, 0.75) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
 }
@@ -660,7 +658,7 @@ html body .ant-table-wrapper .ant-table-body {
   border-bottom-color: rgba(0, 0, 0, 0.05) !important;
 }
 [data-theme="light"] .ant-table-tbody > tr:hover > td {
-  background: rgba(22, 119, 255, 0.06) !important;
+  background: rgba(0, 113, 227, 0.06) !important;
 }
 [data-theme="dark"] .ant-table-tbody > tr > td {
   background: transparent !important;
@@ -718,7 +716,7 @@ html body .ant-table-wrapper .ant-pagination {
 [data-theme="light"] .ant-input-number:hover,
 [data-theme="light"] .ant-picker:hover,
 [data-theme="light"] .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
-  border-color: rgba(22, 119, 255, 0.5) !important;
+  border-color: rgba(0, 113, 227, 0.5) !important;
   background: rgba(255, 255, 255, 0.65) !important;
 }
 [data-theme="light"] .ant-input:focus,
@@ -728,15 +726,15 @@ html body .ant-table-wrapper .ant-pagination {
 [data-theme="light"] .ant-picker-focused,
 [data-theme="light"] .ant-select-focused .ant-select-selector {
   background: rgba(255, 255, 255, 0.75) !important;
-  border-color: #1677ff !important;
-  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15) !important;
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15) !important;
 }
 [data-theme="dark"] .ant-input:hover,
 [data-theme="dark"] .ant-input-affix-wrapper:hover,
 [data-theme="dark"] .ant-input-number:hover,
 [data-theme="dark"] .ant-picker:hover,
 [data-theme="dark"] .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
-  border-color: rgba(22, 119, 255, 0.75) !important;
+  border-color: rgba(0, 113, 227, 0.75) !important;
   background: rgba(255, 255, 255, 0.09) !important;
 }
 [data-theme="dark"] .ant-input-focused,
@@ -745,8 +743,8 @@ html body .ant-table-wrapper .ant-pagination {
 [data-theme="dark"] .ant-picker-focused,
 [data-theme="dark"] .ant-select-focused .ant-select-selector {
   background: rgba(255, 255, 255, 0.1) !important;
-  border-color: #1677ff !important;
-  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.25) !important;
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.25) !important;
 }
 
 /* 禁用态 */
@@ -784,9 +782,9 @@ html body .ant-table-wrapper .ant-pagination {
   color: rgba(255, 255, 255, 0.75) !important;
 }
 .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
-  background: rgba(22, 119, 255, 0.18) !important;
-  border-color: #1677ff !important;
-  color: #1677ff !important;
+  background: rgba(0, 113, 227, 0.18) !important;
+  border-color: #0071e3 !important;
+  color: #0071e3 !important;
 }
 
 /* Upload 拖拽区 / 按钮 */
@@ -818,7 +816,7 @@ html body .ant-table-wrapper .ant-pagination {
 [data-theme="dark"] .ant-select-dropdown,
 [data-theme="dark"] .ant-picker-dropdown .ant-picker-panel-container,
 [data-theme="dark"] .ant-cascader-dropdown {
-  background: rgba(20, 28, 60, 0.75) !important;
+  background: rgba(23, 24, 31, 0.8) !important;
   backdrop-filter: blur(24px) saturate(1.4) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;

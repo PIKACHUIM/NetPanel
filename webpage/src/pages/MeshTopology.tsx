@@ -13,7 +13,7 @@ const { Text, Title } = Typography
 
 // 节点颜色映射
 const NODE_COLORS = {
-  local: '#1677ff',
+  local: '#0071e3',
   online: '#52c41a',
   offline: '#d9d9d9',
 }

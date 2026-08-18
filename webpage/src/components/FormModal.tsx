@@ -131,12 +131,12 @@ const FormModal: React.FC<FormModalProps> = ({
               borderRadius: 10,
               background: isEdit
                 ? 'linear-gradient(135deg, rgba(250,173,20,0.18), rgba(250,173,20,0.08))'
-                : 'linear-gradient(135deg, rgba(22,119,255,0.18), rgba(22,119,255,0.08))',
+                : 'linear-gradient(135deg, rgba(0,113,227,0.18), rgba(0,113,227,0.08))',
               border: isEdit
                 ? '1px solid rgba(250,173,20,0.3)'
-                : '1px solid rgba(22,119,255,0.25)',
+                : '1px solid rgba(0,113,227,0.25)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: isEdit ? '#faad14' : '#1677ff',
+              color: isEdit ? '#faad14' : '#0071e3',
               fontSize: 16,
               flexShrink: 0,
             }}>
@@ -242,11 +242,11 @@ const FormModal: React.FC<FormModalProps> = ({
               fontWeight: 500,
               background: isEdit
                 ? 'linear-gradient(135deg, #faad14, #fa8c16)'
-                : 'linear-gradient(135deg, #1677ff, #0958d9)',
+                : 'linear-gradient(135deg, #0071e3, #0958d9)',
               border: 'none',
               boxShadow: isEdit
                 ? '0 2px 10px rgba(250,173,20,0.35)'
-                : '0 2px 10px rgba(22,119,255,0.35)',
+                : '0 2px 10px rgba(0,113,227,0.35)',
             }}
           >
             {okText ?? (isEdit ? '保存修改' : '立即创建')}
@@ -266,7 +266,7 @@ export default FormModal
 type SectionColor = 'blue' | 'purple' | 'green' | 'orange' | 'red' | 'cyan'
 
 const sectionColorMap: Record<SectionColor, { bg: string; border: string; text: string }> = {
-  blue:   { bg: 'rgba(22,119,255,0.12)',  border: 'rgba(22,119,255,0.25)',  text: '#1677ff' },
+  blue:   { bg: 'rgba(0,113,227,0.12)',  border: 'rgba(0,113,227,0.25)',  text: '#0071e3' },
   purple: { bg: 'rgba(114,46,209,0.12)',  border: 'rgba(114,46,209,0.25)',  text: '#722ed1' },
   green:  { bg: 'rgba(82,196,26,0.12)',   border: 'rgba(82,196,26,0.25)',   text: '#52c41a' },
   orange: { bg: 'rgba(250,140,22,0.12)',  border: 'rgba(250,140,22,0.25)',  text: '#fa8c16' },

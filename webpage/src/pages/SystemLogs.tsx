@@ -218,11 +218,11 @@ const SystemLogs: React.FC = () => {
       {/* 统计卡片 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={8}>
-          <Card size="small" style={{ borderRadius: 8, borderLeft: '3px solid #1677ff' }}>
+          <Card size="small" style={{ borderRadius: 8, borderLeft: '3px solid #0071e3' }}>
             <Statistic
               title={<span style={{ fontSize: 12 }}>INFO 日志</span>}
               value={stats.info}
-              valueStyle={{ color: '#1677ff', fontSize: 20 }}
+              valueStyle={{ color: '#0071e3', fontSize: 20 }}
               prefix={<InfoCircleOutlined />}
             />
           </Card>
@@ -253,9 +253,9 @@ const SystemLogs: React.FC = () => {
       <Card
         title={
           <Space>
-            <FileTextOutlined style={{ color: '#1677ff' }} />
+            <FileTextOutlined style={{ color: '#0071e3' }} />
             <span>系统日志</span>
-            <Badge count={data.total} overflowCount={99999} style={{ backgroundColor: '#1677ff' }} />
+            <Badge count={data.total} overflowCount={99999} style={{ backgroundColor: '#0071e3' }} />
           </Space>
         }
         extra={

@@ -118,8 +118,8 @@ const serviceIcons: Record<string, React.ReactNode> = {
 
 // 服务分组颜色
 const serviceGroupColor: Record<string, { main: string; bg: string; border: string }> = {
-  port_forward: { main: '#1677ff', bg: 'rgba(22,119,255,0.08)', border: 'rgba(22,119,255,0.2)' },
-  stun:         { main: '#1677ff', bg: 'rgba(22,119,255,0.08)', border: 'rgba(22,119,255,0.2)' },
+  port_forward: { main: '#0071e3', bg: 'rgba(0,113,227,0.08)', border: 'rgba(0,113,227,0.2)' },
+  stun:         { main: '#0071e3', bg: 'rgba(0,113,227,0.08)', border: 'rgba(0,113,227,0.2)' },
   frpc:         { main: '#722ed1', bg: 'rgba(114,46,209,0.08)', border: 'rgba(114,46,209,0.2)' },
   frps:         { main: '#722ed1', bg: 'rgba(114,46,209,0.08)', border: 'rgba(114,46,209,0.2)' },
   nps_client:   { main: '#eb2f96', bg: 'rgba(235,47,150,0.08)', border: 'rgba(235,47,150,0.2)' },
@@ -201,7 +201,7 @@ const RingProgress: React.FC<{
 const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean; hasWp?: boolean }> = ({ svc, isDark, hasWp }) => {
   const isRunning = svc.running > 0
   const hasConfig = svc.count > 0
-  const colors = serviceGroupColor[svc.type] || { main: '#1677ff', bg: 'rgba(22,119,255,0.08)', border: 'rgba(22,119,255,0.2)' }
+  const colors = serviceGroupColor[svc.type] || { main: '#0071e3', bg: 'rgba(0,113,227,0.08)', border: 'rgba(0,113,227,0.2)' }
   const percent = hasConfig ? Math.round((svc.running / svc.count) * 100) : 0
 
   return (
@@ -349,7 +349,7 @@ const InfoItem: React.FC<{
     background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
     border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'}`,
   }}>
-    <span style={{ color: accent || '#1677ff', fontSize: 15, flexShrink: 0 }}>{icon}</span>
+    <span style={{ color: accent || '#0071e3', fontSize: 15, flexShrink: 0 }}>{icon}</span>
     <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)', lineHeight: 1.2 }}>{label}</div>
       <div style={{
@@ -604,9 +604,9 @@ const Dashboard: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{
             width: 42, height: 42, borderRadius: 12,
-            background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
+            background: 'linear-gradient(135deg, #0071e3 0%, #0958d9 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 4px 16px rgba(22,119,255,0.4)',
+            boxShadow: '0 4px 16px rgba(0,113,227,0.4)',
             flexShrink: 0,
           }}>
             <RocketOutlined style={{ color: '#fff', fontSize: 20 }} />
@@ -638,7 +638,7 @@ const Dashboard: React.FC = () => {
           label="运行服务"
           value={`${runningCount} / ${totalCount}`}
           sub={`${totalCount - runningCount} 个未运行`}
-          color="#1677ff"
+          color="#0071e3"
           isDark={isDark}
           hasWp={hasWp}
         />
@@ -703,7 +703,7 @@ const Dashboard: React.FC = () => {
 
             {/* 系统信息 */}
             <div className={cardBaseClass} style={cardBase}>
-            {sectionTitle('系统信息', '#1677ff')}
+            {sectionTitle('系统信息', '#0071e3')}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <InfoItem icon={<DesktopOutlined />} label="主机名" value={info?.hostname || '-'} isDark={isDark} />
                 <InfoItem icon={<CloudServerOutlined />} label="操作系统" value={info?.os || '-'} accent="#722ed1" isDark={isDark} />
@@ -717,7 +717,7 @@ const Dashboard: React.FC = () => {
                 <>
                   <div style={{ height: 1, background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', margin: '12px 0' }} />
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                    <WifiOutlined style={{ color: '#1677ff', fontSize: 13 }} />
+                    <WifiOutlined style={{ color: '#0071e3', fontSize: 13 }} />
                     <span style={{ fontSize: 12, fontWeight: 600 }}>网络接口</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -737,9 +737,9 @@ const Dashboard: React.FC = () => {
                               <Tag key={j} style={{
                                 margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 6px',
 borderRadius: 4, fontFamily: "'MapleMono', monospace",
-                                background: isDark ? 'rgba(22,119,255,0.1)' : 'rgba(22,119,255,0.06)',
-                                border: '1px solid rgba(22,119,255,0.2)',
-                                color: '#1677ff',
+                                background: isDark ? 'rgba(0,113,227,0.1)' : 'rgba(0,113,227,0.06)',
+                                border: '1px solid rgba(0,113,227,0.2)',
+                                color: '#0071e3',
                               }}>{ip.split('/')[0]}</Tag>
                             ))}
                           </div>
@@ -786,10 +786,10 @@ borderRadius: 4, fontFamily: "'MapleMono', monospace",
                       border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'}`,
                       display: 'flex', alignItems: 'center', gap: 8,
                     }}>
-                      <FilterOutlined style={{ color: '#1677ff', fontSize: 16 }} />
+                      <FilterOutlined style={{ color: '#0071e3', fontSize: 16 }} />
                       <div>
                         <div style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}>规则总数</div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: '#1677ff', lineHeight: 1.2 }}>{firewallStats.total}</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#0071e3', lineHeight: 1.2 }}>{firewallStats.total}</div>
                       </div>
                     </div>
                     {/* 已启用 */}
