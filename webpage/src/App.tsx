@@ -1,8 +1,11 @@
-import React, { Suspense, lazy } from 'react'
+import React, { Suspense, lazy, useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Spin } from 'antd'
 import MainLayout from './layouts/MainLayout'
 import LoginPage from './pages/Login'
+import InitSetup from './pages/InitSetup'
+import Onboarding from './pages/Onboarding'
+import { initApi } from './api'
 import { useAppStore } from './store/appStore'
 
 // 懒加载页面
@@ -72,10 +75,25 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return <>{children}</>
 }
 
+// 初始化守卫：未初始化时强制跳转初始化向导
+const InitGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [state, setState] = useState<'loading' | 'init' | 'done'>('loading')
+  useEffect(() => {
+    initApi.status()
+      .then((res: any) => setState(res?.data?.initialized === false ? 'init' : 'done'))
+      .catch(() => setState('done'))
+  }, [])
+  if (state === 'loading') return <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>
+  if (state === 'init') return <Navigate to="/setup" replace />
+  return <>{children}</>
+}
+
 const App: React.FC = () => {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/setup" element={<InitSetup />} />
+      <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/login" element={<InitGuard><LoginPage /></InitGuard>} />
       <Route path="/oauth/callback" element={<Suspense fallback={<PageLoader />}><OAuthCallback /></Suspense>} />
       <Route
         path="/"
