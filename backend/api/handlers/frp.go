@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
@@ -151,6 +154,77 @@ func (h *FrpcHandler) DeleteProxy(c *gin.Context) {
 	logger.WriteLog("info", "frp", fmt.Sprintf("删除FRP代理 [%d] 客户端[%d]", pid, id))
 	h.mgr.RestartClient(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
+}
+
+// speedTestTarget 测速目标（去重后的 FRP 服务端地址）
+type speedTestTarget struct {
+	ID         uint
+	Name       string
+	ServerAddr string
+	ServerPort int
+}
+
+// SpeedTest 线路测速：测量所有 FRP 客户端指向的服务端 TCP 握手延迟
+func (h *FrpcHandler) SpeedTest(c *gin.Context) {
+	var configs []model.FrpcConfig
+	h.db.Select("id, name, server_addr, server_port").Find(&configs)
+
+	// 按 (server_addr, server_port) 去重，多个客户端可能指向同一台服务端
+	seen := make(map[string]struct{})
+	var targets []speedTestTarget
+	for _, cfg := range configs {
+		key := fmt.Sprintf("%s:%d", cfg.ServerAddr, cfg.ServerPort)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, speedTestTarget{cfg.ID, cfg.Name, cfg.ServerAddr, cfg.ServerPort})
+	}
+
+	if len(targets) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": []gin.H{}})
+		return
+	}
+
+	timeout := 5 * time.Second
+	results := make([]gin.H, len(targets))
+	var wg sync.WaitGroup
+	for i, t := range targets {
+		wg.Add(1)
+		go func(i int, t speedTestTarget) {
+			defer wg.Done()
+			addr := net.JoinHostPort(t.ServerAddr, strconv.Itoa(t.ServerPort))
+			start := time.Now()
+			conn, err := net.DialTimeout("tcp", addr, timeout)
+			if err != nil {
+				results[i] = gin.H{
+					"id": t.ID, "name": t.Name,
+					"server_addr": t.ServerAddr, "server_port": t.ServerPort,
+					"latency_ms": 0, "status": "unreachable", "error": err.Error(),
+				}
+				return
+			}
+			conn.Close()
+			results[i] = gin.H{
+				"id": t.ID, "name": t.Name,
+				"server_addr": t.ServerAddr, "server_port": t.ServerPort,
+				"latency_ms": time.Since(start).Milliseconds(), "status": "ok",
+			}
+		}(i, t)
+	}
+	wg.Wait()
+
+	// 按延迟升序排序，不可达的排最后
+	sort.Slice(results, func(i, j int) bool {
+		si := results[i]["status"].(string)
+		sj := results[j]["status"].(string)
+		if si != sj {
+			return si == "ok"
+		}
+		return results[i]["latency_ms"].(int64) < results[j]["latency_ms"].(int64)
+	})
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": results})
 }
 
 // ===== FRP 服务端 =====
