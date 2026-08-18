@@ -192,6 +192,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	currentUsername, _ := currentUser.(string)
 
 	var req struct {
+		Username string `json:"username"` // 为空则不修改（支持改名）
 		Password string `json:"password"` // 为空则不修改
 		Email    string `json:"email"`
 		Enable   *bool  `json:"enable"`
@@ -209,9 +210,33 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	// admin 用户不允许修改 is_admin 字段（防止自我降权）
-	if user.Username == "admin" && req.IsAdmin != nil && !*req.IsAdmin {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "admin 用户不允许取消管理员权限"})
+	updates := map[string]interface{}{
+		"email":  req.Email,
+		"remark": req.Remark,
+	}
+
+	// 改名：内置 admin 不允许改名；新用户名需唯一
+	if req.Username != "" && req.Username != user.Username {
+		if len(req.Username) < 2 || len(req.Username) > 50 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名长度需在 2-50 之间"})
+			return
+		}
+		if user.Username == "admin" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "内置 admin 账号不允许改名"})
+			return
+		}
+		var dup int64
+		h.db.Model(&model.User{}).Where("username = ? AND id <> ?", req.Username, user.ID).Count(&dup)
+		if dup > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名已存在"})
+			return
+		}
+		updates["username"] = req.Username
+	}
+
+	// 当前操作者不能修改自己的 is_admin（防止自我降权）
+	if currentUsername == user.Username && req.IsAdmin != nil && !*req.IsAdmin {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "不能取消自己的管理员权限"})
 		return
 	}
 
@@ -219,11 +244,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	if currentUsername != "admin" && req.IsAdmin != nil {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "只有 admin 可以修改管理员权限"})
 		return
-	}
-
-	updates := map[string]interface{}{
-		"email":  req.Email,
-		"remark": req.Remark,
 	}
 	if req.Enable != nil {
 		// admin 用户不允许被禁用
@@ -276,6 +296,16 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	if user.Username == "admin" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "admin 用户不允许删除"})
 		return
+	}
+
+	// 最后一名启用管理员不允许删除
+	if user.IsAdmin && user.Enable {
+		var adminCount int64
+		h.db.Model(&model.User{}).Where("is_admin = ? AND enable = ?", true, true).Count(&adminCount)
+		if adminCount <= 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "系统必须保留至少一名启用的管理员，不能删除最后一名管理员"})
+			return
+		}
 	}
 
 	h.db.Delete(&model.User{}, id)

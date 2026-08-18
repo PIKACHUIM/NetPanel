@@ -66,6 +66,7 @@ const UserManagement: React.FC = () => {
   const openEdit = (user: UserItem) => {
     setEditingUser(user)
     form.setFieldsValue({
+      username: user.username,
       email: user.email,
       enable: user.enable,
       is_admin: user.is_admin,
@@ -86,6 +87,10 @@ const UserManagement: React.FC = () => {
           enable: values.enable,
           is_admin: values.is_admin,
           remark: values.remark,
+        }
+        // 改名（非内置 admin 且发生变化时提交）
+        if (values.username && values.username !== editingUser.username && editingUser.username !== 'admin') {
+          payload.username = values.username
         }
         if (values.password) payload.password = values.password
         await adminApi.updateUser(editingUser.id, payload)
@@ -123,6 +128,10 @@ const UserManagement: React.FC = () => {
     }
   }
 
+  // 最后一个启用管理员不可删除（前端保护，后端同样校验）
+  const enabledAdminCount = users.filter(u => u.is_admin && u.enable).length
+  const isLastAdmin = (record: UserItem) => record.is_admin && record.enable && enabledAdminCount <= 1
+
   const columns: ColumnsType<UserItem> = [
     {
       title: '用户',
@@ -135,7 +144,7 @@ const UserManagement: React.FC = () => {
             style={{
               background: record.is_admin
                 ? 'linear-gradient(135deg, #f5a623, #f76b1c)'
-                : 'linear-gradient(135deg, #1677ff, #0958d9)',
+                : 'linear-gradient(135deg, #0071e3, #0958d9)',
               flexShrink: 0,
             }}
             icon={record.is_admin ? <CrownOutlined /> : <UserOutlined />}
@@ -218,14 +227,16 @@ const UserManagement: React.FC = () => {
           </Tooltip>
           {record.username !== 'admin' && (
             <Popconfirm
-              title="确定要删除该用户吗？"
+              title={isLastAdmin(record) ? '系统必须保留至少一名启用的管理员' : '确定要删除该用户吗？'}
               onConfirm={() => handleDelete(record.id)}
-              okText="删除"
-              okButtonProps={{ danger: true }}
+              okText={isLastAdmin(record) ? '知道了' : '删除'}
+              okButtonProps={isLastAdmin(record) ? { danger: true } : { danger: true }}
               cancelText="取消"
+              onCancel={(e) => { if (isLastAdmin(record)) e?.stopPropagation() }}
             >
-              <Tooltip title="删除">
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+              <Tooltip title={isLastAdmin(record) ? '最后一名管理员不可删除' : '删除'}>
+                <Button type="text" size="small" danger icon={<DeleteOutlined />}
+                  disabled={isLastAdmin(record)} />
               </Tooltip>
             </Popconfirm>
           )}
@@ -239,9 +250,9 @@ const UserManagement: React.FC = () => {
       <Card
         title={
           <Space>
-            <TeamOutlined style={{ color: '#1677ff' }} />
+            <TeamOutlined style={{ color: '#0071e3' }} />
             <span>用户管理</span>
-            <Badge count={users.length} style={{ backgroundColor: '#1677ff' }} />
+            <Badge count={users.length} style={{ backgroundColor: '#0071e3' }} />
           </Space>
         }
         extra={
@@ -260,13 +271,13 @@ const UserManagement: React.FC = () => {
         <div style={{
           marginBottom: 12,
           padding: '8px 12px',
-          background: 'rgba(22,119,255,0.06)',
+          background: 'rgba(0,113,227,0.06)',
           borderRadius: 6,
-          border: '1px solid rgba(22,119,255,0.15)',
+          border: '1px solid rgba(0,113,227,0.15)',
           fontSize: 12,
           color: '#666',
         }}>
-          <UserOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+          <UserOutlined style={{ marginRight: 6, color: '#0071e3' }} />
           admin 为内置超级管理员，不可删除、不可禁用、不可取消管理员权限。
           {!isCurrentAdmin && ' 只有 admin 可以修改用户的管理员权限。'}
         </div>
