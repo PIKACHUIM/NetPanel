@@ -14,6 +14,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
@@ -23,10 +24,51 @@ type FrpcHandler struct {
 	db  *gorm.DB
 	log *logrus.Logger
 	mgr *frp.Manager
+
+	// SpeedTest IP 级限流：10 次/分钟，防止接口被滥用为端口扫描
+	speedTestMu       sync.Mutex
+	speedTestLimiters map[string]*speedTestLimiterEntry
+}
+
+type speedTestLimiterEntry struct {
+	limiter  *rate.Limiter
+	lastUsed time.Time
 }
 
 func NewFrpcHandler(db *gorm.DB, log *logrus.Logger, mgr *frp.Manager) *FrpcHandler {
-	return &FrpcHandler{db: db, log: log, mgr: mgr}
+	return &FrpcHandler{
+		db:                db,
+		log:               log,
+		mgr:               mgr,
+		speedTestLimiters: make(map[string]*speedTestLimiterEntry),
+	}
+}
+
+// getSpeedTestLimiter 返回指定客户端 IP 的限流器，同时惰性清理 10 分钟未使用的条目。
+func (h *FrpcHandler) getSpeedTestLimiter(clientIP string) *rate.Limiter {
+	h.speedTestMu.Lock()
+	defer h.speedTestMu.Unlock()
+
+	if entry, ok := h.speedTestLimiters[clientIP]; ok {
+		entry.lastUsed = time.Now()
+		return entry.limiter
+	}
+
+	limiter := rate.NewLimiter(rate.Every(time.Minute/10), 1)
+	h.speedTestLimiters[clientIP] = &speedTestLimiterEntry{
+		limiter:  limiter,
+		lastUsed: time.Now(),
+	}
+
+	// 惰性清理过期条目，避免内存无限增长
+	now := time.Now()
+	for ip, entry := range h.speedTestLimiters {
+		if now.Sub(entry.lastUsed) > 10*time.Minute {
+			delete(h.speedTestLimiters, ip)
+		}
+	}
+
+	return limiter
 }
 
 func (h *FrpcHandler) List(c *gin.Context) {
@@ -166,6 +208,16 @@ type speedTestTarget struct {
 
 // SpeedTest 线路测速：测量所有 FRP 客户端指向的服务端 TCP 握手延迟
 func (h *FrpcHandler) SpeedTest(c *gin.Context) {
+	// IP 级限流（10 次/分钟），防止接口被滥用为端口扫描
+	clientIP := c.ClientIP()
+	if !h.getSpeedTestLimiter(clientIP).Allow() {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"code":  429,
+			"error": "rate limit exceeded (max 10/min)",
+		})
+		return
+	}
+
 	var configs []model.FrpcConfig
 	h.db.Select("id, name, server_addr, server_port").Find(&configs)
 
