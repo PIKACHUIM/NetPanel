@@ -18,7 +18,6 @@ const NpsServer = lazy(() => import('./pages/NpsServer'))
 const NpsClient = lazy(() => import('./pages/NpsClient'))
 const EasytierClient = lazy(() => import('./pages/EasytierClient'))
 const EasytierServer = lazy(() => import('./pages/EasytierServer'))
-const CfTunnel = lazy(() => import('./pages/CfTunnel'))
 const TunService = lazy(() => import('./pages/TunService'))
 const Wireguard = lazy(() => import('./pages/Wireguard'))
 const Ddns = lazy(() => import('./pages/Ddns'))
@@ -127,7 +126,6 @@ const App: React.FC = () => {
         <Route path="domain/info/:domainInfoId/records" element={<Suspense fallback={<PageLoader />}><DomainRecordDetail /></Suspense>} />
         <Route path="security/waf" element={<Suspense fallback={<PageLoader />}><Waf /></Suspense>} />
         <Route path="security/firewall" element={<Suspense fallback={<PageLoader />}><Firewall /></Suspense>} />
-        <Route path="cftunnel" element={<Suspense fallback={<PageLoader />}><CfTunnel /></Suspense>} />
         <Route path="dnsmasq" element={<Suspense fallback={<PageLoader />}><Dnsmasq /></Suspense>} />
         <Route path="cron" element={<Suspense fallback={<PageLoader />}><Cron /></Suspense>} />
         <Route path="storage" element={<Suspense fallback={<PageLoader />}><Storage /></Suspense>} />
