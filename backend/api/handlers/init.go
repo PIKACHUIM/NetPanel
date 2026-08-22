@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
@@ -16,6 +17,7 @@ import (
 type InitHandler struct {
 	db  *gorm.DB
 	log *logrus.Logger
+	mu  sync.Mutex // 串行化 setup，防止并发请求同时通过初始化检查
 }
 
 func NewInitHandler(db *gorm.DB, log *logrus.Logger) *InitHandler {
@@ -52,6 +54,10 @@ func (h *InitHandler) Setup(c *gin.Context) {
 		return
 	}
 
+	// 互斥锁：串行化"检查已初始化 -> 创建管理员"，避免并发请求同时通过检查
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if h.isInitialized() {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "系统已初始化，无需重复设置"})
 		return
@@ -78,17 +84,20 @@ func (h *InitHandler) Setup(c *gin.Context) {
 		IsAdmin:  true,
 		Remark:   "系统初始化创建",
 	}
-	if err := h.db.Create(&user).Error; err != nil {
+	// 事务：创建管理员与同步 admin_password 配置要么全部成功、要么全部回滚
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		// 同步旧版 admin_password 配置，兼容历史登录逻辑
+		var cfg model.SystemConfig
+		if err := tx.Where("key = ?", "admin_password").First(&cfg).Error; err == nil {
+			return tx.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed).Error
+		}
+		return tx.Create(&model.SystemConfig{Key: "admin_password", Value: hashed}).Error
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建失败: " + err.Error()})
 		return
-	}
-
-	// 同步旧版 admin_password 配置，兼容历史登录逻辑
-	var cfg model.SystemConfig
-	if err := h.db.Where("key = ?", "admin_password").First(&cfg).Error; err == nil {
-		h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
-	} else {
-		h.db.Create(&model.SystemConfig{Key: "admin_password", Value: hashed})
 	}
 
 	logger.WriteLog("info", "system", fmt.Sprintf("系统初始化：创建管理员 %s", req.Username))
