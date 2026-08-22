@@ -126,6 +126,21 @@ func (s *Server) Stop() error {
 	return err
 }
 
+// authorized 校验请求头 Authorization: Bearer <token>。未配置 token 时放行
+// （兼容旧行为）。
+func (s *Server) authorized(r *http.Request) bool {
+	if s.token == "" {
+		return true
+	}
+	auth := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(auth, prefix) {
+		return false
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
+}
+
 // ===== JSON-RPC 2.0 请求处理 =====
 
 // rpcRequest JSON-RPC 2.0 请求（id 保留原始字节，便于原样回写）。
