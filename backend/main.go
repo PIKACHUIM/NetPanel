@@ -250,7 +250,11 @@ func startServer() *http.Server {
 	if err := mcpSrv.Start(); err != nil {
 		log.Errorf("MCP 服务启动失败: %v", err)
 	}
-	log.Infof("[MCP] 访问令牌: %s（客户端需携带 Authorization: Bearer <token>）", cfg.MCPToken)
+	if cfg.MCPToken != "" {
+		log.Infof("[MCP] 访问令牌已配置（客户端需携带 Authorization: Bearer <token>），token 内容不写入日志")
+	} else {
+		log.Infof("[MCP] 未配置访问令牌，仅监听 127.0.0.1 放行")
+	}
 
 	wireguardMgr.StartAll()
 
