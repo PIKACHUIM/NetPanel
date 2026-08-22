@@ -200,7 +200,7 @@ func (h *FrpcHandler) SpeedTest(c *gin.Context) {
 				results[i] = gin.H{
 					"id": t.ID, "name": t.Name,
 					"server_addr": t.ServerAddr, "server_port": t.ServerPort,
-					"latency_ms": 0, "status": "unreachable", "error": err.Error(),
+					"latency_ms": int64(0), "status": "unreachable", "error": err.Error(),
 				}
 				return
 			}

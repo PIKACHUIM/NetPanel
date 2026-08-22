@@ -177,8 +177,8 @@ func (h *WafHandler) Stats(c *gin.Context) {
 	var activeConfigs int64
 	h.db.Model(&model.WafConfig{}).Where("status = ?", "running").Count(&activeConfigs)
 
-	// 拦截率
-	blockRate := 99.2
+	// 拦截率：无请求时按 0 处理（避免展示不真实指标），有请求时基于真实事件计算
+	blockRate := 0.0
 	if todayTotal > 0 {
 		blockRate = float64(todayBlocked) / float64(todayTotal) * 100
 	}
@@ -194,16 +194,28 @@ func (h *WafHandler) Stats(c *gin.Context) {
 		Where("created_at >= ?", time.Now().Add(-24*time.Hour)).
 		Group("client_ip").Order("cnt desc").Limit(10).Scan(&sources)
 
-	// 近 24h 每小时趋势
+	// 近 24h 每小时趋势：应用层按小时聚合，避免依赖 SQLite 专用 strftime 方言
 	type trendRow struct {
 		Hour string
 		Cnt  int64
 	}
-	var trend []trendRow
+	var trendLogs []struct {
+		model.WafLog
+		CreatedAt time.Time
+	}
 	h.db.Model(&model.WafLog{}).
-		Select("strftime('%H', created_at) as hour, COUNT(*) as cnt").
 		Where("created_at >= ?", time.Now().Add(-24*time.Hour)).
-		Group("strftime('%H', created_at)").Order("hour").Scan(&trend)
+		Select("created_at").Scan(&trendLogs)
+	hourCount := make(map[int]int64)
+	for _, l := range trendLogs {
+		hourCount[l.CreatedAt.Hour()]++
+	}
+	trend := make([]trendRow, 0, 24)
+	for h := 0; h < 24; h++ {
+		if cnt, ok := hourCount[h]; ok {
+			trend = append(trend, trendRow{Hour: fmt.Sprintf("%02d", h), Cnt: cnt})
+		}
+	}
 
 	// 最近 5 条事件
 	var recent []model.WafLog
