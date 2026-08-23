@@ -10,18 +10,33 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/service/cftunnel"
+	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/frp"
 	"github.com/netpanel/netpanel/service/monitor"
+	"github.com/netpanel/netpanel/service/nps"
+	"github.com/netpanel/netpanel/service/wireguard"
 )
 
 // MonitorHandler 监控模块 Handler
 type MonitorHandler struct {
-	manager *monitor.Manager
+	manager      *monitor.Manager
+	frpMgr       *frp.Manager
+	npsMgr       *nps.Manager
+	easytierMgr  *easytier.Manager
+	cftunnelMgr  *cftunnel.Manager
+	wireguardMgr *wireguard.Manager
 }
 
 // NewMonitorHandler 创建监控 Handler
-func NewMonitorHandler(db *gorm.DB) *MonitorHandler {
+func NewMonitorHandler(db *gorm.DB, frpMgr *frp.Manager, npsMgr *nps.Manager, easytierMgr *easytier.Manager, cftunnelMgr *cftunnel.Manager, wireguardMgr *wireguard.Manager) *MonitorHandler {
 	return &MonitorHandler{
-		manager: monitor.NewManager(db),
+		manager:      monitor.NewManager(db),
+		frpMgr:       frpMgr,
+		npsMgr:       npsMgr,
+		easytierMgr:  easytierMgr,
+		cftunnelMgr:  cftunnelMgr,
+		wireguardMgr: wireguardMgr,
 	}
 }
 
@@ -757,17 +772,44 @@ func (h *MonitorHandler) DeleteTunnelBinding(c *gin.Context) {
 // SyncTunnelStatus 同步隧道状态
 func (h *MonitorHandler) SyncTunnelStatus(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
-	
+
 	var binding model.MonitorTunnelBinding
 	if err := h.manager.DB.First(&binding, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "绑定不存在"})
 		return
 	}
-	
-	// TODO: 根据 tunnel_type 调用对应的服务获取状态
-	// 这里需要集成 frp/nps/easytier/cftunnel/wireguard 的状态查询
-	binding.TunnelStatus = "connected" // 示例
+
+	// 根据 tunnel_type 调用对应服务的状态查询
+	binding.TunnelStatus = h.queryTunnelStatus(binding.TunnelType, binding.TunnelID)
 	h.manager.DB.Save(&binding)
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": "同步成功", "status": binding.TunnelStatus})
+}
+
+// queryTunnelStatus 查询隧道状态并映射为 connected/disconnected/unknown
+func (h *MonitorHandler) queryTunnelStatus(tunnelType string, tunnelID uint) string {
+	var status string
+	switch tunnelType {
+	case "frp":
+		status = h.frpMgr.GetClientStatus(tunnelID)
+	case "nps":
+		status = h.npsMgr.GetClientStatus(tunnelID)
+	case "easytier":
+		status = h.easytierMgr.GetClientStatus(tunnelID)
+	case "cftunnel":
+		status = h.cftunnelMgr.GetStatus(tunnelID)
+	case "wireguard":
+		status = h.wireguardMgr.GetStatus(tunnelID)
+	default:
+		return "unknown"
+	}
+
+	switch status {
+	case "running":
+		return "connected"
+	case "stopped":
+		return "disconnected"
+	default:
+		return "unknown"
+	}
 }

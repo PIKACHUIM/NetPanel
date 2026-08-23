@@ -477,7 +477,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/ai/plugins/:id/toggle", aiHandler.TogglePlugin)
 
 	// ── 服务监控 ────────────────────────────────────────────────────────────────
-	monitorHandler := handlers.NewMonitorHandler(opts.DB)
+	monitorHandler := handlers.NewMonitorHandler(opts.DB, opts.FrpMgr, opts.NpsMgr, opts.EasytierMgr, opts.CftunnelMgr, opts.WireguardMgr)
 	// 服务器管理
 	auth.GET("/monitor/servers", monitorHandler.ListServers)
 	auth.GET("/monitor/servers/:id", monitorHandler.GetServer)
