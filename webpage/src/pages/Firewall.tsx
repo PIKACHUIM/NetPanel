@@ -495,6 +495,12 @@ const Firewall: React.FC = () => {
           </Form.Item>
 
           <Space style={{ width: '100%' }} size={12}>
+            <Form.Item name="ip_version" label="IP 版本" initialValue={4} style={{ flex: 1 }}>
+              <Select>
+                <Option value={4}>IPv4</Option>
+                <Option value={6}>IPv6</Option>
+              </Select>
+            </Form.Item>
             <Form.Item name="direction" label="方向" rules={[{ required: true }]} style={{ flex: 1 }}>
               <Select>
                 <Option value="in">入站（Inbound）</Option>

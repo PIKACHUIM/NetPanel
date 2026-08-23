@@ -1023,6 +1023,8 @@ type FirewallRule struct {
 	BaseModel
 	Name   string `gorm:"size:100;not null" json:"name"`
 	Enable bool   `gorm:"default:false" json:"enable"`
+	// IP 版本：4（IPv4）/ 6（IPv6），默认 4
+	IPVersion int `gorm:"default:4" json:"ip_version"`
 	// 方向：in（入站）/ out（出站）
 	Direction string `gorm:"size:10;default:'in'" json:"direction"`
 	// 动作：allow（允许）/ deny（拒绝/丢弃）

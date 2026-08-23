@@ -264,12 +264,20 @@ func (m *Manager) RemoveRule(rule *model.FirewallRule) error {
 
 func (m *Manager) applyIptables(rule *model.FirewallRule) error {
 	args := m.buildIptablesArgs(rule, "-A")
-	return runCmd("iptables", args...)
+	return runCmd(m.iptablesCmd(rule), args...)
 }
 
 func (m *Manager) removeIptables(rule *model.FirewallRule) error {
 	args := m.buildIptablesArgs(rule, "-D")
-	return runCmd("iptables", args...)
+	return runCmd(m.iptablesCmd(rule), args...)
+}
+
+// iptablesCmd 根据 IP 版本选择 iptables / ip6tables 命令
+func (m *Manager) iptablesCmd(rule *model.FirewallRule) string {
+	if rule.IPVersion == 6 {
+		return "ip6tables"
+	}
+	return "iptables"
 }
 
 func (m *Manager) buildIptablesArgs(rule *model.FirewallRule, op string) []string {
@@ -291,6 +299,10 @@ func (m *Manager) buildIptablesArgs(rule *model.FirewallRule, op string) []strin
 		if proto == "tcp+udp" {
 			// iptables 不支持 tcp+udp，需要分两条，这里先用 tcp
 			proto = "tcp"
+		}
+		// IPv6 下 ICMP 为 icmpv6，规则可适配
+		if rule.IPVersion == 6 && proto == "icmp" {
+			proto = "icmpv6"
 		}
 		args = append(args, "-p", proto)
 	}
