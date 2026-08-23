@@ -25,9 +25,9 @@ type SystemConfig struct {
 // PortForwardRule 端口转发规则
 type PortForwardRule struct {
 	BaseModel
-	Name           string `gorm:"size:100;not null" json:"name"`
-	Enable         bool   `gorm:"default:false" json:"enable"`
-	Protocol       string `gorm:"size:20;default:'tcp'" json:"protocol"` // tcp/udp/tcp+udp
+	Name          string `gorm:"size:100;not null" json:"name"`
+	Enable        bool   `gorm:"default:false" json:"enable"`
+	Protocol      string `gorm:"size:20;default:'tcp'" json:"protocol"` // tcp/udp/tcp+udp
 	ListenIP       string `gorm:"size:100;default:'0.0.0.0'" json:"listen_ip"`
 	ListenPort     int    `gorm:"not null" json:"listen_port"`
 	ListenPortType string `gorm:"size:20;default:'tcp'" json:"listen_port_type"` // tcp/udp/http/https/socks/ws/wss
@@ -39,12 +39,12 @@ type PortForwardRule struct {
 	TargetAddresses string `gorm:"type:text" json:"target_addresses"`
 	Remark          string `gorm:"size:500" json:"remark"`
 	// 高级选项（参考 lucky RelayRuleOptions）
-	MaxConnections int64 `gorm:"default:256" json:"max_connections"`
-	UDPPacketSize  int   `gorm:"default:1500" json:"udp_packet_size"`
+	MaxConnections int64  `gorm:"default:256" json:"max_connections"`
+	UDPPacketSize  int    `gorm:"default:1500" json:"udp_packet_size"`
 	// HTTPS 监听时关联的域名证书 ID（对应 DomainCert.ID），0 表示不使用
-	DomainCertID uint   `gorm:"default:0" json:"domain_cert_id"`
-	Status       string `gorm:"size:20;default:'stopped'" json:"status"` // running/stopped/error
-	LastError    string `gorm:"type:text" json:"last_error"`
+	DomainCertID   uint   `gorm:"default:0" json:"domain_cert_id"`
+	Status         string `gorm:"size:20;default:'stopped'" json:"status"` // running/stopped/error
+	LastError      string `gorm:"type:text" json:"last_error"`
 }
 
 // ===== STUN 内网穿透 =====
@@ -65,8 +65,8 @@ type StunRule struct {
 	ListenPort int `gorm:"default:0" json:"listen_port"`
 
 	// ===== 转发目标 =====
-	TargetAddress  string `gorm:"size:255" json:"target_address"`               // 转发目标 IP/域名
-	TargetPort     int    `json:"target_port"`                                  // 转发目标端口
+	TargetAddress  string `gorm:"size:255" json:"target_address"`          // 转发目标 IP/域名
+	TargetPort     int    `json:"target_port"`                             // 转发目标端口
 	TargetProtocol string `gorm:"size:10;default:'tcp'" json:"target_protocol"` // tcp/udp
 
 	// ===== NAT 穿透辅助 =====
@@ -153,9 +153,9 @@ type FrpcConfig struct {
 	// UDP 最大包长度（字节），默认 1500
 	UDPPacketSize int `gorm:"default:1500" json:"udp_packet_size"`
 	// Web 管理端口
-	WebServerPort     int         `gorm:"default:0" json:"web_server_port"`
-	WebServerUser     string      `gorm:"size:100" json:"web_server_user"`
-	WebServerPassword string      `gorm:"size:255" json:"web_server_password"`
+	WebServerPort     int    `gorm:"default:0" json:"web_server_port"`
+	WebServerUser     string `gorm:"size:100" json:"web_server_user"`
+	WebServerPassword string `gorm:"size:255" json:"web_server_password"`
 	LogLevel          string      `gorm:"size:20;default:'info'" json:"log_level"`
 	Proxies           []FrpcProxy `gorm:"foreignKey:FrpcID" json:"proxies"`
 	Status            string      `gorm:"size:20;default:'stopped'" json:"status"`
@@ -178,9 +178,9 @@ type FrpcProxy struct {
 	CustomDomains string `gorm:"size:500" json:"custom_domains"`
 	Subdomain     string `gorm:"size:255" json:"subdomain"`
 	// HTTP/HTTPS/TCPMUX 专用：路由
-	Locations         string `gorm:"size:500" json:"locations"`           // 路径匹配，逗号分隔，如 /,/api
+	Locations         string `gorm:"size:500" json:"locations"`          // 路径匹配，逗号分隔，如 /,/api
 	HostHeaderRewrite string `gorm:"size:255" json:"host_header_rewrite"` // Host 头重写
-	RequestHeaders    string `gorm:"type:text" json:"request_headers"`    // 自定义请求头，key=value 换行分隔
+	RequestHeaders    string `gorm:"type:text" json:"request_headers"`   // 自定义请求头，key=value 换行分隔
 	// HTTP/HTTPS/TCPMUX 专用：Basic Auth
 	HTTPUser     string `gorm:"size:100" json:"http_user"`
 	HTTPPassword string `gorm:"size:255" json:"http_password"`
@@ -197,9 +197,9 @@ type FrpcProxy struct {
 	BandwidthLimit     string `gorm:"size:50" json:"bandwidth_limit"`                       // 如 "1MB"，空表示不限制
 	BandwidthLimitMode string `gorm:"size:20;default:'client'" json:"bandwidth_limit_mode"` // client/server
 	// 健康检查
-	HealthCheckType      string `gorm:"size:20" json:"health_check_type"`          // tcp/http，空表示不启用
-	HealthCheckPath      string `gorm:"size:500" json:"health_check_path"`         // HTTP 健康检查路径，如 /health
-	HealthCheckTimeoutS  int    `gorm:"default:3" json:"health_check_timeout_s"`   // 超时（秒）
+	HealthCheckType      string `gorm:"size:20" json:"health_check_type"`       // tcp/http，空表示不启用
+	HealthCheckPath      string `gorm:"size:500" json:"health_check_path"`      // HTTP 健康检查路径，如 /health
+	HealthCheckTimeoutS  int    `gorm:"default:3" json:"health_check_timeout_s"` // 超时（秒）
 	HealthCheckIntervalS int    `gorm:"default:10" json:"health_check_interval_s"` // 检查间隔（秒）
 	HealthCheckMaxFailed int    `gorm:"default:3" json:"health_check_max_failed"`  // 最大失败次数
 	// 负载均衡
@@ -233,7 +233,7 @@ type FrpsConfig struct {
 	// HTTPS 虚拟主机端口，0 表示不启用
 	VhostHTTPSPort int `gorm:"default:0" json:"vhost_https_port"`
 	// tcpmux httpconnect 代理监听端口，0 表示不启用
-	TcpmuxHTTPConnectPort int `gorm:"default:0" json:"tcpmux_http_connect_port"`
+	TcpmuxHTTPConnectPort int  `gorm:"default:0" json:"tcpmux_http_connect_port"`
 	// tcpmux 是否透传 CONNECT 请求
 	TcpmuxPassthrough bool `gorm:"default:false" json:"tcpmux_passthrough"`
 	// 子域名根域名，用于 HTTP/HTTPS 代理的子域名功能
@@ -261,25 +261,25 @@ type FrpsConfig struct {
 	DetailedErrorsToClient bool `gorm:"default:true" json:"detailed_errors_to_client"`
 	// 日志配置
 	LogLevel   string `gorm:"size:20;default:'info'" json:"log_level"`
-	LogFile    string `gorm:"size:500" json:"log_file"`      // 留空输出到控制台
+	LogFile    string `gorm:"size:500" json:"log_file"`    // 留空输出到控制台
 	LogMaxDays int    `gorm:"default:3" json:"log_max_days"` // 日志保留天数
 	// 传输层配置
-	TransportMaxPoolCount     int    `gorm:"default:5" json:"transport_max_pool_count"`     // 最大连接池数量
-	TransportHeartbeatTimeout int    `gorm:"default:90" json:"transport_heartbeat_timeout"` // 心跳超时（秒）
-	TransportTCPMuxKeepalive  int    `gorm:"default:0" json:"transport_tcp_mux_keepalive"`  // TCP mux 心跳间隔（秒），0 使用默认
-	TransportTCPKeepalive     int    `gorm:"default:0" json:"transport_tcp_keepalive"`      // TCP keepalive 间隔（秒），负数禁用
-	TransportTLSForce         bool   `gorm:"default:false" json:"transport_tls_force"`      // 仅接受 TLS 连接
-	TransportTLSCertFile      string `gorm:"size:500" json:"transport_tls_cert_file"`       // TLS 证书文件
-	TransportTLSKeyFile       string `gorm:"size:500" json:"transport_tls_key_file"`        // TLS 私钥文件
-	TransportTLSTrustedCAFile string `gorm:"size:500" json:"transport_tls_trusted_ca_file"` // 受信任 CA 文件（双向 TLS）
+	TransportMaxPoolCount      int  `gorm:"default:5" json:"transport_max_pool_count"`       // 最大连接池数量
+	TransportHeartbeatTimeout  int  `gorm:"default:90" json:"transport_heartbeat_timeout"`   // 心跳超时（秒）
+	TransportTCPMuxKeepalive   int  `gorm:"default:0" json:"transport_tcp_mux_keepalive"`    // TCP mux 心跳间隔（秒），0 使用默认
+	TransportTCPKeepalive      int  `gorm:"default:0" json:"transport_tcp_keepalive"`        // TCP keepalive 间隔（秒），负数禁用
+	TransportTLSForce          bool `gorm:"default:false" json:"transport_tls_force"`        // 仅接受 TLS 连接
+	TransportTLSCertFile       string `gorm:"size:500" json:"transport_tls_cert_file"`       // TLS 证书文件
+	TransportTLSKeyFile        string `gorm:"size:500" json:"transport_tls_key_file"`        // TLS 私钥文件
+	TransportTLSTrustedCAFile  string `gorm:"size:500" json:"transport_tls_trusted_ca_file"` // 受信任 CA 文件（双向 TLS）
 	// SSH 隧道网关配置
-	SSHTunnelGatewayBindPort       int    `gorm:"default:0" json:"ssh_tunnel_gateway_bind_port"`           // SSH 服务器监听端口，0 表示不启用
-	SSHTunnelGatewayPrivateKeyFile string `gorm:"size:500" json:"ssh_tunnel_gateway_private_key_file"`     // SSH 私钥文件，留空自动生成
-	SSHTunnelGatewayAutoGenKeyPath string `gorm:"size:500" json:"ssh_tunnel_gateway_auto_gen_key_path"`    // 自动生成私钥路径，默认 ./.autogen_ssh_key
-	SSHTunnelGatewayAuthorizedKeys string `gorm:"size:500" json:"ssh_tunnel_gateway_authorized_keys_file"` // 授权公钥文件，留空不鉴权
-	Status                         string `gorm:"size:20;default:'stopped'" json:"status"`
-	LastError                      string `gorm:"type:text" json:"last_error"`
-	Remark                         string `gorm:"size:500" json:"remark"`
+	SSHTunnelGatewayBindPort        int    `gorm:"default:0" json:"ssh_tunnel_gateway_bind_port"`          // SSH 服务器监听端口，0 表示不启用
+	SSHTunnelGatewayPrivateKeyFile  string `gorm:"size:500" json:"ssh_tunnel_gateway_private_key_file"`    // SSH 私钥文件，留空自动生成
+	SSHTunnelGatewayAutoGenKeyPath  string `gorm:"size:500" json:"ssh_tunnel_gateway_auto_gen_key_path"`   // 自动生成私钥路径，默认 ./.autogen_ssh_key
+	SSHTunnelGatewayAuthorizedKeys  string `gorm:"size:500" json:"ssh_tunnel_gateway_authorized_keys_file"` // 授权公钥文件，留空不鉴权
+	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError string `gorm:"type:text" json:"last_error"`
+	Remark    string `gorm:"size:500" json:"remark"`
 }
 
 // ===== NPS 服务端 =====
@@ -287,20 +287,20 @@ type FrpsConfig struct {
 // NpsServerConfig NPS 服务端配置
 type NpsServerConfig struct {
 	BaseModel
-	Name        string `gorm:"size:100;not null" json:"name"`
-	Enable      bool   `gorm:"default:false" json:"enable"`
-	BindAddr    string `gorm:"size:100;default:'0.0.0.0'" json:"bind_addr"`
-	BridgePort  int    `gorm:"default:8024" json:"bridge_port"` // 客户端连接端口
-	HTTPPort    int    `gorm:"default:80" json:"http_port"`     // HTTP 代理端口
-	HTTPSPort   int    `gorm:"default:443" json:"https_port"`   // HTTPS 代理端口
-	WebPort     int    `gorm:"default:8080" json:"web_port"`    // Web 管理端口
-	WebUsername string `gorm:"size:100;default:'admin'" json:"web_username"`
-	WebPassword string `gorm:"size:255;default:'123456'" json:"web_password"`
-	AuthKey     string `gorm:"size:255" json:"auth_key"` // 连接认证密钥
-	LogLevel    string `gorm:"size:20;default:'info'" json:"log_level"`
-	Status      string `gorm:"size:20;default:'stopped'" json:"status"`
-	LastError   string `gorm:"type:text" json:"last_error"`
-	Remark      string `gorm:"size:500" json:"remark"`
+	Name              string `gorm:"size:100;not null" json:"name"`
+	Enable            bool   `gorm:"default:false" json:"enable"`
+	BindAddr          string `gorm:"size:100;default:'0.0.0.0'" json:"bind_addr"`
+	BridgePort        int    `gorm:"default:8024" json:"bridge_port"`   // 客户端连接端口
+	HTTPPort          int    `gorm:"default:80" json:"http_port"`       // HTTP 代理端口
+	HTTPSPort         int    `gorm:"default:443" json:"https_port"`     // HTTPS 代理端口
+	WebPort           int    `gorm:"default:8080" json:"web_port"`      // Web 管理端口
+	WebUsername       string `gorm:"size:100;default:'admin'" json:"web_username"`
+	WebPassword       string `gorm:"size:255;default:'123456'" json:"web_password"`
+	AuthKey           string `gorm:"size:255" json:"auth_key"`          // 连接认证密钥
+	LogLevel          string `gorm:"size:20;default:'info'" json:"log_level"`
+	Status            string `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError         string `gorm:"type:text" json:"last_error"`
+	Remark            string `gorm:"size:500" json:"remark"`
 }
 
 // ===== NPS 客户端 =====
@@ -310,11 +310,11 @@ type NpsClientConfig struct {
 	BaseModel
 	Name       string `gorm:"size:100;not null" json:"name"`
 	Enable     bool   `gorm:"default:false" json:"enable"`
-	ServerAddr string `gorm:"size:255;not null" json:"server_addr"`   // NPS 服务器地址
-	ServerPort int    `gorm:"default:8024" json:"server_port"`        // NPS 服务器桥接端口
+	ServerAddr string `gorm:"size:255;not null" json:"server_addr"` // NPS 服务器地址
+	ServerPort int    `gorm:"default:8024" json:"server_port"`      // NPS 服务器桥接端口
 	ConnType   string `gorm:"size:20;default:'tcp'" json:"conn_type"` // 连接类型: tcp/tls/kcp/quic/ws/wss
-	AuthKey    string `gorm:"size:255" json:"auth_key"`               // 连接认证密钥
-	VkeyOrID   string `gorm:"size:255" json:"vkey_or_id"`             // 客户端唯一标识/vkey
+	AuthKey    string `gorm:"size:255" json:"auth_key"`             // 连接认证密钥
+	VkeyOrID   string `gorm:"size:255" json:"vkey_or_id"`           // 客户端唯一标识/vkey
 	LogLevel   string `gorm:"size:20;default:'info'" json:"log_level"`
 	Status     string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError  string `gorm:"type:text" json:"last_error"`
@@ -324,12 +324,12 @@ type NpsClientConfig struct {
 // NpsTunnel NPS 隧道配置（子表，参考 nps 隧道类型）
 type NpsTunnel struct {
 	BaseModel
-	NpsClientID uint   `gorm:"not null;index" json:"nps_client_id"`
-	Name        string `gorm:"size:100;not null" json:"name"`
-	Type        string `gorm:"size:20;not null" json:"type"` // tcp/udp/http/https/socks5/p2p
-	LocalIP     string `gorm:"size:100;default:'127.0.0.1'" json:"local_ip"`
-	LocalPort   int    `json:"local_port"`
-	RemotePort  int    `json:"remote_port"`
+	NpsClientID  uint   `gorm:"not null;index" json:"nps_client_id"`
+	Name         string `gorm:"size:100;not null" json:"name"`
+	Type         string `gorm:"size:20;not null" json:"type"` // tcp/udp/http/https/socks5/p2p
+	LocalIP      string `gorm:"size:100;default:'127.0.0.1'" json:"local_ip"`
+	LocalPort    int    `json:"local_port"`
+	RemotePort   int    `json:"remote_port"`
 	// HTTP/HTTPS 专用
 	HostHeader string `gorm:"size:255" json:"host_header"`
 	// 认证
@@ -348,13 +348,13 @@ type EasytierClient struct {
 	ServerAddr      string `gorm:"size:500" json:"server_addr"` // 支持多个，逗号分隔，格式：tcp://ip:port
 	NetworkName     string `gorm:"size:255" json:"network_name"`
 	NetworkPassword string `gorm:"size:255" json:"network_password"`
-	VirtualIP       string `gorm:"size:50" json:"virtual_ip"`     // 留空自动分配，格式：10.0.0.1/24
-	IPv6            string `gorm:"size:100" json:"ipv6"`          // --ipv6：IPv6 地址，可与 IPv4 同时使用
-	Hostname        string `gorm:"size:255" json:"hostname"`      // --hostname：自定义节点主机名
+	VirtualIP       string `gorm:"size:50" json:"virtual_ip"`   // 留空自动分配，格式：10.0.0.1/24
+	IPv6            string `gorm:"size:100" json:"ipv6"`        // --ipv6：IPv6 地址，可与 IPv4 同时使用
+	Hostname        string `gorm:"size:255" json:"hostname"`    // --hostname：自定义节点主机名
 	InstanceName    string `gorm:"size:255" json:"instance_name"` // --instance-name：实例名称，同机多节点时区分
 	// 本地监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
-	ListenPorts string `gorm:"size:500" json:"listen_ports"`
-	NoListener  bool   `gorm:"default:false" json:"no_listener"` // --no-listener：不监听任何端口，只连接对等节点
+	ListenPorts   string `gorm:"size:500" json:"listen_ports"`
+	NoListener    bool   `gorm:"default:false" json:"no_listener"` // --no-listener：不监听任何端口，只连接对等节点
 	// 映射监听器（用于 NAT 后公告外部地址），逗号分隔，格式：tcp://1.2.3.4:11010
 	MappedListeners string `gorm:"size:500" json:"mapped_listeners"`
 	// 子网代理（将本机子网共享给虚拟网络），逗号分隔，格式：192.168.1.0/24 或 192.168.1.0/24->10.0.0.0/24
@@ -369,15 +369,15 @@ type EasytierClient struct {
 	RpcPortalWhitelist string `gorm:"size:500" json:"rpc_portal_whitelist"` // --rpc-portal-whitelist：RPC 门户白名单
 
 	// ===== 网络行为选项 =====
-	NoTun                bool   `gorm:"default:false" json:"no_tun"`                  // --no-tun：不创建 TUN 虚拟网卡（无需 WinPcap/Npcap）
-	EnableDhcp           bool   `gorm:"default:false" json:"enable_dhcp"`             // --dhcp：DHCP 自动分配虚拟 IP
-	DisableP2P           bool   `gorm:"default:false" json:"disable_p2p"`             // --disable-p2p：禁用 P2P 直连，强制走中继
-	P2POnly              bool   `gorm:"default:false" json:"p2p_only"`                // --p2p-only：仅 P2P，禁用中继
-	LatencyFirst         bool   `gorm:"default:false" json:"latency_first"`           // --latency-first：延迟优先路由
-	EnableExitNode       bool   `gorm:"default:false" json:"enable_exit_node"`        // --enable-exit-node：允许本节点作为出口节点
-	RelayAllPeerRpc      bool   `gorm:"default:false" json:"relay_all_peer_rpc"`      // --relay-all-peer-rpc：中继所有对等 RPC
-	ProxyForwardBySystem bool   `gorm:"default:false" json:"proxy_forward_by_system"` // --proxy-forward-by-system：通过系统内核转发子网代理包
-	DefaultProtocol      string `gorm:"size:20" json:"default_protocol"`              // --default-protocol：连接对等节点时使用的默认协议
+	NoTun               bool `gorm:"default:false" json:"no_tun"`                // --no-tun：不创建 TUN 虚拟网卡（无需 WinPcap/Npcap）
+	EnableDhcp          bool `gorm:"default:false" json:"enable_dhcp"`           // --dhcp：DHCP 自动分配虚拟 IP
+	DisableP2P          bool `gorm:"default:false" json:"disable_p2p"`           // --disable-p2p：禁用 P2P 直连，强制走中继
+	P2POnly             bool `gorm:"default:false" json:"p2p_only"`              // --p2p-only：仅 P2P，禁用中继
+	LatencyFirst        bool `gorm:"default:false" json:"latency_first"`         // --latency-first：延迟优先路由
+	EnableExitNode      bool `gorm:"default:false" json:"enable_exit_node"`      // --enable-exit-node：允许本节点作为出口节点
+	RelayAllPeerRpc     bool `gorm:"default:false" json:"relay_all_peer_rpc"`    // --relay-all-peer-rpc：中继所有对等 RPC
+	ProxyForwardBySystem bool `gorm:"default:false" json:"proxy_forward_by_system"` // --proxy-forward-by-system：通过系统内核转发子网代理包
+	DefaultProtocol    string `gorm:"size:20" json:"default_protocol"`           // --default-protocol：连接对等节点时使用的默认协议
 
 	// ===== 打洞选项 =====
 	DisableUdpHolePunching bool `gorm:"default:false" json:"disable_udp_hole_punching"` // --disable-udp-hole-punching
@@ -392,41 +392,41 @@ type EasytierClient struct {
 	QuicListenPort   int  `gorm:"default:0" json:"quic_listen_port"`       // --quic-listen-port：QUIC 监听端口（0 为随机）
 
 	// ===== TUN/网卡选项 =====
-	DevName     string `gorm:"size:100" json:"dev_name"`          // --dev-name：自定义 TUN 设备名
-	UseSmoltcp  bool   `gorm:"default:false" json:"use_smoltcp"`  // --use-smoltcp：使用 smoltcp 用户态协议栈
-	DisableIpv6 bool   `gorm:"default:false" json:"disable_ipv6"` // --disable-ipv6：禁用 IPv6
-	Mtu         int    `gorm:"default:0" json:"mtu"`              // --mtu：MTU 大小（0 表示使用默认值）
-	AcceptDns   bool   `gorm:"default:false" json:"accept_dns"`   // --accept-dns：启用 Magic DNS
-	TldDnsZone  string `gorm:"size:100" json:"tld_dns_zone"`      // --tld-dns-zone：Magic DNS 顶级域名区域（如 et.net.）
-	BindDevice  string `gorm:"size:100" json:"bind_device"`       // --bind-device：绑定物理设备名称
+	DevName      string `gorm:"size:100" json:"dev_name"`         // --dev-name：自定义 TUN 设备名
+	UseSmoltcp   bool   `gorm:"default:false" json:"use_smoltcp"` // --use-smoltcp：使用 smoltcp 用户态协议栈
+	DisableIpv6  bool   `gorm:"default:false" json:"disable_ipv6"` // --disable-ipv6：禁用 IPv6
+	Mtu          int    `gorm:"default:0" json:"mtu"`             // --mtu：MTU 大小（0 表示使用默认值）
+	AcceptDns    bool   `gorm:"default:false" json:"accept_dns"`  // --accept-dns：启用 Magic DNS
+	TldDnsZone   string `gorm:"size:100" json:"tld_dns_zone"`     // --tld-dns-zone：Magic DNS 顶级域名区域（如 et.net.）
+	BindDevice   string `gorm:"size:100" json:"bind_device"`      // --bind-device：绑定物理设备名称
 
 	// ===== 安全选项 =====
-	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"` // --disable-encryption：禁用加密（不推荐）
-	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`     // --encryption-algorithm：加密算法
-	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`       // --private-mode：私有模式（仅允许已知节点）
-	PrivateKey          string `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
-	PublicKey           string `gorm:"size:500" json:"public_key"`              // 节点公钥（由私钥派生，仅展示用）
-	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码）
+	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"`    // --disable-encryption：禁用加密（不推荐）
+	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`        // --encryption-algorithm：加密算法
+	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`          // --private-mode：私有模式（仅允许已知节点）
+	PrivateKey          string `gorm:"size:500" json:"private_key"`                // --private-key：节点私钥（Base64 编码）
+	PublicKey           string `gorm:"size:500" json:"public_key"`                 // 节点公钥（由私钥派生，仅展示用）
+	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`             // --pre-shared-key：预共享密钥（Base64 编码）
 
 	// ===== 中继选项 =====
-	RelayNetworkWhitelist        string `gorm:"size:500" json:"relay_network_whitelist"`               // --relay-network-whitelist：允许中继的网络白名单
-	ForeignRelayBpsLimit         int64  `gorm:"default:0" json:"foreign_relay_bps_limit"`              // --foreign-relay-bps-limit：限制转发流量带宽（bps，0不限制）
-	DisableRelayKcp              bool   `gorm:"default:false" json:"disable_relay_kcp"`                // --disable-relay-kcp：禁止转发 KCP 数据包
-	EnableRelayForeignNetworkKcp bool   `gorm:"default:false" json:"enable_relay_foreign_network_kcp"` // --enable-relay-foreign-network-kcp：作为共享节点时转发其他网络 KCP 包
+	RelayNetworkWhitelist      string `gorm:"size:500" json:"relay_network_whitelist"`       // --relay-network-whitelist：允许中继的网络白名单
+	ForeignRelayBpsLimit       int64  `gorm:"default:0" json:"foreign_relay_bps_limit"`      // --foreign-relay-bps-limit：限制转发流量带宽（bps，0不限制）
+	DisableRelayKcp            bool   `gorm:"default:false" json:"disable_relay_kcp"`        // --disable-relay-kcp：禁止转发 KCP 数据包
+	EnableRelayForeignNetworkKcp bool `gorm:"default:false" json:"enable_relay_foreign_network_kcp"` // --enable-relay-foreign-network-kcp：作为共享节点时转发其他网络 KCP 包
 
 	// ===== 流量控制 =====
 	TcpWhitelist string `gorm:"size:500" json:"tcp_whitelist"` // --tcp-whitelist：TCP 端口白名单，如 80,8000-9000
 	UdpWhitelist string `gorm:"size:500" json:"udp_whitelist"` // --udp-whitelist：UDP 端口白名单，如 53,5000-6000
-	Compression  string `gorm:"size:20" json:"compression"`    // --compression：压缩算法（none/zstd）
+	Compression  string `gorm:"size:20" json:"compression"`   // --compression：压缩算法（none/zstd）
 
 	// ===== STUN 服务器 =====
 	StunServers   string `gorm:"type:text" json:"stun_servers"`    // --stun-servers：覆盖默认 STUN 服务器列表（逗号分隔）
 	StunServersV6 string `gorm:"type:text" json:"stun_servers_v6"` // --stun-servers-v6：覆盖默认 IPv6 STUN 服务器列表
 
 	// ===== VPN 门户 =====
-	EnableVpnPortal        bool   `gorm:"default:false" json:"enable_vpn_portal"`    // 启用 WireGuard VPN 门户
-	VpnPortalListenPort    int    `gorm:"default:0" json:"vpn_portal_listen_port"`   // VPN 门户 WireGuard 监听端口
-	VpnPortalClientNetwork string `gorm:"size:100" json:"vpn_portal_client_network"` // VPN 客户端网段，格式：10.14.14.0/24
+	EnableVpnPortal          bool   `gorm:"default:false" json:"enable_vpn_portal"`           // 启用 WireGuard VPN 门户
+	VpnPortalListenPort      int    `gorm:"default:0" json:"vpn_portal_listen_port"`          // VPN 门户 WireGuard 监听端口
+	VpnPortalClientNetwork   string `gorm:"size:100" json:"vpn_portal_client_network"`        // VPN 客户端网段，格式：10.14.14.0/24
 
 	// ===== SOCKS5 代理 =====
 	EnableSocks5 bool `gorm:"default:false" json:"enable_socks5"` // 启用 SOCKS5 代理
@@ -448,8 +448,8 @@ type EasytierClient struct {
 	FileLogCount    int    `gorm:"default:0" json:"file_log_count"`  // --file-log-count：最大日志文件数量（0使用默认10）
 
 	// ===== 运行时选项 =====
-	MultiThread      bool `gorm:"default:false" json:"multi_thread"`   // --multi-thread：启用多线程运行时
-	MultiThreadCount int  `gorm:"default:0" json:"multi_thread_count"` // --multi-thread-count：线程数（0使用默认2，需>2）
+	MultiThread      bool `gorm:"default:false" json:"multi_thread"`       // --multi-thread：启用多线程运行时
+	MultiThreadCount int  `gorm:"default:0" json:"multi_thread_count"`     // --multi-thread-count：线程数（0使用默认2，需>2）
 
 	ExtraArgs string `gorm:"type:text" json:"extra_args"` // 额外命令行参数（兜底）
 	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
@@ -469,7 +469,7 @@ type EasytierServer struct {
 	// standalone 模式下可配置所有参数；config-server 模式下只需填写 ConfigServerAddr
 	ServerMode string `gorm:"size:20;default:'standalone'" json:"server_mode"`
 	// ConfigServerAddr config-server 地址，仅 config-server 模式下使用，格式：tcp://host:port
-	ConfigServerAddr string `gorm:"size:500" json:"config_server_addr"`
+	ConfigServerAddr  string `gorm:"size:500" json:"config_server_addr"`
 	// ConfigServerToken config-server 认证 token（用户名），拼接到 URL 末尾，格式：tcp://host:port/<token>
 	ConfigServerToken string `gorm:"size:255" json:"config_server_token"`
 	MachineID         string `gorm:"size:255" json:"machine_id"` // --machine-id：Web 配置服务器用于识别机器的唯一 ID
@@ -479,7 +479,7 @@ type EasytierServer struct {
 	ListenPorts     string `gorm:"size:500" json:"listen_ports"`
 	NetworkName     string `gorm:"size:255" json:"network_name"`
 	NetworkPassword string `gorm:"size:255" json:"network_password"`
-	Hostname        string `gorm:"size:255" json:"hostname"`      // --hostname：自定义节点主机名
+	Hostname        string `gorm:"size:255" json:"hostname"`     // --hostname：自定义节点主机名
 	InstanceName    string `gorm:"size:255" json:"instance_name"` // --instance-name：实例名称，同机多节点时区分
 
 	// ===== RPC 设置 =====
@@ -487,12 +487,12 @@ type EasytierServer struct {
 	RpcPortalWhitelist string `gorm:"size:500" json:"rpc_portal_whitelist"` // --rpc-portal-whitelist：RPC 门户白名单
 
 	// ===== 网络行为选项 =====
-	NoTun                bool   `gorm:"default:false" json:"no_tun"`                  // --no-tun：不创建 TUN 虚拟网卡
-	DisableP2P           bool   `gorm:"default:false" json:"disable_p2p"`             // --disable-p2p：禁用 P2P 直连
-	RelayAllPeerRpc      bool   `gorm:"default:false" json:"relay_all_peer_rpc"`      // --relay-all-peer-rpc：中继所有对等 RPC
-	EnableExitNode       bool   `gorm:"default:false" json:"enable_exit_node"`        // --enable-exit-node：允许作为出口节点
-	DefaultProtocol      string `gorm:"size:20" json:"default_protocol"`              // --default-protocol：连接对等节点时使用的默认协议
-	ProxyForwardBySystem bool   `gorm:"default:false" json:"proxy_forward_by_system"` // --proxy-forward-by-system：通过系统内核转发子网代理包
+	NoTun               bool   `gorm:"default:false" json:"no_tun"`                // --no-tun：不创建 TUN 虚拟网卡
+	DisableP2P          bool   `gorm:"default:false" json:"disable_p2p"`           // --disable-p2p：禁用 P2P 直连
+	RelayAllPeerRpc     bool   `gorm:"default:false" json:"relay_all_peer_rpc"`    // --relay-all-peer-rpc：中继所有对等 RPC
+	EnableExitNode      bool   `gorm:"default:false" json:"enable_exit_node"`      // --enable-exit-node：允许作为出口节点
+	DefaultProtocol     string `gorm:"size:20" json:"default_protocol"`            // --default-protocol：连接对等节点时使用的默认协议
+	ProxyForwardBySystem bool  `gorm:"default:false" json:"proxy_forward_by_system"` // --proxy-forward-by-system：通过系统内核转发子网代理包
 
 	// ===== 协议加速选项 =====
 	EnableKcpProxy   bool `gorm:"default:false" json:"enable_kcp_proxy"`   // --enable-kcp-proxy
@@ -502,23 +502,23 @@ type EasytierServer struct {
 	QuicListenPort   int  `gorm:"default:0" json:"quic_listen_port"`       // --quic-listen-port
 
 	// ===== 安全选项 =====
-	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"` // --disable-encryption
-	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`     // --encryption-algorithm：加密算法
-	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`       // --private-mode：私有模式
-	PrivateKey          string `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
-	PublicKey           string `gorm:"size:500" json:"public_key"`              // 节点公钥（由私钥派生，仅展示用）
-	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码）
+	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"`    // --disable-encryption
+	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`        // --encryption-algorithm：加密算法
+	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`          // --private-mode：私有模式
+	PrivateKey          string `gorm:"size:500" json:"private_key"`                // --private-key：节点私钥（Base64 编码）
+	PublicKey           string `gorm:"size:500" json:"public_key"`                 // 节点公钥（由私钥派生，仅展示用）
+	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`             // --pre-shared-key：预共享密钥（Base64 编码）
 
 	// ===== 中继选项 =====
-	RelayNetworkWhitelist        string `gorm:"size:500" json:"relay_network_whitelist"`               // --relay-network-whitelist
-	ForeignRelayBpsLimit         int64  `gorm:"default:0" json:"foreign_relay_bps_limit"`              // --foreign-relay-bps-limit：限制转发流量带宽
-	DisableRelayKcp              bool   `gorm:"default:false" json:"disable_relay_kcp"`                // --disable-relay-kcp
-	EnableRelayForeignNetworkKcp bool   `gorm:"default:false" json:"enable_relay_foreign_network_kcp"` // --enable-relay-foreign-network-kcp
+	RelayNetworkWhitelist      string `gorm:"size:500" json:"relay_network_whitelist"`       // --relay-network-whitelist
+	ForeignRelayBpsLimit       int64  `gorm:"default:0" json:"foreign_relay_bps_limit"`      // --foreign-relay-bps-limit：限制转发流量带宽
+	DisableRelayKcp            bool   `gorm:"default:false" json:"disable_relay_kcp"`        // --disable-relay-kcp
+	EnableRelayForeignNetworkKcp bool `gorm:"default:false" json:"enable_relay_foreign_network_kcp"` // --enable-relay-foreign-network-kcp
 
 	// ===== 流量控制 =====
 	TcpWhitelist string `gorm:"size:500" json:"tcp_whitelist"` // --tcp-whitelist：TCP 端口白名单
 	UdpWhitelist string `gorm:"size:500" json:"udp_whitelist"` // --udp-whitelist：UDP 端口白名单
-	Compression  string `gorm:"size:20" json:"compression"`    // --compression：压缩算法（none/zstd）
+	Compression  string `gorm:"size:20" json:"compression"`   // --compression：压缩算法（none/zstd）
 
 	// ===== STUN 服务器 =====
 	StunServers   string `gorm:"type:text" json:"stun_servers"`    // --stun-servers：覆盖默认 STUN 服务器列表
@@ -540,8 +540,8 @@ type EasytierServer struct {
 	FileLogCount    int    `gorm:"default:0" json:"file_log_count"`  // --file-log-count：最大日志文件数量
 
 	// ===== 运行时选项 =====
-	MultiThread      bool `gorm:"default:true" json:"multi_thread"`    // --multi-thread：启用多线程运行时
-	MultiThreadCount int  `gorm:"default:0" json:"multi_thread_count"` // --multi-thread-count：线程数（0使用默认2，需>2）
+	MultiThread      bool `gorm:"default:true" json:"multi_thread"`        // --multi-thread：启用多线程运行时
+	MultiThreadCount int  `gorm:"default:0" json:"multi_thread_count"`     // --multi-thread-count：线程数（0使用默认2，需>2）
 
 	ExtraArgs string `gorm:"type:text" json:"extra_args"`
 	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
@@ -629,22 +629,22 @@ type ProbeHistory struct {
 // DDNSTask DDNS 任务
 type DDNSTask struct {
 	BaseModel
-	Name            string     `gorm:"size:100;not null" json:"name"`
-	Enable          bool       `gorm:"default:false" json:"enable"`
-	TaskType        string     `gorm:"size:10;default:'IPv4'" json:"task_type"` // IPv4/IPv6
-	Provider        string     `gorm:"size:50;not null" json:"provider"`        // alidns/cloudflare/dnspod/...
-	DomainAccountID uint       `json:"domain_account_id"`                       // 关联域名账号（可选）
-	AccessID        string     `gorm:"size:255" json:"access_id"`
-	AccessSecret    string     `gorm:"size:500" json:"access_secret"`
-	Domains         string     `gorm:"type:text" json:"domains"`                 // JSON 数组
-	IPGetType       string     `gorm:"size:20;default:'url'" json:"ip_get_type"` // url/interface/custom
-	IPGetURLs       string     `gorm:"type:text" json:"ip_get_urls"`             // JSON 数组
-	NetInterface    string     `gorm:"size:100" json:"net_interface"`
-	IPRegex         string     `gorm:"size:255" json:"ip_regex"`
-	TTL             string     `gorm:"size:20;default:'600'" json:"ttl"`
-	Interval        int        `gorm:"default:300" json:"interval"` // 检查间隔（秒）
-	CurrentIP       string     `gorm:"size:100" json:"current_ip"`
-	LastUpdateTime  *time.Time `json:"last_update_time"`
+	Name             string `gorm:"size:100;not null" json:"name"`
+	Enable           bool   `gorm:"default:false" json:"enable"`
+	TaskType         string `gorm:"size:10;default:'IPv4'" json:"task_type"` // IPv4/IPv6
+	Provider         string `gorm:"size:50;not null" json:"provider"`        // alidns/cloudflare/dnspod/...
+	DomainAccountID  uint   `json:"domain_account_id"`                       // 关联域名账号（可选）
+	AccessID         string `gorm:"size:255" json:"access_id"`
+	AccessSecret     string `gorm:"size:500" json:"access_secret"`
+	Domains          string `gorm:"type:text" json:"domains"`   // JSON 数组
+	IPGetType        string `gorm:"size:20;default:'url'" json:"ip_get_type"` // url/interface/custom
+	IPGetURLs        string `gorm:"type:text" json:"ip_get_urls"` // JSON 数组
+	NetInterface     string `gorm:"size:100" json:"net_interface"`
+	IPRegex          string `gorm:"size:255" json:"ip_regex"`
+	TTL              string `gorm:"size:20;default:'600'" json:"ttl"`
+	Interval         int    `gorm:"default:300" json:"interval"` // 检查间隔（秒）
+	CurrentIP        string `gorm:"size:100" json:"current_ip"`
+	LastUpdateTime   *time.Time `json:"last_update_time"`
 	// Webhook 通知（参考 lucky DDNSTask.Webhook）
 	WebhookEnable  bool   `gorm:"default:false" json:"webhook_enable"`
 	WebhookURL     string `gorm:"size:500" json:"webhook_url"`
@@ -677,27 +677,27 @@ type DDNSHistory struct {
 // CaddySite Caddy 站点配置
 type CaddySite struct {
 	BaseModel
-	Name     string `gorm:"size:100;not null" json:"name"`
-	Enable   bool   `gorm:"default:false" json:"enable"`
-	Domain   string `gorm:"size:255" json:"domain"`
-	Port     int    `gorm:"default:80" json:"port"`
-	SiteType string `gorm:"size:30;default:'reverse_proxy'" json:"site_type"` // reverse_proxy/static/redirect/rewrite
+	Name       string `gorm:"size:100;not null" json:"name"`
+	Enable     bool   `gorm:"default:false" json:"enable"`
+	Domain     string `gorm:"size:255" json:"domain"`
+	Port       int    `gorm:"default:80" json:"port"`
+	SiteType   string `gorm:"size:30;default:'reverse_proxy'" json:"site_type"` // reverse_proxy/static/redirect/rewrite
 	// 反向代理
 	UpstreamAddr string `gorm:"size:500" json:"upstream_addr"`
 	// 多上游地址（负载均衡），JSON 数组，参考 lucky Locations 多目标
 	UpstreamAddrs string `gorm:"type:text" json:"upstream_addrs"`
 	// 静态文件
-	RootPath string `gorm:"size:500" json:"root_path"`
-	FileList bool   `gorm:"default:false" json:"file_list"`
+	RootPath  string `gorm:"size:500" json:"root_path"`
+	FileList  bool   `gorm:"default:false" json:"file_list"`
 	// 重定向
 	RedirectTo   string `gorm:"size:500" json:"redirect_to"`
 	RedirectCode int    `gorm:"default:301" json:"redirect_code"`
 	// SSL
-	TLSEnable    bool   `gorm:"default:false" json:"tls_enable"`
-	TLSMode      string `gorm:"size:20;default:'auto'" json:"tls_mode"` // auto/manual/acme
-	TLSCertFile  string `gorm:"size:500" json:"tls_cert_file"`
-	TLSKeyFile   string `gorm:"size:500" json:"tls_key_file"`
-	DomainCertID uint   `json:"domain_cert_id"`
+	TLSEnable      bool   `gorm:"default:false" json:"tls_enable"`
+	TLSMode        string `gorm:"size:20;default:'auto'" json:"tls_mode"` // auto/manual/acme
+	TLSCertFile    string `gorm:"size:500" json:"tls_cert_file"`
+	TLSKeyFile     string `gorm:"size:500" json:"tls_key_file"`
+	DomainCertID   uint   `json:"domain_cert_id"`
 	// 安全特性（参考 lucky SubReverProxyRule）
 	EnableBasicAuth bool   `gorm:"default:false" json:"enable_basic_auth"` // 启用 BasicAuth
 	BasicAuthUser   string `gorm:"size:100" json:"basic_auth_user"`
@@ -724,12 +724,12 @@ type CaddySite struct {
 // WolDevice WOL 设备
 type WolDevice struct {
 	BaseModel
-	Name         string `gorm:"size:100;not null" json:"name"`
-	MACAddress   string `gorm:"size:20;not null" json:"mac_address"`
-	BroadcastIP  string `gorm:"size:100;default:'255.255.255.255'" json:"broadcast_ip"`
-	Port         int    `gorm:"default:9" json:"port"`
-	NetInterface string `gorm:"size:100" json:"net_interface"`
-	Remark       string `gorm:"size:500" json:"remark"`
+	Name           string `gorm:"size:100;not null" json:"name"`
+	MACAddress     string `gorm:"size:20;not null" json:"mac_address"`
+	BroadcastIP    string `gorm:"size:100;default:'255.255.255.255'" json:"broadcast_ip"`
+	Port           int    `gorm:"default:9" json:"port"`
+	NetInterface   string `gorm:"size:100" json:"net_interface"`
+	Remark         string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 域名账号 =====
@@ -756,26 +756,26 @@ type DomainAccount struct {
 type DomainInfo struct {
 	BaseModel
 	// 关联域名账号
-	AccountID uint `gorm:"not null;index" json:"account_id"`
+	AccountID   uint   `gorm:"not null;index" json:"account_id"`
 	// 域名
-	Name string `gorm:"size:255;not null" json:"name"`
+	Name        string `gorm:"size:255;not null" json:"name"`
 	// 服务商侧域名ID（thirdid）
-	ThirdID string `gorm:"size:60" json:"third_id"`
+	ThirdID     string `gorm:"size:60" json:"third_id"`
 	// 解析记录数
-	RecordCount int `gorm:"default:0" json:"record_count"`
+	RecordCount int    `gorm:"default:0" json:"record_count"`
 	// 到期时间
-	ExpireTime *time.Time `json:"expire_time"`
+	ExpireTime  *time.Time `json:"expire_time"`
 	// 注册时间
-	RegTime *time.Time `json:"reg_time"`
+	RegTime     *time.Time `json:"reg_time"`
 	// 是否开启到期提醒
-	IsNotice bool `gorm:"default:false" json:"is_notice"`
+	IsNotice    bool   `gorm:"default:false" json:"is_notice"`
 	// 自动同步解析记录
-	AutoSync bool `gorm:"default:false" json:"auto_sync"`
+	AutoSync     bool  `gorm:"default:false" json:"auto_sync"`
 	// 自动同步间隔（分钟），0 表示不自动同步
-	SyncInterval int `gorm:"default:60" json:"sync_interval"`
+	SyncInterval int   `gorm:"default:60" json:"sync_interval"`
 	// 上次同步时间
 	LastSyncTime *time.Time `json:"last_sync_time"`
-	Remark       string     `gorm:"size:500" json:"remark"`
+	Remark      string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 证书账号 =====
@@ -813,10 +813,10 @@ type DomainCert struct {
 	Name    string `gorm:"size:100;not null" json:"name"`
 	Domains string `gorm:"type:text;not null" json:"domains"` // JSON 数组
 	// 证书类型：acme（ACME自动申请）/ manual（手动上传）
-	CertType        string `gorm:"size:20;default:'acme'" json:"cert_type"`
-	CA              string `gorm:"size:50;default:'letsencrypt'" json:"ca"`     // letsencrypt/zerossl/buypass/google
-	ChallengeType   string `gorm:"size:20;default:'dns'" json:"challenge_type"` // dns/http
-	DomainAccountID uint   `json:"domain_account_id"`
+	CertType      string `gorm:"size:20;default:'acme'" json:"cert_type"`
+	CA            string `gorm:"size:50;default:'letsencrypt'" json:"ca"` // letsencrypt/zerossl/buypass/google
+	ChallengeType string `gorm:"size:20;default:'dns'" json:"challenge_type"` // dns/http
+	DomainAccountID uint `json:"domain_account_id"`
 	// DNS 验证模式：auto（自动设置DNS）/ manual（手动设置DNS）
 	DnsMode string `gorm:"size:20;default:'auto'" json:"dns_mode"`
 	// 关联证书账号（ACME CA 账号）
@@ -828,12 +828,12 @@ type DomainCert struct {
 	CertFile string `gorm:"size:500" json:"cert_file"`
 	KeyFile  string `gorm:"size:500" json:"key_file"`
 	// 手动上传时的证书内容（PEM 格式）
-	CertContent string     `gorm:"type:text" json:"cert_content"`
-	KeyContent  string     `gorm:"type:text" json:"key_content"`
-	ExpireAt    *time.Time `json:"expire_at"`
-	AutoRenew   bool       `gorm:"default:true" json:"auto_renew"`
+	CertContent string `gorm:"type:text" json:"cert_content"`
+	KeyContent  string `gorm:"type:text" json:"key_content"`
+	ExpireAt        *time.Time `json:"expire_at"`
+	AutoRenew       bool       `gorm:"default:true" json:"auto_renew"`
 	// 提前续期天数，默认 7 天
-	RenewBeforeDays int `gorm:"default:7" json:"renew_before_days"`
+	RenewBeforeDays int    `gorm:"default:7" json:"renew_before_days"`
 	// ACME 流程状态：pending/order_created/dns_set/validating/valid/expired/error/applying
 	// pending: 初始状态
 	// order_created: 已创建订单，获取到挑战信息
@@ -843,18 +843,18 @@ type DomainCert struct {
 	// expired: 证书已过期
 	// error: 出错
 	// applying: 正在申请中（兼容旧状态）
-	Status string `gorm:"size:20;default:'pending'" json:"status"`
+	Status          string `gorm:"size:20;default:'pending'" json:"status"`
 	// ACME 流程步骤：0=未开始, 1=创建订单, 2=设置DNS, 3=提交验证, 4=获取证书
-	AcmeStep int `gorm:"default:0" json:"acme_step"`
+	AcmeStep        int    `gorm:"default:0" json:"acme_step"`
 	// ACME 流程内部数据（JSON，存储订单URL、挑战信息等，不暴露给前端敏感数据）
-	AcmeData string `gorm:"type:text" json:"-"`
+	AcmeData        string `gorm:"type:text" json:"-"`
 	// ACME 流程中的 DNS 挑战记录名和值（用于前端展示）
-	AcmeDnsRecord string `gorm:"size:500" json:"acme_dns_record"`
-	AcmeDnsValue  string `gorm:"size:500" json:"acme_dns_value"`
+	AcmeDnsRecord   string `gorm:"size:500" json:"acme_dns_record"`
+	AcmeDnsValue    string `gorm:"size:500" json:"acme_dns_value"`
 	// 定时任务：创建订单后自动执行后续步骤的计划时间
-	AcmeNextAction *time.Time `json:"acme_next_action"`
-	LastError      string     `gorm:"type:text" json:"last_error"`
-	Remark         string     `gorm:"size:500" json:"remark"`
+	AcmeNextAction  *time.Time `json:"acme_next_action"`
+	LastError       string `gorm:"type:text" json:"last_error"`
+	Remark          string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 域名解析 =====
@@ -872,8 +872,8 @@ type DomainRecord struct {
 	TTL             int    `gorm:"default:600" json:"ttl"`
 	RemoteID        string `gorm:"size:255" json:"remote_id"` // 服务商记录ID
 	// CDN 代理（仅 Cloudflare 支持）：true=橙色云朵（代理），false=灰色云朵（仅DNS）
-	Proxied bool   `gorm:"default:false" json:"proxied"`
-	Remark  string `gorm:"size:500" json:"remark"`
+	Proxied         bool   `gorm:"default:false" json:"proxied"`
+	Remark          string `gorm:"size:500" json:"remark"`
 }
 
 // ===== DNSMasq =====
@@ -895,10 +895,10 @@ type DnsmasqConfig struct {
 // DnsmasqRecord DNSMasq 自定义解析记录
 type DnsmasqRecord struct {
 	BaseModel
-	Domain string `gorm:"size:255;not null" json:"domain"`
-	IP     string `gorm:"size:100;not null" json:"ip"`
-	Enable bool   `gorm:"default:true" json:"enable"`
-	Remark string `gorm:"size:500" json:"remark"`
+	Domain  string `gorm:"size:255;not null" json:"domain"`
+	IP      string `gorm:"size:100;not null" json:"ip"`
+	Enable  bool   `gorm:"default:true" json:"enable"`
+	Remark  string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 计划任务 =====
@@ -906,19 +906,19 @@ type DnsmasqRecord struct {
 // CronTask 计划任务
 type CronTask struct {
 	BaseModel
-	Name          string     `gorm:"size:100;not null" json:"name"`
-	Enable        bool       `gorm:"default:false" json:"enable"`
-	CronExpr      string     `gorm:"size:100;not null" json:"cron_expr"`
-	TaskType      string     `gorm:"size:20;default:'shell'" json:"task_type"` // shell/http/renew_cert/update_ddns/wol/sync_dns_record
-	Command       string     `gorm:"type:text" json:"command"`
-	HTTPURL       string     `gorm:"size:500" json:"http_url"`
-	HTTPMethod    string     `gorm:"size:10;default:'GET'" json:"http_method"`
-	HTTPBody      string     `gorm:"type:text" json:"http_body"`
-	TargetID      uint       `gorm:"default:0" json:"target_id"` // 关联目标 ID（证书/DDNS/WOL 设备/域名）
-	LastRunTime   *time.Time `json:"last_run_time"`
-	LastRunResult string     `gorm:"type:text" json:"last_run_result"`
-	Status        string     `gorm:"size:20;default:'stopped'" json:"status"`
-	Remark        string     `gorm:"size:500" json:"remark"`
+	Name         string     `gorm:"size:100;not null" json:"name"`
+	Enable       bool       `gorm:"default:false" json:"enable"`
+	CronExpr     string     `gorm:"size:100;not null" json:"cron_expr"`
+	TaskType     string     `gorm:"size:20;default:'shell'" json:"task_type"` // shell/http/renew_cert/update_ddns/wol/sync_dns_record
+	Command      string     `gorm:"type:text" json:"command"`
+	HTTPURL      string     `gorm:"size:500" json:"http_url"`
+	HTTPMethod   string     `gorm:"size:10;default:'GET'" json:"http_method"`
+	HTTPBody     string     `gorm:"type:text" json:"http_body"`
+	TargetID     uint       `gorm:"default:0" json:"target_id"` // 关联目标 ID（证书/DDNS/WOL 设备/域名）
+	LastRunTime  *time.Time `json:"last_run_time"`
+	LastRunResult string    `gorm:"type:text" json:"last_run_result"`
+	Status       string     `gorm:"size:20;default:'stopped'" json:"status"`
+	Remark       string     `gorm:"size:500" json:"remark"`
 }
 
 // ===== 网络存储 =====
@@ -954,12 +954,12 @@ type IPDBEntry struct {
 // IPDBSubscription IP 地址库订阅
 type IPDBSubscription struct {
 	BaseModel
-	Name       string `gorm:"size:100;not null" json:"name"`
-	Enable     bool   `gorm:"default:true" json:"enable"`
-	URL        string `gorm:"size:1000;not null" json:"url"`
-	Location   string `gorm:"size:255" json:"location"`         // 默认归属地（可选）
-	Tags       string `gorm:"size:500" json:"tags"`             // 默认标签（可选）
-	ClearFirst bool   `gorm:"default:false" json:"clear_first"` // 刷新前是否清空
+	Name       string     `gorm:"size:100;not null" json:"name"`
+	Enable     bool       `gorm:"default:true" json:"enable"`
+	URL        string     `gorm:"size:1000;not null" json:"url"`
+	Location   string     `gorm:"size:255" json:"location"`   // 默认归属地（可选）
+	Tags       string     `gorm:"size:500" json:"tags"`       // 默认标签（可选）
+	ClearFirst bool       `gorm:"default:false" json:"clear_first"` // 刷新前是否清空
 	// 自动刷新间隔（小时），0 表示不自动刷新
 	Interval      int        `gorm:"default:0" json:"interval"`
 	LastSyncTime  *time.Time `json:"last_sync_time"`
@@ -980,8 +980,8 @@ type AccessRule struct {
 	BindIPDBIDs string `gorm:"type:text" json:"bind_ipdb_ids"`          // JSON 数组，绑定 IP 地址库条目 ID 列表
 	BindSiteIDs string `gorm:"type:text" json:"bind_site_ids"`          // JSON 数组，绑定网站服务（CaddySite）ID 列表
 	// 用户认证策略
-	AuthMode       string `gorm:"size:20;default:''" json:"auth_mode"` // 空=不要求登录, basic_auth=Basic Auth, page_login=页面跳转登录
-	AllowedUserIDs string `gorm:"type:text" json:"allowed_user_ids"`   // JSON 数组，允许访问的用户 ID 列表（空数组=所有已登录用户）
+	AuthMode       string `gorm:"size:20;default:''" json:"auth_mode"`       // 空=不要求登录, basic_auth=Basic Auth, page_login=页面跳转登录
+	AllowedUserIDs string `gorm:"type:text" json:"allowed_user_ids"`         // JSON 数组，允许访问的用户 ID 列表（空数组=所有已登录用户）
 	Remark         string `gorm:"size:500" json:"remark"`
 }
 
@@ -993,7 +993,7 @@ type WafConfig struct {
 	Name   string `gorm:"size:100;not null" json:"name"`
 	Enable bool   `gorm:"default:false" json:"enable"`
 	// 规则集配置
-	EnableCRS  bool   `gorm:"default:true" json:"enable_crs"`           // 启用 OWASP CRS 规则集
+	EnableCRS  bool   `gorm:"default:true" json:"enable_crs"`   // 启用 OWASP CRS 规则集
 	CRSVersion string `gorm:"size:20;default:'4.0'" json:"crs_version"` // CRS 版本
 	// 自定义规则（SecLang 格式）
 	CustomRules string `gorm:"type:text" json:"custom_rules"`
@@ -1020,6 +1020,22 @@ type WafLog struct {
 	RuleMsg     string `gorm:"size:500" json:"rule_msg"`
 	Severity    string `gorm:"size:20" json:"severity"` // CRITICAL/ERROR/WARNING/NOTICE
 	Action      string `gorm:"size:20" json:"action"`   // block/detect
+}
+
+// WafBan WAF 封禁 / 黑白名单
+type WafBan struct {
+	BaseModel
+	IP       string `gorm:"size:100;not null;index" json:"ip"` // IP 或 CIDR
+	Type     string `gorm:"size:20;default:'black'" json:"type"` // black（黑名单/封禁）/ white（白名单）
+	Source   string `gorm:"size:20;default:'manual'" json:"source"` // manual（手动）/ auto（自动）
+	Reason   string `gorm:"size:500" json:"reason"`
+	ExpireAt *time.Time `json:"expire_at"` // 过期时间，nil=永久
+	Enable   bool   `gorm:"default:true" json:"enable"`
+	// 联动系统防火墙规则 ID（ApplyRule 创建，解除时 RemoveRule）
+	FirewallRuleID uint `json:"firewall_rule_id"`
+	ApplyStatus    string `gorm:"size:20;default:'pending'" json:"apply_status"` // pending/applied/error
+	LastError      string `gorm:"type:text" json:"last_error"`
+	Remark         string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 系统防火墙 =====
@@ -1084,10 +1100,10 @@ type CloudflareTunnel struct {
 // CallbackAccount 回调账号
 type CallbackAccount struct {
 	BaseModel
-	Name   string `gorm:"size:100;not null" json:"name"`
-	Type   string `gorm:"size:30;not null" json:"type"` // cf_origin/ali_esa/tencent_eo/webhook
-	Config string `gorm:"type:text" json:"config"`      // JSON 配置
-	Remark string `gorm:"size:500" json:"remark"`
+	Name     string `gorm:"size:100;not null" json:"name"`
+	Type     string `gorm:"size:30;not null" json:"type"` // cf_origin/ali_esa/tencent_eo/webhook
+	Config   string `gorm:"type:text" json:"config"`      // JSON 配置
+	Remark   string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 回调任务 =====
@@ -1095,16 +1111,16 @@ type CallbackAccount struct {
 // CallbackTask 回调任务
 type CallbackTask struct {
 	BaseModel
-	Name              string     `gorm:"size:100;not null" json:"name"`
-	Enable            bool       `gorm:"default:false" json:"enable"`
-	AccountType       string     `gorm:"size:20;default:'callback'" json:"account_type"` // callback/domain
-	AccountID         uint       `json:"account_id"`
-	TriggerType       string     `gorm:"size:30;default:'stun'" json:"trigger_type"` // stun/frp/easytier
-	TriggerSourceID   uint       `json:"trigger_source_id"`
-	ActionConfig      string     `gorm:"type:text" json:"action_config"` // JSON 配置
+	Name              string `gorm:"size:100;not null" json:"name"`
+	Enable            bool   `gorm:"default:false" json:"enable"`
+	AccountType       string `gorm:"size:20;default:'callback'" json:"account_type"` // callback/domain
+	AccountID         uint   `json:"account_id"`
+	TriggerType       string `gorm:"size:30;default:'stun'" json:"trigger_type"` // stun/frp/easytier
+	TriggerSourceID   uint   `json:"trigger_source_id"`
+	ActionConfig      string `gorm:"type:text" json:"action_config"` // JSON 配置
 	LastTriggerTime   *time.Time `json:"last_trigger_time"`
-	LastTriggerResult string     `gorm:"type:text" json:"last_trigger_result"`
-	Remark            string     `gorm:"size:500" json:"remark"`
+	LastTriggerResult string `gorm:"type:text" json:"last_trigger_result"`
+	Remark            string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 系统日志 =====
@@ -1148,7 +1164,7 @@ type OAuthProviderConfig struct {
 	IssuerURL    string `gorm:"size:500" json:"issuer_url"`   // OIDC Discovery URL
 	Scopes       string `gorm:"size:500;default:'openid profile email'" json:"scopes"`
 	RedirectURI  string `gorm:"size:500" json:"redirect_uri"`
-	Icon         string `gorm:"size:100" json:"icon"` // 图标名称
+	Icon         string `gorm:"size:100" json:"icon"`          // 图标名称
 	DisplayOrder int    `gorm:"default:0" json:"display_order"`
 	Enable       bool   `gorm:"default:true" json:"enable"`
 	Remark       string `gorm:"size:500" json:"remark"`
@@ -1164,13 +1180,13 @@ type WireguardConfig struct {
 	PrivateKey string `gorm:"size:255" json:"private_key"` // 本节点私钥（Base64）
 	PublicKey  string `gorm:"size:255" json:"public_key"`  // 本节点公钥（自动生成，只读）
 	ListenPort int    `gorm:"default:51820" json:"listen_port"`
-	Address    string `gorm:"size:255" json:"address"`    // 接口地址，如 10.0.0.1/24
-	DNS        string `gorm:"size:500" json:"dns"`        // DNS 服务器，逗号分隔
-	MTU        int    `gorm:"default:1420" json:"mtu"`    // MTU 值
-	Table      string `gorm:"size:50" json:"table"`       // 路由表，如 auto、off 或具体表号
-	PreUp      string `gorm:"type:text" json:"pre_up"`    // 启动前执行的命令
-	PostUp     string `gorm:"type:text" json:"post_up"`   // 启动后执行的命令
-	PreDown    string `gorm:"type:text" json:"pre_down"`  // 停止前执行的命令
+	Address    string `gorm:"size:255" json:"address"`  // 接口地址，如 10.0.0.1/24
+	DNS        string `gorm:"size:500" json:"dns"`      // DNS 服务器，逗号分隔
+	MTU        int    `gorm:"default:1420" json:"mtu"`   // MTU 值
+	Table      string `gorm:"size:50" json:"table"`      // 路由表，如 auto、off 或具体表号
+	PreUp      string `gorm:"type:text" json:"pre_up"`   // 启动前执行的命令
+	PostUp     string `gorm:"type:text" json:"post_up"`  // 启动后执行的命令
+	PreDown    string `gorm:"type:text" json:"pre_down"` // 停止前执行的命令
 	PostDown   string `gorm:"type:text" json:"post_down"` // 停止后执行的命令
 	Status     string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError  string `gorm:"type:text" json:"last_error"`
@@ -1180,15 +1196,15 @@ type WireguardConfig struct {
 // WireguardPeer WireGuard 对等节点
 type WireguardPeer struct {
 	BaseModel
-	WireguardID         uint   `gorm:"not null;index" json:"wireguard_id"`    // 关联的 WireGuard 接口 ID
-	Name                string `gorm:"size:100" json:"name"`                  // 对等节点名称
-	PublicKey           string `gorm:"size:255;not null" json:"public_key"`   // 对等节点公钥
-	PresharedKey        string `gorm:"size:255" json:"preshared_key"`         // 预共享密钥（可选）
-	Endpoint            string `gorm:"size:255" json:"endpoint"`              // 对端地址，如 1.2.3.4:51820
-	AllowedIPs          string `gorm:"size:500;not null" json:"allowed_ips"`  // 允许的 IP 段，逗号分隔，如 10.0.0.2/32,192.168.1.0/24
-	PersistentKeepalive int    `gorm:"default:0" json:"persistent_keepalive"` // 持久保活间隔（秒），0 表示禁用
-	Enable              bool   `gorm:"default:true" json:"enable"`
-	Remark              string `gorm:"size:500" json:"remark"`
+	WireguardID       uint   `gorm:"not null;index" json:"wireguard_id"` // 关联的 WireGuard 接口 ID
+	Name              string `gorm:"size:100" json:"name"`               // 对等节点名称
+	PublicKey         string `gorm:"size:255;not null" json:"public_key"` // 对等节点公钥
+	PresharedKey      string `gorm:"size:255" json:"preshared_key"`       // 预共享密钥（可选）
+	Endpoint          string `gorm:"size:255" json:"endpoint"`            // 对端地址，如 1.2.3.4:51820
+	AllowedIPs        string `gorm:"size:500;not null" json:"allowed_ips"` // 允许的 IP 段，逗号分隔，如 10.0.0.2/32,192.168.1.0/24
+	PersistentKeepalive int  `gorm:"default:0" json:"persistent_keepalive"` // 持久保活间隔（秒），0 表示禁用
+	Enable            bool   `gorm:"default:true" json:"enable"`
+	Remark            string `gorm:"size:500" json:"remark"`
 }
 
 // ===== 组网节点管理 =====
@@ -1196,17 +1212,17 @@ type WireguardPeer struct {
 // MeshNode 组网节点
 type MeshNode struct {
 	BaseModel
-	Name          string     `gorm:"size:100;not null" json:"name"`  // 节点名称
-	URL           string     `gorm:"size:500;not null" json:"url"`   // 节点URL（如 http://192.168.1.100:8080）
-	AdminUser     string     `gorm:"size:100" json:"admin_user"`     // 管理员用户名
-	AdminPassword string     `gorm:"size:255" json:"admin_password"` // 管理员密码
-	Enable        bool       `gorm:"default:true" json:"enable"`     // 是否启用
-	Remark        string     `gorm:"size:500" json:"remark"`         // 节点备注
-	NodeIP        string     `gorm:"size:100" json:"node_ip"`        // 节点IP（只读，从URL解析或心跳获取）
-	IsOnline      bool       `gorm:"default:false" json:"is_online"` // 节点是否在线（只读，心跳检测）
-	LastHeartbeat *time.Time `json:"last_heartbeat"`                 // 最后心跳时间
+	Name          string `gorm:"size:100;not null" json:"name"`           // 节点名称
+	URL           string `gorm:"size:500;not null" json:"url"`            // 节点URL（如 http://192.168.1.100:8080）
+	AdminUser     string `gorm:"size:100" json:"admin_user"`             // 管理员用户名
+	AdminPassword string `gorm:"size:255" json:"admin_password"`         // 管理员密码
+	Enable        bool   `gorm:"default:true" json:"enable"`             // 是否启用
+	Remark        string `gorm:"size:500" json:"remark"`                 // 节点备注
+	NodeIP        string `gorm:"size:100" json:"node_ip"`                // 节点IP（只读，从URL解析或心跳获取）
+	IsOnline      bool   `gorm:"default:false" json:"is_online"`         // 节点是否在线（只读，心跳检测）
+	LastHeartbeat *time.Time `json:"last_heartbeat"`                     // 最后心跳时间
 	// Latency 当前节点到此节点的延迟（毫秒），-1 表示不可达
-	Latency int `gorm:"default:-1" json:"latency"`
+	Latency       int    `gorm:"default:-1" json:"latency"`
 	// PeerLatencies 节点之间连通性（JSON字典），格式：{"node_id": latency_ms}，-1 表示不可达
 	PeerLatencies string `gorm:"type:text" json:"peer_latencies"`
 }
@@ -1214,11 +1230,11 @@ type MeshNode struct {
 // MeshNodeEvent 组网节点事件
 type MeshNodeEvent struct {
 	ID        uint      `gorm:"primarykey" json:"id"`
-	NodeID    uint      `gorm:"index" json:"node_id"`            // 关联节点ID（0表示系统事件）
-	NodeName  string    `gorm:"size:100" json:"node_name"`       // 节点名称（冗余，方便查询）
-	EventType string    `gorm:"size:50;index" json:"event_type"` // online/offline/created/updated/deleted
-	Message   string    `gorm:"type:text" json:"message"`        // 事件描述
-	EventTime time.Time `gorm:"index" json:"event_time"`         // 事件时间
+	NodeID    uint      `gorm:"index" json:"node_id"`                   // 关联节点ID（0表示系统事件）
+	NodeName  string    `gorm:"size:100" json:"node_name"`              // 节点名称（冗余，方便查询）
+	EventType string   `gorm:"size:50;index" json:"event_type"`        // online/offline/created/updated/deleted
+	Message   string   `gorm:"type:text" json:"message"`               // 事件描述
+	EventTime time.Time `gorm:"index" json:"event_time"`               // 事件时间
 }
 
 // ===== AI 管理模块 =====

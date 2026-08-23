@@ -387,7 +387,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/security/firewall/sync-status", firewallHandler.GetSyncStatus)
 
 	// WAF 防火墙（Coraza，参考 coraza WAF 和 lucky 安全模块）
-	wafHandler := handlers.NewWafHandler(opts.DB, opts.Log)
+	wafHandler := handlers.NewWafHandler(opts.DB, opts.Log, opts.FirewallMgr)
 	auth.GET("/security/waf", wafHandler.List)
 	auth.POST("/security/waf", wafHandler.Create)
 	auth.PUT("/security/waf/:id", wafHandler.Update)
@@ -396,6 +396,15 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/security/waf/:id/stop", wafHandler.Stop)
 	auth.GET("/security/waf/:id/logs", wafHandler.GetLogs)
 	auth.POST("/security/waf/:id/test", wafHandler.TestRule)
+	// 安全中心：攻击事件与态势统计
+	auth.GET("/security/waf/events", wafHandler.EventList)
+	auth.GET("/security/waf/stats", wafHandler.Stats)
+	// 安全中心：封禁 / 黑白名单
+	auth.GET("/security/waf/bans", wafHandler.BanList)
+	auth.POST("/security/waf/bans", wafHandler.BanCreate)
+	auth.DELETE("/security/waf/bans/:id", wafHandler.BanDelete)
+	auth.POST("/security/waf/bans/:id/apply", wafHandler.BanApply)
+	auth.POST("/security/waf/bans/:id/remove", wafHandler.BanRemove)
 
 	// 回调账号
 	cbAccountHandler := handlers.NewCallbackAccountHandler(opts.DB, opts.Log, opts.CallbackMgr)
@@ -537,7 +546,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/monitor/tunnels/:id", monitorHandler.UpdateTunnelBinding)
 	auth.DELETE("/monitor/tunnels/:id", monitorHandler.DeleteTunnelBinding)
 	auth.POST("/monitor/tunnels/:id/sync", monitorHandler.SyncTunnelStatus)
-	
+
 	// WebSocket 终端（无需 JWT，通过 query 参数认证）
 	r.GET("/ws/terminal", monitorHandler.HandleTerminal)
 
