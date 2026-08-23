@@ -466,6 +466,7 @@ const en = {
     modeQuick: 'Quick (Temporary Tunnel)',
     modeNamed: 'Named (Named Tunnel)',
     modeToken: 'Token (Remote Config)',
+    quickUrl: 'Quick URL',
     binaryNotFound: 'cloudflared binary not found',
     binaryPath: 'Binary Path',
     downloadBinary: 'Download cloudflared',

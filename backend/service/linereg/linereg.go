@@ -41,6 +41,11 @@ type Manager struct {
 	// dnsUpdater 选线切换回调：把服务域名指向选中线路入口 IP（DNS 层切换）。
 	// 由上层注入（main.go），避免本包依赖 dnsmasq。
 	dnsUpdater func(domain, ip string) error
+	// portRebinder 选线切换回调：重建端口层服务的穿透规则（先停后起，
+	// 短暂抖动可接受），把本地监听入口重新绑定到当前选中线路。
+	// 仅作用于未绑定 Caddy 站点、未配置域名的纯 TCP/UDP 端口层服务。
+	// 由上层注入（main.go），避免本包依赖各工具 manager。
+	portRebinder func(svcID uint, lineID string) error
 
 	// lastUpstream 记录每个 Caddy 站点最近一次成功切换的上游目标（siteID -> upstream）。
 	// 切换失败时回滚到该值，避免 Caddy 反代目标与选中线路不一致。
@@ -99,6 +104,13 @@ func (m *Manager) SetDNSUpdater(fn func(domain, ip string) error) {
 	m.dnsUpdater = fn
 }
 
+// SetPortRebinder 注入端口层切换回调（端口层切换落地）。
+// 选线结果变化时，会重建未绑定 Caddy/DNS 的纯 TCP/UDP 服务的穿透规则，
+// 使本地监听入口跟随当前选中线路。
+func (m *Manager) SetPortRebinder(fn func(svcID uint, lineID string) error) {
+	m.portRebinder = fn
+}
+
 // Start 启动后台守护：立即执行一轮刷新与测速，之后按 interval 周期循环。
 func (m *Manager) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -143,9 +155,11 @@ func (m *Manager) refresh(ctx context.Context) {
 	m.selector.ProbeAll(ctx)
 	sel := m.selector.Select()
 	m.saveHistory()
-	// 切换落地：选线结果同步到绑定的 Caddy 站点（域名层）与 DNS 解析（DNS 层）
+	// 切换落地：选线结果同步到绑定的 Caddy 站点（域名层）、DNS 解析（DNS 层）
+	// 与未绑定 Caddy/DNS 的端口层服务（端口层重绑）
 	m.applyCaddySwitch(sel.LineID)
 	m.applyDNSSwitch(sel.LineID)
+	m.applyPortSwitch(sel.LineID)
 	m.log.Infof("[线路选择] 共 %d 条线路，当前线路: %q", len(lines), sel.LineID)
 }
 
@@ -249,6 +263,42 @@ func (m *Manager) applyDNSSwitch(lineID string) {
 			} else {
 				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
 				m.log.Infof("[线路选择] DNS 解析 %s -> %s 已切换", svc.Domain, host)
+			}
+			break
+		}
+	}
+}
+
+// applyPortSwitch 将当前选中线路同步到端口层服务（端口层切换落地）。
+// 端口层服务 = 未绑定 Caddy 站点（caddy_site_id=0）且未配置域名
+// （domain 为空）的纯 TCP/UDP 服务——HTTP/HTTPS 走域名层（Caddy），
+// 带域名的走 DNS 层，其余走端口映射。选线变化时重建受影响规则，
+// 把本地监听入口重新绑定到当前线路（先停后起，短暂抖动可接受）。
+func (m *Manager) applyPortSwitch(lineID string) {
+	if lineID == "" || m.portRebinder == nil {
+		return
+	}
+	var services []model.TunService
+	if err := m.db.Where("caddy_site_id = ? AND (domain IS NULL OR domain = '')", 0).Find(&services).Error; err != nil {
+		m.log.Warnf("[线路选择] 查询端口层服务失败: %v", err)
+		return
+	}
+	for _, svc := range services {
+		var refs []string
+		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
+			continue
+		}
+		for _, ref := range refs {
+			if ref != lineID {
+				continue
+			}
+			if err := m.portRebinder(svc.ID, lineID); err != nil {
+				m.log.Errorf("[线路选择] 端口层服务 %d 重绑线路 %s 失败: %v", svc.ID, lineID, err)
+				// 记录错误供 UI 排查
+				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
+			} else {
+				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
+				m.log.Infof("[线路选择] 端口层服务 %d 已重绑到线路 %s", svc.ID, lineID)
 			}
 			break
 		}

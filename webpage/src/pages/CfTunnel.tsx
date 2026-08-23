@@ -235,6 +235,19 @@ const CfTunnel: React.FC = () => {
             render: (v: string) => v || '-',
         },
         {
+            title: t('cftunnel.quickUrl'),
+            dataIndex: 'quick_url',
+            width: 240,
+            render: (v: string) =>
+                v ? (
+                    <Typography.Link href={v} target="_blank" rel="noreferrer">
+                        {v}
+                    </Typography.Link>
+                ) : (
+                    '-'
+                ),
+        },
+        {
             title: t('common.status'),
             dataIndex: 'status',
             width: 100,

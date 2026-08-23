@@ -569,7 +569,10 @@ type CftunnelConfig struct {
 	// token 模式：远程配置 token（cloudflared tunnel run --token）
 	Token string `gorm:"type:text" json:"token"`
 	// 协议：http/https，默认 http
-	Protocol  string `gorm:"size:20;default:'http'" json:"protocol"`
+	Protocol string `gorm:"size:20;default:'http'" json:"protocol"`
+	// QuickURL quick 模式的临时隧道地址（每次启动随机生成，
+	// 从 cloudflared stdout 自动提取，供前端直接展示可访问入口）
+	QuickURL  string `gorm:"size:500" json:"quick_url"`
 	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError string `gorm:"type:text" json:"last_error"`
 	Remark    string `gorm:"size:500" json:"remark"`

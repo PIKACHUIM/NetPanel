@@ -474,6 +474,7 @@ const zh = {
     modeQuick: 'Quick（临时隧道）',
     modeNamed: 'Named（命名隧道）',
     modeToken: 'Token（远程配置）',
+    quickUrl: 'Quick 入口',
     binaryNotFound: 'cloudflared 二进制未找到',
     binaryPath: '二进制路径',
     downloadBinary: '下载 cloudflared',

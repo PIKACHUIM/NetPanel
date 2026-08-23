@@ -119,6 +119,54 @@ func (m *Manager) Stop(id uint) {
 	}
 }
 
+// RebindPort 端口层切换落地：把服务关联的穿透规则重建到当前选中线路。
+//
+// 语义（先停后起，短暂抖动可接受）：
+//   - 停掉服务下「非选中线路」的运行中客户端，使端口映射只跟随当前线路；
+//   - 确保选中线路的客户端已运行（未运行时启动，运行中保持，避免无谓重启）。
+//
+// 仅服务处于启用状态时生效；由 linereg 在选线变化时调用。
+func (m *Manager) RebindPort(svcID uint, lineID string) error {
+	var svc model.TunService
+	if err := m.db.First(&svc, svcID).Error; err != nil {
+		return err
+	}
+	if !svc.Enable {
+		return nil
+	}
+	var refs []string
+	if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
+		return nil
+	}
+	selected := false
+	for _, ref := range refs {
+		if ref == lineID {
+			selected = true
+			break
+		}
+	}
+	if !selected {
+		return nil
+	}
+	// 1) 停掉非选中线路的运行中客户端
+	for _, ref := range refs {
+		if ref != lineID && m.toolStatus(ref) == "running" {
+			m.stopLine(ref)
+			m.log.Infof("[穿透服务][%d] 停止非选中线路客户端 %s", svcID, ref)
+		}
+	}
+	// 2) 确保选中线路客户端运行（未运行才启动，避免每轮刷新无谓重启）
+	if m.toolStatus(lineID) == "running" {
+		return nil
+	}
+	if err := m.startLine(lineID); err != nil {
+		m.log.Errorf("[穿透服务][%d] 启动选中线路 %s 失败: %v", svcID, lineID, err)
+		return err
+	}
+	m.log.Infof("[穿透服务][%d] 端口层已重绑到线路 %s", svcID, lineID)
+	return nil
+}
+
 // History 返回服务关联线路的探测历史（按线路分组，每条线路取最近 limit 条）。
 func (m *Manager) History(id uint, limit int) (map[string][]model.ProbeHistory, error) {
 	svc, err := m.Get(id)
