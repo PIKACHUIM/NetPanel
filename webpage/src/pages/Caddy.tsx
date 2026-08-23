@@ -107,6 +107,11 @@ const Caddy: React.FC = () => {
             : <Tag icon={<LinkOutlined />}>http</Tag>
           }
           <Text code>{r.domain || '*'}:{r.port || 80}</Text>
+          {r.domain && r.domain !== '*' && !r.domain.startsWith(':') && (
+            <Tooltip title={t('caddy.ipv6DirectTip')}>
+              <Tag icon={<LinkOutlined />} color="purple">{t('caddy.ipv6Direct')}</Tag>
+            </Tooltip>
+          )}
         </Space>
       ),
     },

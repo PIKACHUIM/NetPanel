@@ -932,6 +932,8 @@ const en = {
     // Table columns
     listenAddress: 'Listen Address',
     targetOrPath: 'Target/Path',
+    ipv6Direct: 'IPv6 Direct',
+    ipv6DirectTip: 'Caddy listens dual-stack: once a DDNS IPv6 (AAAA) task is configured and the firewall opens the IPv6 port, external IPv6 clients can reach the site directly via https://domain:port',
     // Form
     namePlaceholder: 'Site name',
     listenSettings: 'Listen Settings',
