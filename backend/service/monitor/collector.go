@@ -7,10 +7,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
@@ -346,6 +349,66 @@ func (c *Collector) ProbeUDP(addr string, port int, timeout int) (bool, int64, e
 	// UDP 是无连接的，这里只是测试能否创建连接
 	conn.Close()
 	return true, responseTime, nil
+}
+
+// ProbeICMP ICMP 探测（Ping），返回是否可达与往返延迟（毫秒）
+func (c *Collector) ProbeICMP(addr string, timeout int) (bool, int64, error) {
+	// 解析目标地址（支持域名与 IP）
+	ip, err := net.ResolveIPAddr("ip", addr)
+	if err != nil {
+		return false, 0, fmt.Errorf("解析目标地址失败: %w", err)
+	}
+	
+	// ICMP 原始套接字需要特权（Linux root / macOS 亦需权限）
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		return false, 0, fmt.Errorf("创建 ICMP 套接字失败（可能需要管理员/root 权限）: %w", err)
+	}
+	defer conn.Close()
+	
+	// 构造 Echo 请求
+	msg := icmp.Message{
+		Type: ipv4.ICMPTypeEcho,
+		Code: 0,
+		Body: &icmp.Echo{
+			ID:   os.Getpid() & 0xffff,
+			Seq:  1,
+			Data: []byte("netpanel-monitor"),
+		},
+	}
+	
+	msgBytes, err := msg.Marshal(nil)
+	if err != nil {
+		return false, 0, err
+	}
+	
+	// 设置读取超时
+	if err := conn.SetDeadline(time.Now().Add(time.Duration(timeout) * time.Second)); err != nil {
+		return false, 0, err
+	}
+	
+	start := time.Now()
+	if _, err := conn.WriteTo(msgBytes, &net.IPAddr{IP: ip.IP}); err != nil {
+		return false, time.Since(start).Milliseconds(), err
+	}
+	
+	// 读取 Echo Reply
+	reply := make([]byte, 1500)
+	n, _, err := conn.ReadFrom(reply)
+	responseTime := time.Since(start).Milliseconds()
+	if err != nil {
+		return false, responseTime, err
+	}
+	
+	replyMsg, err := icmp.ParseMessage(1, reply[:n])
+	if err != nil {
+		return false, responseTime, err
+	}
+	
+	if replyMsg.Type == ipv4.ICMPTypeEchoReply {
+		return true, responseTime, nil
+	}
+	return false, responseTime, fmt.Errorf("收到非预期 ICMP 回复类型: %v", replyMsg.Type)
 }
 
 // CloseSSHConnections 关闭所有 SSH 连接
