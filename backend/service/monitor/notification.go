@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"mime"
 	"net/http"
+	"net/smtp"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -75,9 +77,68 @@ func (n *NotificationManager) sendWebhook(account model.CallbackAccount, title, 
 
 // sendEmail 发送邮件通知
 func (n *NotificationManager) sendEmail(account model.CallbackAccount, title, message string) error {
-	// TODO: 实现 SMTP 邮件发送
-	log.Printf("[Notification] 邮件通知暂未实现: %s\n", title)
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(account.Config), &config); err != nil {
+		return err
+	}
+
+	host, _ := config["smtp_host"].(string)
+	if host == "" {
+		return fmt.Errorf("SMTP 服务器地址未配置")
+	}
+	port := 587
+	if p, ok := config["smtp_port"].(float64); ok && p > 0 {
+		port = int(p)
+	}
+	user, _ := config["smtp_user"].(string)
+	password, _ := config["smtp_password"].(string)
+	from, _ := config["smtp_from"].(string)
+	if from == "" {
+		return fmt.Errorf("发件人地址未配置")
+	}
+	toEmails := parseEmailList(config["to_emails"])
+	if len(toEmails) == 0 {
+		return fmt.Errorf("收件人地址未配置")
+	}
+
+	msg := buildEmailMessage(from, toEmails, title, message)
+	addr := fmt.Sprintf("%s:%d", host, port)
+
+	var auth smtp.Auth
+	if user != "" {
+		auth = smtp.PlainAuth("", user, password, host)
+	}
+
+	if err := smtp.SendMail(addr, auth, from, toEmails, msg); err != nil {
+		return fmt.Errorf("SMTP 发送失败: %w", err)
+	}
 	return nil
+}
+
+// parseEmailList 解析逗号分隔的收件人列表并去空
+func parseEmailList(raw interface{}) []string {
+	s, _ := raw.(string)
+	if s == "" {
+		return nil
+	}
+	var emails []string
+	for _, part := range strings.Split(s, ",") {
+		if e := strings.TrimSpace(part); e != "" {
+			emails = append(emails, e)
+		}
+	}
+	return emails
+}
+
+// buildEmailMessage 构造 RFC 5322 邮件内容
+func buildEmailMessage(from string, to []string, title, message string) []byte {
+	var buf bytes.Buffer
+	header := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nDate: %s\r\n\r\n",
+		from, strings.Join(to, ", "), mime.QEncoding.Encode("UTF-8", title), time.Now().Format(time.RFC1123Z))
+	buf.WriteString(header)
+	buf.WriteString(message)
+	buf.WriteString("\r\n")
+	return buf.Bytes()
 }
 
 // sendWechatWork 发送企业微信通知
