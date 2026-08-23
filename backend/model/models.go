@@ -882,6 +882,9 @@ type DnsmasqConfig struct {
 	ListenAddr  string `gorm:"size:100;default:'0.0.0.0'" json:"listen_addr"`
 	ListenPort  int    `gorm:"default:53" json:"listen_port"`
 	UpstreamDNS string `gorm:"type:text" json:"upstream_dns"` // JSON 数组
+	// DNS64:纯 IPv6 客户端访问 IPv4 服务时,为无 AAAA 记录的域名合成 NAT64 前缀的 AAAA
+	EnableDNS64 bool   `gorm:"default:false" json:"enable_dns64"`
+	NAT64Prefix string `gorm:"size:64;default:'64:ff9b::/96'" json:"nat64_prefix"`
 	Status      string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError   string `gorm:"type:text" json:"last_error"`
 }
