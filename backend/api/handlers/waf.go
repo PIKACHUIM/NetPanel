@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/service/waf"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -69,24 +70,37 @@ func (h *WafHandler) Start(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "WAF 配置不存在"})
 		return
 	}
-	// TODO: 启动 Coraza WAF 引擎
+	if waf.Default == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "WAF 引擎未初始化"})
+		return
+	}
+	if err := waf.Default.Start(uint(id)); err != nil {
+		h.log.Errorf("[WAF] 启动失败: id=%d err=%v", id, err)
+		h.db.Model(&model.WafConfig{}).Where("id = ?", id).Updates(map[string]any{
+			"enable":     false,
+			"status":     "error",
+			"last_error": err.Error(),
+		})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	h.log.Infof("[WAF] 启动: id=%d name=%s", id, cfg.Name)
-	h.db.Model(&model.WafConfig{}).Where("id = ?", id).Updates(map[string]any{
-		"enable": true,
-		"status": "running",
-	})
-	logger.WriteLog("info", "waf", fmt.Sprintf("启动WAF [%d] %s", id, cfg.Name))
+	logger.WriteLog("info", "waf", fmt.Sprintf("启动WAF [%d] %s", cfg.ID, cfg.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
 func (h *WafHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	// TODO: 停止 Coraza WAF 引擎
+	if waf.Default == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "WAF 引擎未初始化"})
+		return
+	}
+	if err := waf.Default.Stop(uint(id)); err != nil {
+		h.log.Errorf("[WAF] 停止失败: id=%d err=%v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	h.log.Infof("[WAF] 停止: id=%d", id)
-	h.db.Model(&model.WafConfig{}).Where("id = ?", id).Updates(map[string]any{
-		"enable": false,
-		"status": "stopped",
-	})
 	logger.WriteLog("info", "waf", fmt.Sprintf("停止WAF [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
@@ -121,7 +135,17 @@ func (h *WafHandler) TestRule(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	// TODO: 使用 Coraza 解析并验证规则语法
+
+	if waf.Default == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "WAF 引擎未初始化"})
+		return
+	}
+	if err := waf.Default.TestRule(req.Rule); err != nil {
+		h.log.Errorf("[WAF] 规则校验失败: id=%d err=%v", id, err)
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": fmt.Sprintf("规则语法错误: %v", err)})
+		return
+	}
+
 	h.log.Infof("[WAF] 测试规则: id=%d rule=%s", id, req.Rule)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "规则语法正确"})
 }
