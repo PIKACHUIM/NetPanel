@@ -4,13 +4,17 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
@@ -20,10 +24,51 @@ type FrpcHandler struct {
 	db  *gorm.DB
 	log *logrus.Logger
 	mgr *frp.Manager
+
+	// SpeedTest IP 级限流：10 次/分钟，防止接口被滥用为端口扫描
+	speedTestMu       sync.Mutex
+	speedTestLimiters map[string]*speedTestLimiterEntry
+}
+
+type speedTestLimiterEntry struct {
+	limiter  *rate.Limiter
+	lastUsed time.Time
 }
 
 func NewFrpcHandler(db *gorm.DB, log *logrus.Logger, mgr *frp.Manager) *FrpcHandler {
-	return &FrpcHandler{db: db, log: log, mgr: mgr}
+	return &FrpcHandler{
+		db:                db,
+		log:               log,
+		mgr:               mgr,
+		speedTestLimiters: make(map[string]*speedTestLimiterEntry),
+	}
+}
+
+// getSpeedTestLimiter 返回指定客户端 IP 的限流器，同时惰性清理 10 分钟未使用的条目。
+func (h *FrpcHandler) getSpeedTestLimiter(clientIP string) *rate.Limiter {
+	h.speedTestMu.Lock()
+	defer h.speedTestMu.Unlock()
+
+	if entry, ok := h.speedTestLimiters[clientIP]; ok {
+		entry.lastUsed = time.Now()
+		return entry.limiter
+	}
+
+	limiter := rate.NewLimiter(rate.Every(time.Minute/10), 1)
+	h.speedTestLimiters[clientIP] = &speedTestLimiterEntry{
+		limiter:  limiter,
+		lastUsed: time.Now(),
+	}
+
+	// 惰性清理过期条目，避免内存无限增长
+	now := time.Now()
+	for ip, entry := range h.speedTestLimiters {
+		if now.Sub(entry.lastUsed) > 10*time.Minute {
+			delete(h.speedTestLimiters, ip)
+		}
+	}
+
+	return limiter
 }
 
 func (h *FrpcHandler) List(c *gin.Context) {
@@ -151,6 +196,87 @@ func (h *FrpcHandler) DeleteProxy(c *gin.Context) {
 	logger.WriteLog("info", "frp", fmt.Sprintf("删除FRP代理 [%d] 客户端[%d]", pid, id))
 	h.mgr.RestartClient(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
+}
+
+// speedTestTarget 测速目标（去重后的 FRP 服务端地址）
+type speedTestTarget struct {
+	ID         uint
+	Name       string
+	ServerAddr string
+	ServerPort int
+}
+
+// SpeedTest 线路测速：测量所有 FRP 客户端指向的服务端 TCP 握手延迟
+func (h *FrpcHandler) SpeedTest(c *gin.Context) {
+	// IP 级限流（10 次/分钟），防止接口被滥用为端口扫描
+	clientIP := c.ClientIP()
+	if !h.getSpeedTestLimiter(clientIP).Allow() {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"code":  429,
+			"error": "rate limit exceeded (max 10/min)",
+		})
+		return
+	}
+
+	var configs []model.FrpcConfig
+	h.db.Select("id, name, server_addr, server_port").Find(&configs)
+
+	// 按 (server_addr, server_port) 去重，多个客户端可能指向同一台服务端
+	seen := make(map[string]struct{})
+	var targets []speedTestTarget
+	for _, cfg := range configs {
+		key := fmt.Sprintf("%s:%d", cfg.ServerAddr, cfg.ServerPort)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, speedTestTarget{cfg.ID, cfg.Name, cfg.ServerAddr, cfg.ServerPort})
+	}
+
+	if len(targets) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": []gin.H{}})
+		return
+	}
+
+	timeout := 5 * time.Second
+	results := make([]gin.H, len(targets))
+	var wg sync.WaitGroup
+	for i, t := range targets {
+		wg.Add(1)
+		go func(i int, t speedTestTarget) {
+			defer wg.Done()
+			addr := net.JoinHostPort(t.ServerAddr, strconv.Itoa(t.ServerPort))
+			start := time.Now()
+			conn, err := net.DialTimeout("tcp", addr, timeout)
+			if err != nil {
+				results[i] = gin.H{
+					"id": t.ID, "name": t.Name,
+					"server_addr": t.ServerAddr, "server_port": t.ServerPort,
+					"latency_ms": int64(0), "status": "unreachable", "error": err.Error(),
+				}
+				return
+			}
+			conn.Close()
+			results[i] = gin.H{
+				"id": t.ID, "name": t.Name,
+				"server_addr": t.ServerAddr, "server_port": t.ServerPort,
+				"latency_ms": time.Since(start).Milliseconds(), "status": "ok",
+			}
+		}(i, t)
+	}
+	wg.Wait()
+
+	// 按延迟升序排序，不可达的排最后
+	sort.Slice(results, func(i, j int) bool {
+		si := results[i]["status"].(string)
+		sj := results[j]["status"].(string)
+		if si != sj {
+			return si == "ok"
+		}
+		return results[i]["latency_ms"].(int64) < results[j]["latency_ms"].(int64)
+	})
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": results})
 }
 
 // ===== FRP 服务端 =====

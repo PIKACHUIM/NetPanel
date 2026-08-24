@@ -31,6 +31,7 @@ export const frpcApi = {
   delete: (id: number) => request.delete(`/v1/frpc/${id}`),
   start: (id: number) => request.post(`/v1/frpc/${id}/start`),
   stop: (id: number) => request.post(`/v1/frpc/${id}/stop`),
+  speedtest: () => request.get('/v1/frpc/speedtest'),
   restart: (id: number) => request.post(`/v1/frpc/${id}/restart`),
 }
 
@@ -566,4 +567,10 @@ export const monitorApi = {
   updateTunnelBinding: (id: number, data: any) => request.put(`/v1/monitor/tunnels/${id}`, data),
   deleteTunnelBinding: (id: number) => request.delete(`/v1/monitor/tunnels/${id}`),
   syncTunnelStatus: (id: number) => request.post(`/v1/monitor/tunnels/${id}/sync`),
+}
+
+// ===== 首次初始化 =====
+export const initApi = {
+  status: () => request.get('/v1/init/status'),
+  setup: (data: { username: string; password: string }) => request.post('/v1/init/setup', data),
 }

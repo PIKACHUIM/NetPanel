@@ -189,6 +189,14 @@ const en = {
     customDomains: 'Custom Domains',
     subdomain: 'Subdomain',
     addProxy: 'Add Proxy',
+    // Line speed test
+    speedTest: 'Speed Test',
+    speedTestResult: 'Speed Test Result',
+    latency: 'Latency',
+    reachable: 'Reachable',
+    unreachable: 'Unreachable',
+    noFrpc: 'No FRP client to test',
+    speedTestFailed: 'Speed test failed',
     // Client - Table columns
     protocol: 'Protocol',
     proxy: 'Proxy',

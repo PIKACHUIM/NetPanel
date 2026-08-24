@@ -197,6 +197,14 @@ const zh = {
     customDomains: '自定义域名',
     subdomain: '子域名',
     addProxy: '添加代理',
+    // 线路测速
+    speedTest: '线路测速',
+    speedTestResult: '测速结果',
+    latency: '延迟',
+    reachable: '可达',
+    unreachable: '不可达',
+    noFrpc: '暂无可测速的 FRP 客户端',
+    speedTestFailed: '测速失败',
     // 客户端 - 表格列
     protocol: '协议',
     proxy: '代理',
