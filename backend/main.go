@@ -299,6 +299,7 @@ func startServer() *http.Server {
 		WireguardMgr:   wireguardMgr,
 		MeshNodeMgr:    meshNodeMgr,
 		TunserviceMgr:  tunserviceMgr,
+		LineregMgr:     lineregMgr,
 		DnsmasqMgr:     dnsmasqMgr,
 		WolMgr:         wolMgr,
 		CertMgr:        certMgr,

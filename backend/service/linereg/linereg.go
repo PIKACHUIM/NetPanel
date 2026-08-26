@@ -28,6 +28,22 @@ import (
 // DefaultInterval 默认的线路刷新与测速间隔。
 const DefaultInterval = 60 * time.Second
 
+// 探测参数在 SystemConfig 中的键名。
+const (
+	cfgKeyIntervalSec      = "probe_interval_sec"
+	cfgKeyFailureThreshold = "probe_failure_threshold"
+	cfgKeyToleranceMs      = "probe_tolerance_ms"
+	cfgKeyMaxConcurrent    = "probe_max_concurrent"
+)
+
+// 探测参数默认值（与 selector 默认一致）。
+const (
+	defaultIntervalSec      = 60
+	defaultFailureThreshold = 2
+	defaultToleranceMs      = 50
+	defaultMaxConcurrent    = 8
+)
+
 // Manager 线路注册中心：持有 selector，负责周期刷新线路并驱动测速选线。
 type Manager struct {
 	db       *gorm.DB
@@ -92,6 +108,48 @@ func (m *Manager) SetFailureThreshold(n int) {
 	m.selector.SetFailureThreshold(n)
 }
 
+// SetTolerance 透传设置选线防抖容差（须在 Start 前调用）。
+func (m *Manager) SetTolerance(d time.Duration) {
+	m.selector.SetTolerance(d)
+}
+
+// LoadProbeConfig 从 SystemConfig 读取探测策略四项参数并应用。
+// 缺失的键使用默认值。应在 Start 前调用（间隔与并发在首轮探测前生效）。
+func (m *Manager) LoadProbeConfig() error {
+	intervalSec := defaultIntervalSec
+	failureThreshold := defaultFailureThreshold
+	toleranceMs := defaultToleranceMs
+	maxConcurrent := defaultMaxConcurrent
+
+	var cfg model.SystemConfig
+	if err := m.db.Where("key = ?", cfgKeyIntervalSec).First(&cfg).Error; err == nil {
+		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
+			intervalSec = v
+		}
+	}
+	if err := m.db.Where("key = ?", cfgKeyFailureThreshold).First(&cfg).Error; err == nil {
+		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
+			failureThreshold = v
+		}
+	}
+	if err := m.db.Where("key = ?", cfgKeyToleranceMs).First(&cfg).Error; err == nil {
+		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
+			toleranceMs = v
+		}
+	}
+	if err := m.db.Where("key = ?", cfgKeyMaxConcurrent).First(&cfg).Error; err == nil {
+		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
+			maxConcurrent = v
+		}
+	}
+
+	m.SetInterval(time.Duration(intervalSec) * time.Second)
+	m.SetFailureThreshold(failureThreshold)
+	m.SetTolerance(time.Duration(toleranceMs) * time.Millisecond)
+	m.SetMaxConcurrent(maxConcurrent)
+	return nil
+}
+
 // SetCaddyUpdater 注入 Caddy 反代目标切换回调（域名层切换落地）。
 // 选线结果变化时，会把选中线路的入口地址同步到绑定了该线路的 Caddy 站点。
 func (m *Manager) SetCaddyUpdater(fn func(siteID uint, upstream string) error) {
@@ -113,6 +171,12 @@ func (m *Manager) SetPortRebinder(fn func(svcID uint, lineID string) error) {
 
 // Start 启动后台守护：立即执行一轮刷新与测速，之后按 interval 周期循环。
 func (m *Manager) Start() {
+	// 启动前加载探测策略参数（覆盖默认值）
+	if m.db != nil {
+		if err := m.LoadProbeConfig(); err != nil {
+			m.log.Warnf("[线路选择] 加载探测策略失败，使用默认值: %v", err)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.wg.Add(1)
@@ -163,61 +227,88 @@ func (m *Manager) refresh(ctx context.Context) {
 	m.log.Infof("[线路选择] 共 %d 条线路，当前线路: %q", len(lines), sel.LineID)
 }
 
+// effectiveLine 返回某服务在本次选线中的有效线路。
+// 若服务设置了 LockedLine 且该线路存在于其 LineRefs，则使用 LockedLine
+// （服务级锁线优先于全局选线）；否则使用全局选中线路 globalLineID。
+func (m *Manager) effectiveLine(svc model.TunService, globalLineID string) string {
+	if svc.LockedLine != "" {
+		var refs []string
+		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err == nil {
+			for _, ref := range refs {
+				if ref == svc.LockedLine {
+					return svc.LockedLine
+				}
+			}
+		}
+	}
+	return globalLineID
+}
+
 // applyCaddySwitch 将当前选中线路的入口地址同步到绑定了该线路的 Caddy 站点。
 // 通过 caddyUpdater 回调（main.go 注入）热加载 Caddy 反代目标，实现域名层自动切换。
 func (m *Manager) applyCaddySwitch(lineID string) {
 	if lineID == "" || m.caddyUpdater == nil {
 		return
 	}
-	// 找到选中线路的地址（作为 Caddy 反代目标入口）
-	var line selector.Line
-	for _, l := range m.selector.Lines() {
-		if l.ID == lineID {
-			line = l
-			break
-		}
-	}
-	if line.Address == "" {
-		return
-	}
-	// 查找绑定了 Caddy 站点且 LineRefs 包含该线路的服务
+	// 查找绑定了 Caddy 站点的服务
 	var services []model.TunService
 	if err := m.db.Where("caddy_site_id > ?", 0).Find(&services).Error; err != nil {
 		m.log.Warnf("[线路选择] 查询绑定 Caddy 的服务失败: %v", err)
 		return
 	}
 	for _, svc := range services {
+		// 服务级锁线：若 LockedLine 存在于 LineRefs，使用锁定线路；否则用全局线路
+		effLineID := m.effectiveLine(svc, lineID)
+		if effLineID == "" {
+			continue
+		}
+		// 找到有效线路的地址（作为 Caddy 反代目标入口）
+		var line selector.Line
+		for _, l := range m.selector.Lines() {
+			if l.ID == effLineID {
+				line = l
+				break
+			}
+		}
+		if line.Address == "" {
+			continue
+		}
+		// 校验该有效线路确实在服务的 LineRefs 中
 		var refs []string
 		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
 			continue
 		}
+		found := false
 		for _, ref := range refs {
-			if ref != lineID {
-				continue
+			if ref == effLineID {
+				found = true
+				break
 			}
-			if err := m.caddyUpdater(svc.CaddySiteID, line.Address); err != nil {
-				m.log.Errorf("[线路选择] 更新 Caddy 站点 %d 失败: %v", svc.CaddySiteID, err)
-				// 回滚到上一次成功切换的上游目标，避免 Caddy 与新线路不一致
-				m.lastMu.Lock()
-				old, ok := m.lastUpstream[svc.CaddySiteID]
-				m.lastMu.Unlock()
-				if ok && old != "" && old != line.Address {
-					if rerr := m.caddyUpdater(svc.CaddySiteID, old); rerr != nil {
-						m.log.Errorf("[线路选择] 回滚 Caddy 站点 %d 到 %s 失败: %v", svc.CaddySiteID, old, rerr)
-					} else {
-						m.log.Warnf("[线路选择] Caddy 站点 %d 已回滚到 %s", svc.CaddySiteID, old)
-					}
+		}
+		if !found {
+			continue
+		}
+		if err := m.caddyUpdater(svc.CaddySiteID, line.Address); err != nil {
+			m.log.Errorf("[线路选择] 更新 Caddy 站点 %d 失败: %v", svc.CaddySiteID, err)
+			// 回滚到上一次成功切换的上游目标，避免 Caddy 与新线路不一致
+			m.lastMu.Lock()
+			old, ok := m.lastUpstream[svc.CaddySiteID]
+			m.lastMu.Unlock()
+			if ok && old != "" && old != line.Address {
+				if rerr := m.caddyUpdater(svc.CaddySiteID, old); rerr != nil {
+					m.log.Errorf("[线路选择] 回滚 Caddy 站点 %d 到 %s 失败: %v", svc.CaddySiteID, old, rerr)
+				} else {
+					m.log.Warnf("[线路选择] Caddy 站点 %d 已回滚到 %s", svc.CaddySiteID, old)
 				}
-				// 记录错误供 UI 排查
-				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
-			} else {
-				m.lastMu.Lock()
-				m.lastUpstream[svc.CaddySiteID] = line.Address
-				m.lastMu.Unlock()
-				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
-				m.log.Infof("[线路选择] Caddy 站点 %d 反代目标已切换为 %s", svc.CaddySiteID, line.Address)
 			}
-			break
+			// 记录错误供 UI 排查
+			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
+		} else {
+			m.lastMu.Lock()
+			m.lastUpstream[svc.CaddySiteID] = line.Address
+			m.lastMu.Unlock()
+			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
+			m.log.Infof("[线路选择] Caddy 站点 %d 反代目标已切换为 %s", svc.CaddySiteID, line.Address)
 		}
 	}
 }
@@ -229,42 +320,52 @@ func (m *Manager) applyDNSSwitch(lineID string) {
 	if lineID == "" || m.dnsUpdater == nil {
 		return
 	}
-	// 找到选中线路的地址，仅对 IP 入口做 DNS 切换
-	var line selector.Line
-	for _, l := range m.selector.Lines() {
-		if l.ID == lineID {
-			line = l
-			break
-		}
-	}
-	host := lineHost(line.Address)
-	if host == "" || net.ParseIP(host) == nil {
-		return
-	}
-	// 查找配置了 Domain 且 LineRefs 包含该线路的服务
+	// 查找配置了 Domain 的服务
 	var services []model.TunService
 	if err := m.db.Where("domain != ?", "").Find(&services).Error; err != nil {
 		m.log.Warnf("[线路选择] 查询配置域名服务失败: %v", err)
 		return
 	}
 	for _, svc := range services {
+		// 服务级锁线：若 LockedLine 存在于 LineRefs，使用锁定线路；否则用全局线路
+		effLineID := m.effectiveLine(svc, lineID)
+		if effLineID == "" {
+			continue
+		}
+		// 找到有效线路的地址，仅对 IP 入口做 DNS 切换
+		var line selector.Line
+		for _, l := range m.selector.Lines() {
+			if l.ID == effLineID {
+				line = l
+				break
+			}
+		}
+		host := lineHost(line.Address)
+		if host == "" || net.ParseIP(host) == nil {
+			continue
+		}
+		// 校验该有效线路确实在服务的 LineRefs 中
 		var refs []string
 		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
 			continue
 		}
+		found := false
 		for _, ref := range refs {
-			if ref != lineID {
-				continue
+			if ref == effLineID {
+				found = true
+				break
 			}
-			if err := m.dnsUpdater(svc.Domain, host); err != nil {
-				m.log.Warnf("[线路选择] 更新 DNS 解析 %s -> %s 失败: %v", svc.Domain, host, err)
-				// 记录错误供 UI 排查
-				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
-			} else {
-				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
-				m.log.Infof("[线路选择] DNS 解析 %s -> %s 已切换", svc.Domain, host)
-			}
-			break
+		}
+		if !found {
+			continue
+		}
+		if err := m.dnsUpdater(svc.Domain, host); err != nil {
+			m.log.Warnf("[线路选择] 更新 DNS 解析 %s -> %s 失败: %v", svc.Domain, host, err)
+			// 记录错误供 UI 排查
+			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
+		} else {
+			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
+			m.log.Infof("[线路选择] DNS 解析 %s -> %s 已切换", svc.Domain, host)
 		}
 	}
 }
@@ -284,23 +385,33 @@ func (m *Manager) applyPortSwitch(lineID string) {
 		return
 	}
 	for _, svc := range services {
+		// 服务级锁线：若 LockedLine 存在于 LineRefs，使用锁定线路；否则用全局线路
+		effLineID := m.effectiveLine(svc, lineID)
+		if effLineID == "" {
+			continue
+		}
+		// 校验该有效线路确实在服务的 LineRefs 中
 		var refs []string
 		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
 			continue
 		}
+		found := false
 		for _, ref := range refs {
-			if ref != lineID {
-				continue
+			if ref == effLineID {
+				found = true
+				break
 			}
-			if err := m.portRebinder(svc.ID, lineID); err != nil {
-				m.log.Errorf("[线路选择] 端口层服务 %d 重绑线路 %s 失败: %v", svc.ID, lineID, err)
-				// 记录错误供 UI 排查
-				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
-			} else {
-				m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
-				m.log.Infof("[线路选择] 端口层服务 %d 已重绑到线路 %s", svc.ID, lineID)
-			}
-			break
+		}
+		if !found {
+			continue
+		}
+		if err := m.portRebinder(svc.ID, effLineID); err != nil {
+			m.log.Errorf("[线路选择] 端口层服务 %d 重绑线路 %s 失败: %v", svc.ID, effLineID, err)
+			// 记录错误供 UI 排查
+			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
+		} else {
+			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
+			m.log.Infof("[线路选择] 端口层服务 %d 已重绑到线路 %s", svc.ID, effLineID)
 		}
 	}
 }

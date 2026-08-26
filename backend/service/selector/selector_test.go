@@ -361,3 +361,36 @@ func TestDomainHost(t *testing.T) {
 		}
 	}
 }
+
+// TestSetToleranceChangesHysteresisWindow 验证 SetTolerance 后防抖窗口随之变化：
+// 设置大容差时，当前线路即使比最优慢很多也不切换（在容差内）。
+func TestSetToleranceChangesHysteresisWindow(t *testing.T) {
+	s, f := newFake(
+		mkLines("a", "b"),
+		map[string]time.Duration{"a": 10 * time.Millisecond, "b": 20 * time.Millisecond},
+		nil,
+	)
+	s.ProbeAll(context.Background())
+	first := s.Select()
+	if first.LineID != "a" {
+		t.Fatalf("first select should pick fastest a, got %q", first.LineID)
+	}
+
+	// 设置大容差 500ms：b 提升到 11ms（a=10，差 1ms），应保持 a
+	s.SetTolerance(500 * time.Millisecond)
+	f.latencies["b"] = 11 * time.Millisecond
+	s.ProbeAll(context.Background())
+	second := s.Select()
+	if second.LineID != "a" {
+		t.Fatalf("with large tolerance, expected keep a, got %q", second.LineID)
+	}
+
+	// 切回小容差 1µs：b 提升到 9ms（比 a=10ms 快 1ms），差距 > 容差 → 切到 b
+	s.SetTolerance(1 * time.Microsecond)
+	f.latencies["b"] = 9 * time.Millisecond
+	s.ProbeAll(context.Background())
+	third := s.Select()
+	if third.LineID != "b" {
+		t.Fatalf("with tiny tolerance, expected switch to b, got %q", third.LineID)
+	}
+}

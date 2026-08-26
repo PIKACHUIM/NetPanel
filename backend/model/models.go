@@ -600,6 +600,9 @@ type TunService struct {
 	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError string `gorm:"type:text" json:"last_error"`
 	Remark    string `gorm:"size:500" json:"remark"`
+	// LockedLine 服务级锁线：非空且存在于 LineRefs 时，该服务的有效线路
+	// 固定为 LockedLine，不再跟随全局选线结果切换；空串表示自动（跟随全局）。
+	LockedLine string `gorm:"size:50" json:"locked_line"`
 }
 
 // ===== 线路探测历史（可观测性） =====
