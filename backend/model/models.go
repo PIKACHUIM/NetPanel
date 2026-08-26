@@ -1059,6 +1059,26 @@ type FirewallRule struct {
 	Raw string `gorm:"type:text" json:"raw"`
 }
 
+// ===== CF 隧道（Cloudflare Tunnel，cloudflared） =====
+
+// CloudflareTunnel CF 隧道配置
+type CloudflareTunnel struct {
+	BaseModel
+	Name     string `gorm:"size:100;not null" json:"name"`
+	Type     string `gorm:"size:20;default:'quick'" json:"type"` // quick（快速隧道）/ named（命名隧道）
+	Enable   bool   `gorm:"default:false" json:"enable"`
+	// quick 模式：内网目标地址，如 http://192.168.1.10:5000
+	LocalURL string `gorm:"size:500" json:"local_url"`
+	// named 模式：Cloudflare API Token（仅入库，不回显）
+	Token      string `gorm:"size:1000" json:"-"`
+	TunnelName string `gorm:"size:100" json:"tunnel_name"` // 命名隧道名称
+	Hostname   string `gorm:"size:255" json:"hostname"`    // 公网域名，如 nas.example.com
+	Status     string `gorm:"size:20;default:'stopped'" json:"status"` // stopped/running/error
+	PublicURL  string `gorm:"size:500" json:"public_url"`  // quick 模式运行后生成的 trycloudflare 地址
+	LastError  string `gorm:"type:text" json:"last_error"`
+	Remark     string `gorm:"size:500" json:"remark"`
+}
+
 // ===== 回调账号 =====
 
 // CallbackAccount 回调账号
