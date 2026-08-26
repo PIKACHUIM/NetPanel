@@ -369,6 +369,22 @@ const CfTunnel: React.FC = () => {
                             <Option value="token">{t('cftunnel.modeToken')}</Option>
                         </Select>
                     </Form.Item>
+                    {mode === 'quick' && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            style={{ marginBottom: 12 }}
+                            message={t('cftunnel.quickLimitTip')}
+                        />
+                    )}
+                    <Form.Item
+                        name="ipv6_outbound"
+                        label={t('cftunnel.ipv6Outbound')}
+                        valuePropName="checked"
+                        tooltip={t('cftunnel.ipv6OutboundTip')}
+                    >
+                        <Switch />
+                    </Form.Item>
                     <Form.Item
                         name="local_url"
                         label={t('cftunnel.localUrl')}
