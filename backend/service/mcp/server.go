@@ -211,21 +211,6 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// authorized 校验请求是否携带有效令牌（恒定时间比较，防时序攻击）。
-// 未配置 token 时放行（兼容旧行为）。
-func (s *Server) authorized(r *http.Request) bool {
-	if s.token == "" {
-		return true
-	}
-	auth := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if !strings.HasPrefix(auth, prefix) {
-		return false
-	}
-	token := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
-	return subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
-}
-
 // writeResult 写 JSON-RPC 成功响应。
 func (s *Server) writeResult(w http.ResponseWriter, id json.RawMessage, result interface{}) {
 	resp := map[string]interface{}{

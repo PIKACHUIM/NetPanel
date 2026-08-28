@@ -68,10 +68,8 @@ func (h *CfTunnelHandler) List(c *gin.Context) {
 	resp := make([]tunnelResponse, 0, len(tunnels))
 	for _, t := range tunnels {
 		// 实时校正运行状态
-		if st, err := h.mgr.GetStatus(t.ID); err == nil {
-			if running, _ := st["running"].(bool); running {
-				t.Status = "running"
-			}
+		if h.mgr.GetStatus(t.ID) == "running" {
+			t.Status = "running"
 		}
 		resp = append(resp, toTunnelResponse(t))
 	}
@@ -184,7 +182,7 @@ func (h *CfTunnelHandler) Update(c *gin.Context) {
 // DELETE /api/v1/cftunnel/:id
 func (h *CfTunnelHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	_ = h.mgr.Stop(uint(id))
+	h.mgr.Stop(uint(id))
 	h.db.Delete(&model.CloudflareTunnel{}, id)
 	logger.WriteLog("info", "cftunnel", fmt.Sprintf("删除CF隧道 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
@@ -205,7 +203,7 @@ func (h *CfTunnelHandler) Start(c *gin.Context) {
 // POST /api/v1/cftunnel/:id/stop
 func (h *CfTunnelHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	_ = h.mgr.Stop(uint(id))
+	h.mgr.Stop(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -213,12 +211,8 @@ func (h *CfTunnelHandler) Stop(c *gin.Context) {
 // GET /api/v1/cftunnel/:id/status
 func (h *CfTunnelHandler) GetStatus(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	st, err := h.mgr.GetStatus(uint(id))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "隧道不存在"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": st})
+	status := h.mgr.GetStatus(uint(id))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"status": status}})
 }
 
 // GetLogs 获取隧道日志
