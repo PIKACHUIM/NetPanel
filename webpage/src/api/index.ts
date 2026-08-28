@@ -471,14 +471,6 @@ export const aiProviderApi = {
   test: (id: number) => request.post(`/v1/ai/providers/${id}/test`),
 }
 
-// ===== 线路探测策略（linereg） =====
-export const lineregApi = {
-  getConfig: () => request.get('/v1/linereg/config'),
-  updateConfig: (data: any) => request.put('/v1/linereg/config', data),
-  rebindPending: () => request.get('/v1/linereg/rebind-pending'),
-  rebindApply: () => request.post('/v1/linereg/rebind-apply'),
-}
-
 // AI 对话
 export const aiChatApi = {
   listConversations: () => request.get('/v1/ai/conversations'),
