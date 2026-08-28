@@ -123,18 +123,6 @@ export const tunserviceApi = {
   history: (id: number, limit = 100) => request.get(`/v1/tunservice/${id}/history?limit=${limit}`),
 }
 
-// ===== 穿透服务（统一内网穿透管理） =====
-export const tunserviceApi = {
-  list: () => request.get('/v1/tunservice'),
-  get: (id: number) => request.get(`/v1/tunservice/${id}`),
-  create: (data: any) => request.post('/v1/tunservice', data),
-  update: (id: number, data: any) => request.put(`/v1/tunservice/${id}`, data),
-  delete: (id: number) => request.delete(`/v1/tunservice/${id}`),
-  start: (id: number) => request.post(`/v1/tunservice/${id}/start`),
-  stop: (id: number) => request.post(`/v1/tunservice/${id}/stop`),
-  candidates: (id: number) => request.get(`/v1/tunservice/${id}/candidates`),
-}
-
 // ===== WireGuard =====
 export const wireguardApi = {
   list: () => request.get('/v1/wireguard'),
@@ -593,6 +581,8 @@ export interface ProbeConfig {
     failure_threshold: number
     tolerance_ms: number
     max_concurrent: number
+    tool_filter: string
+    rebind_mode: string
 }
 
 export const lineregApi = {

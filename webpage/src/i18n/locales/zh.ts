@@ -497,7 +497,6 @@ const zh = {
     detecting: '正在检测二进制文件...',
     publicUrl: '公网访问地址',
     tunnelId: '隧道 ID',
-    quickUrl: 'Quick 入口',
     // 表单
     namePlaceholder: 'CFTunnel 配置名称',
     modeLabel: '隧道模式',

@@ -489,7 +489,6 @@ const en = {
     detecting: 'Detecting binary...',
     publicUrl: 'Public Access URL',
     tunnelId: 'Tunnel ID',
-    quickUrl: 'Quick URL',
     // Form
     namePlaceholder: 'CFTunnel config name',
     modeLabel: 'Tunnel Mode',
