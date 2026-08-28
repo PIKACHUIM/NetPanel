@@ -84,6 +84,58 @@ func TestSelectPicksFastest(t *testing.T) {
 	}
 }
 
+func TestToolFilterRestrictsAutoSelection(t *testing.T) {
+	// 三条线路：a/b 属 wireguard（参与自动选线），c 属 frp（被过滤）。
+	// c 延迟最低，但过滤后不应被自动选中；手动锁定 c 仍应生效。
+	lines := []Line{
+		{ID: "a", Name: "a", Tool: "wireguard", Address: "127.0.0.1:1"},
+		{ID: "b", Name: "b", Tool: "wireguard", Address: "127.0.0.1:1"},
+		{ID: "c", Name: "c", Tool: "frp", Address: "127.0.0.1:1"},
+	}
+	f := &fakeProber{
+		latencies: map[string]time.Duration{
+			"a": 50 * time.Millisecond,
+			"b": 100 * time.Millisecond,
+			"c": 10 * time.Millisecond,
+		},
+	}
+	s := NewSelector(f, 50*time.Millisecond)
+	s.SetToolFilter([]string{"wireguard"})
+	s.SetLines(lines)
+	s.ProbeAll(context.Background())
+
+	// 自动选线：过滤后只在 wireguard 中选，a(50ms) < b(100ms) → a。
+	sel := s.Select()
+	if sel.LineID != "a" {
+		t.Fatalf("expected filtered auto-select a, got %q", sel.LineID)
+	}
+
+	// 手动锁定被过滤工具线路 c：仍应生效（不受工具过滤影响）。
+	s.Lock("c")
+	sel = s.Select()
+	if sel.LineID != "c" || !sel.Locked {
+		t.Fatalf("expected manual lock c to win, got %q locked=%v", sel.LineID, sel.Locked)
+	}
+}
+
+func TestToolFilterEmptyMeansAllTools(t *testing.T) {
+	lines := []Line{
+		{ID: "a", Name: "a", Tool: "frp", Address: "127.0.0.1:1"},
+		{ID: "b", Name: "b", Tool: "wireguard", Address: "127.0.0.1:1"},
+	}
+	f := &fakeProber{
+		latencies: map[string]time.Duration{"a": 10 * time.Millisecond, "b": 200 * time.Millisecond},
+	}
+	s := NewSelector(f, 50*time.Millisecond)
+	s.SetToolFilter(nil) // 空 = 全部参与
+	s.SetLines(lines)
+	s.ProbeAll(context.Background())
+	sel := s.Select()
+	if sel.LineID != "a" {
+		t.Fatalf("expected unfiltered fastest a, got %q", sel.LineID)
+	}
+}
+
 func TestSelectPrefersHTTPLatencyWhenProbed(t *testing.T) {
 	// b 的 TCP 握手更慢，但 HTTP 出网更快；配置了 ProbeURL 时应选 b。
 	// 覆盖 #B 修复：测速结果里的 HTTP 延迟参与选线排序。

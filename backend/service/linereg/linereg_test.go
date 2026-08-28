@@ -506,6 +506,80 @@ func TestApplyPortSwitch(t *testing.T) {
 	}
 }
 
+func TestRebindModeManualQueuesPending(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	portSvc := model.TunService{
+		Name:          "SSH 服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.10",
+		TargetPort:    22,
+		Protocol:      "tcp",
+		LineRefs:      `["frp:1"]`,
+	}
+	db.Create(&portSvc)
+
+	m := NewManager(db, nil, 0)
+	var calls []string
+	m.SetPortRebinder(func(svcID uint, lineID string) error {
+		calls = append(calls, fmt.Sprintf("%d:%s", svcID, lineID))
+		return nil
+	})
+
+	// manual 模式：不自动重绑，只记录待重绑清单
+	m.SetRebindMode(RebindModeManual)
+	m.applyPortSwitch("frp:1")
+	if len(calls) != 0 {
+		t.Fatalf("manual 模式不应自动重绑, got %v", calls)
+	}
+	pending := m.PendingRebinds()
+	if len(pending) != 1 || pending[portSvc.ID] != "frp:1" {
+		t.Fatalf("manual 模式应记录待重绑 %d->frp:1, got %v", portSvc.ID, pending)
+	}
+
+	// 手动触发：调用重绑回调并清空清单
+	applied, err := m.ApplyPendingRebinds()
+	if err != nil {
+		t.Fatalf("ApplyPendingRebinds 失败: %v", err)
+	}
+	if applied != 1 || len(calls) != 1 || calls[0] != fmt.Sprintf("%d:frp:1", portSvc.ID) {
+		t.Fatalf("手动重绑应触发 1 次, applied=%d calls=%v", applied, calls)
+	}
+	if len(m.PendingRebinds()) != 0 {
+		t.Fatalf("手动重绑后待重绑清单应清空, got %v", m.PendingRebinds())
+	}
+}
+
+func TestRebindModeOffSkips(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	portSvc := model.TunService{
+		Name:          "SSH 服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.10",
+		TargetPort:    22,
+		Protocol:      "tcp",
+		LineRefs:      `["frp:1"]`,
+	}
+	db.Create(&portSvc)
+
+	m := NewManager(db, nil, 0)
+	var calls []string
+	m.SetPortRebinder(func(svcID uint, lineID string) error {
+		calls = append(calls, fmt.Sprintf("%d:%s", svcID, lineID))
+		return nil
+	})
+
+	m.SetRebindMode(RebindModeOff)
+	m.applyPortSwitch("frp:1")
+	if len(calls) != 0 {
+		t.Fatalf("off 模式不应重绑, got %v", calls)
+	}
+	if len(m.PendingRebinds()) != 0 {
+		t.Fatalf("off 模式不应记录待重绑, got %v", m.PendingRebinds())
+	}
+}
+
 func TestLineHost(t *testing.T) {
 	cases := map[string]string{
 		"1.2.3.4:7000":                   "1.2.3.4",

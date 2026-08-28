@@ -581,9 +581,13 @@ export interface ProbeConfig {
     failure_threshold: number
     tolerance_ms: number
     max_concurrent: number
+    tool_filter: string
+    rebind_mode: string
 }
 
 export const lineregApi = {
     getConfig: () => request.get<ProbeConfig>('/v1/linereg/config'),
     updateConfig: (data: ProbeConfig) => request.put('/v1/linereg/config', data),
+    rebindPending: () => request.get('/v1/linereg/rebind-pending'),
+    rebindApply: () => request.post('/v1/linereg/rebind-apply'),
 }
