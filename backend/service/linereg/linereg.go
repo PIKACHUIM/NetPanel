@@ -270,6 +270,12 @@ func (m *Manager) LoadProbeConfig() error {
 	if m.db == nil {
 		return nil
 	}
+	if err := m.db.Where("key = ?", cfgKeyToolFilter).First(&cfg).Error; err == nil {
+		toolFilter = cfg.Value
+	}
+	if err := m.db.Where("key = ?", cfgKeyRebindMode).First(&cfg).Error; err == nil && cfg.Value != "" {
+		rebindMode = cfg.Value
+	}
 
 	intervalSec := loadConfigInt(m.db, cfgKeyIntervalSec, defaultIntervalSec)
 	failureThreshold := loadConfigInt(m.db, cfgKeyFailureThreshold, defaultFailureThreshold)
