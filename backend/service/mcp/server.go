@@ -126,6 +126,21 @@ func (s *Server) Stop() error {
 	return err
 }
 
+// authorized 校验请求头 Authorization: Bearer <token>。未配置 token 时放行
+// （兼容旧行为）。
+func (s *Server) authorized(r *http.Request) bool {
+	if s.token == "" {
+		return true
+	}
+	auth := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(auth, prefix) {
+		return false
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
+}
+
 // ===== JSON-RPC 2.0 请求处理 =====
 
 // rpcRequest JSON-RPC 2.0 请求（id 保留原始字节，便于原样回写）。
@@ -194,21 +209,6 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.writeRPCError(w, req.ID, -32601, fmt.Sprintf("未知方法: %s", req.Method))
 	}
-}
-
-// authorized 校验请求是否携带有效令牌（恒定时间比较，防时序攻击）。
-// 未配置 token 时放行（兼容旧行为）。
-func (s *Server) authorized(r *http.Request) bool {
-	if s.token == "" {
-		return true
-	}
-	auth := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if !strings.HasPrefix(auth, prefix) {
-		return false
-	}
-	token := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
-	return subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
 }
 
 // writeResult 写 JSON-RPC 成功响应。
@@ -319,6 +319,28 @@ func (s *Server) toolsList() []map[string]interface{} {
 			"description": "停止指定端口转发规则",
 			"inputSchema": schema(map[string]interface{}{"id": intg("端口转发规则 ID")}, []string{"id"}),
 		},
+		{
+			"name":        "probe_config_get",
+			"description": "读取线路自动选线探测策略（间隔/失败阈值/容差/并发/工具过滤/重绑模式）",
+			"inputSchema": schema(nil, nil),
+		},
+		{
+			"name":        "probe_config_set",
+			"description": "更新线路自动选线探测策略（可只传要修改的字段；未传字段保持当前值）",
+			"inputSchema": schema(map[string]interface{}{
+				"interval_sec":      intg("探测间隔（秒），范围 5-3600"),
+				"failure_threshold": intg("连续失败阈值（次），范围 1-10"),
+				"tolerance_ms":      intg("切换防抖容差（毫秒），范围 0-5000"),
+				"max_concurrent":    intg("单轮探测并发上限，范围 1-64"),
+				"tool_filter":       str("参与自动选线的工具（逗号分隔，如 wireguard；空=全部）"),
+				"rebind_mode":       str("端口层重绑模式：auto / manual / off"),
+			}, nil),
+		},
+		{
+			"name":        "tunservice_diag",
+			"description": "异常诊断：列出全部穿透服务的状态与最近错误，并附带选线快照与待重绑清单",
+			"inputSchema": schema(nil, nil),
+		},
 	}
 }
 
@@ -426,12 +448,158 @@ func (s *Server) handleToolCall(raw json.RawMessage) map[string]interface{} {
 		s.portforwardMgr.Stop(id)
 		return s.textResult(map[string]interface{}{"ok": true, "id": id})
 
+	case "probe_config_get":
+		return s.textResult(s.probeConfigSnapshot())
+
+	case "probe_config_set":
+		return s.handleProbeConfigSet(params.Arguments)
+
+	case "tunservice_diag":
+		return s.handleTunserviceDiag()
+
 	default:
 		return s.textError(fmt.Sprintf("未知工具: %s", params.Name))
 	}
 }
 
-// handleToolLogs 实现 tool_logs 工具：返回指定工具实例的日志末尾若干行。
+// probeConfigSnapshot 读取探测策略配置（与 GET /v1/linereg/config 一致）。
+func (s *Server) probeConfigSnapshot() map[string]interface{} {
+	return map[string]interface{}{
+		"interval_sec":      s.cfgInt("probe_interval_sec", 60),
+		"failure_threshold": s.cfgInt("probe_failure_threshold", 2),
+		"tolerance_ms":      s.cfgInt("probe_tolerance_ms", 50),
+		"max_concurrent":    s.cfgInt("probe_max_concurrent", 8),
+		"tool_filter":       s.cfgStr("probe_tool_filter", ""),
+		"rebind_mode":       s.lineregMgr.RebindMode(),
+	}
+}
+
+// handleProbeConfigSet 更新探测策略（支持部分字段；未传字段保持当前值）。
+func (s *Server) handleProbeConfigSet(args map[string]interface{}) map[string]interface{} {
+	intervalSec := s.cfgInt("probe_interval_sec", 60)
+	failureThreshold := s.cfgInt("probe_failure_threshold", 2)
+	toleranceMs := s.cfgInt("probe_tolerance_ms", 50)
+	maxConcurrent := s.cfgInt("probe_max_concurrent", 8)
+	toolFilter := s.cfgStr("probe_tool_filter", "")
+	rebindMode := s.lineregMgr.RebindMode()
+
+	// 覆盖传入字段（带范围校验）
+	fields := []struct {
+		key    string
+		min,   max int
+		dst    *int
+	}{
+		{"interval_sec", 5, 3600, &intervalSec},
+		{"failure_threshold", 1, 10, &failureThreshold},
+		{"tolerance_ms", 0, 5000, &toleranceMs},
+		{"max_concurrent", 1, 64, &maxConcurrent},
+	}
+	for _, f := range fields {
+		v, ok := args[f.key]
+		if !ok {
+			continue
+		}
+		n, err := toInt(v)
+		if err != nil {
+			return s.textError(f.key + " 参数非法: " + err.Error())
+		}
+		if n < f.min || n > f.max {
+			return s.textError(fmt.Sprintf("%s 需在 %d-%d 范围内", f.key, f.min, f.max))
+		}
+		*f.dst = n
+	}
+	if v, ok := args["tool_filter"]; ok {
+		if str, isStr := v.(string); isStr {
+			toolFilter = str
+		} else {
+			return s.textError("tool_filter 参数需为字符串")
+		}
+	}
+	if v, ok := args["rebind_mode"]; ok {
+		str, isStr := v.(string)
+		if !isStr || (str != "auto" && str != "manual" && str != "off") {
+			return s.textError("rebind_mode 需为 auto/manual/off")
+		}
+		rebindMode = str
+	}
+
+	// 持久化
+	s.setCfgInt("probe_interval_sec", intervalSec)
+	s.setCfgInt("probe_failure_threshold", failureThreshold)
+	s.setCfgInt("probe_tolerance_ms", toleranceMs)
+	s.setCfgInt("probe_max_concurrent", maxConcurrent)
+	s.setCfgStr("probe_tool_filter", toolFilter)
+	s.setCfgStr("port_rebind_mode", rebindMode)
+
+	// 应用
+	s.lineregMgr.SetInterval(time.Duration(intervalSec) * time.Second)
+	s.lineregMgr.SetFailureThreshold(failureThreshold)
+	s.lineregMgr.SetTolerance(time.Duration(toleranceMs) * time.Millisecond)
+	s.lineregMgr.SetMaxConcurrent(maxConcurrent)
+	s.lineregMgr.SetToolFilter(toolFilter)
+	s.lineregMgr.SetRebindMode(rebindMode)
+	return s.textResult(map[string]interface{}{"ok": true, "config": s.probeConfigSnapshot()})
+}
+
+// handleTunserviceDiag 异常诊断：服务状态 + 最近错误 + 选线快照 + 待重绑清单。
+func (s *Server) handleTunserviceDiag() map[string]interface{} {
+	views, err := s.tunserviceMgr.List()
+	if err != nil {
+		return s.textError("获取穿透服务列表失败: " + err.Error())
+	}
+	return s.textResult(map[string]interface{}{
+		"services":         views,
+		"snapshot":         s.lineregMgr.Selector().Snapshot(),
+		"rebind_mode":      s.lineregMgr.RebindMode(),
+		"pending_rebinds":  s.lineregMgr.PendingRebinds(),
+	})
+}
+
+// cfgInt 从 SystemConfig 读取整数配置；缺失或非法时返回 def。
+func (s *Server) cfgInt(key string, def int) int {
+	var cfg model.SystemConfig
+	if err := s.db.Where("key = ?", key).First(&cfg).Error; err != nil {
+		return def
+	}
+	n, err := strconv.Atoi(cfg.Value)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+// cfgStr 从 SystemConfig 读取字符串配置；缺失时返回 def。
+func (s *Server) cfgStr(key, def string) string {
+	var cfg model.SystemConfig
+	if err := s.db.Where("key = ?", key).First(&cfg).Error; err != nil {
+		return def
+	}
+	return cfg.Value
+}
+
+// setCfgInt 写入（或更新）一条 SystemConfig 整数配置。
+func (s *Server) setCfgInt(key string, value int) {
+	var cfg model.SystemConfig
+	if err := s.db.Where("key = ?", key).First(&cfg).Error; err == nil {
+		cfg.Value = strconv.Itoa(value)
+		s.db.Save(&cfg)
+		return
+	}
+	s.db.Create(&model.SystemConfig{Key: key, Value: strconv.Itoa(value)})
+}
+
+// setCfgStr 写入（或更新）一条 SystemConfig 字符串配置。
+func (s *Server) setCfgStr(key, value string) {
+	var cfg model.SystemConfig
+	if err := s.db.Where("key = ?", key).First(&cfg).Error; err == nil {
+		cfg.Value = value
+		s.db.Save(&cfg)
+		return
+	}
+	s.db.Create(&model.SystemConfig{Key: key, Value: value})
+}
+
+// handleToolLogs 实现 tool_logs 工具：返回指定工具实例的实时日志。
 // 经核对：easytier 提供 GetClientLogs、cftunnel 提供 GetLogs；
 // frp / nps / wireguard 当前没有日志读取接口，返回明确错误。
 func (s *Server) handleToolLogs(args map[string]interface{}) map[string]interface{} {
