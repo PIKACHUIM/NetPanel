@@ -378,11 +378,7 @@ func (m *Manager) toolStatus(lineID string) string {
 		}
 	case "cftunnel":
 		if m.cftunnelMgr != nil {
-			if st, err := m.cftunnelMgr.GetStatus(id); err == nil {
-				if s, ok := st["status"].(string); ok {
-					return s
-				}
-			}
+			return m.cftunnelMgr.GetStatus(id)
 		}
 	}
 	return "stopped"

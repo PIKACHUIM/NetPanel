@@ -124,18 +124,6 @@ export const tunserviceApi = {
   speedtest: (id: number) => request.get(`/v1/tunservice/${id}/speedtest`),
 }
 
-// ===== 穿透服务（统一内网穿透管理） =====
-export const tunserviceApi = {
-  list: () => request.get('/v1/tunservice'),
-  get: (id: number) => request.get(`/v1/tunservice/${id}`),
-  create: (data: any) => request.post('/v1/tunservice', data),
-  update: (id: number, data: any) => request.put(`/v1/tunservice/${id}`, data),
-  delete: (id: number) => request.delete(`/v1/tunservice/${id}`),
-  start: (id: number) => request.post(`/v1/tunservice/${id}/start`),
-  stop: (id: number) => request.post(`/v1/tunservice/${id}/stop`),
-  candidates: (id: number) => request.get(`/v1/tunservice/${id}/candidates`),
-}
-
 // ===== WireGuard =====
 export const wireguardApi = {
   list: () => request.get('/v1/wireguard'),
@@ -483,14 +471,6 @@ export const aiProviderApi = {
   test: (id: number) => request.post(`/v1/ai/providers/${id}/test`),
 }
 
-// ===== 线路探测策略（linereg） =====
-export const lineregApi = {
-  getConfig: () => request.get('/v1/linereg/config'),
-  updateConfig: (data: any) => request.put('/v1/linereg/config', data),
-  rebindPending: () => request.get('/v1/linereg/rebind-pending'),
-  rebindApply: () => request.post('/v1/linereg/rebind-apply'),
-}
-
 // AI 对话
 export const aiChatApi = {
   listConversations: () => request.get('/v1/ai/conversations'),
@@ -602,9 +582,13 @@ export interface ProbeConfig {
     failure_threshold: number
     tolerance_ms: number
     max_concurrent: number
+    tool_filter: string
+    rebind_mode: string
 }
 
 export const lineregApi = {
     getConfig: () => request.get<ProbeConfig>('/v1/linereg/config'),
     updateConfig: (data: ProbeConfig) => request.put('/v1/linereg/config', data),
+    rebindPending: () => request.get('/v1/linereg/rebind-pending'),
+    rebindApply: () => request.post('/v1/linereg/rebind-apply'),
 }
