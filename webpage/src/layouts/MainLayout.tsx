@@ -8,7 +8,6 @@ import {
     BellOutlined,
     BugOutlined,
     ClockCircleOutlined,
-    CloudOutlined,
     CloudServerOutlined,
     ClusterOutlined,
     ControlOutlined,
