@@ -67,6 +67,7 @@ const MonitorAlerts: React.FC = () => {
   const [editingAlert, setEditingAlert] = useState<Alert | null>(null)
   const [activeTab, setActiveTab] = useState('rules')
   const [form] = Form.useForm()
+  const alertType = Form.useWatch('alert_type', form)
 
   useEffect(() => {
     loadAlerts()
@@ -373,7 +374,9 @@ const MonitorAlerts: React.FC = () => {
           <Form.Item name="target_servers" label={t('monitor.target_servers')} rules={[{ required: true }]}>
             <TextArea
               rows={2}
-              placeholder='目标服务器，JSON 格式，例如: ["server:1","server:2"] 或 ["group:default"]'
+              placeholder={alertType === 'probe'
+                ? '目标探测，JSON 格式，例如: ["probe:1"]'
+                : '目标服务器，JSON 格式，例如: ["server:1","server:2"] 或 ["group:default"]'}
             />
           </Form.Item>
 
