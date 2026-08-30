@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -320,7 +321,7 @@ func (c *Collector) ProbeHTTP(probeURL string, timeout int) (bool, int64, int, e
 
 // ProbeTCP TCP 探测
 func (c *Collector) ProbeTCP(addr string, port int, timeout int) (bool, int64, error) {
-	target := fmt.Sprintf("%s:%d", addr, port)
+	target := net.JoinHostPort(addr, strconv.Itoa(port))
 	
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", target, time.Duration(timeout)*time.Second)
@@ -336,7 +337,7 @@ func (c *Collector) ProbeTCP(addr string, port int, timeout int) (bool, int64, e
 
 // ProbeUDP UDP 探测
 func (c *Collector) ProbeUDP(addr string, port int, timeout int) (bool, int64, error) {
-	target := fmt.Sprintf("%s:%d", addr, port)
+	target := net.JoinHostPort(addr, strconv.Itoa(port))
 	
 	start := time.Now()
 	conn, err := net.DialTimeout("udp", target, time.Duration(timeout)*time.Second)

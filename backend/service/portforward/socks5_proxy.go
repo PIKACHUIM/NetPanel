@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -185,7 +186,7 @@ func (p *SOCKS5Proxy) handleConn(conn net.Conn) {
 		return
 	}
 	targetPort := binary.BigEndian.Uint16(portBuf)
-	fullTarget := fmt.Sprintf("%s:%d", targetAddr, targetPort)
+	fullTarget := net.JoinHostPort(targetAddr, strconv.Itoa(int(targetPort)))
 
 	// 目前只支持 CONNECT（TCP 代理）
 	if cmd != 0x01 {
