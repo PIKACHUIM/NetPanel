@@ -94,7 +94,7 @@ func autoMigrate(db *gorm.DB) error {
 		&OAuthProviderConfig{},
 		&IPDBSubscription{},
 		&WireguardConfig{},
-		&WireguardPeer{}, WireguardPeer{},
+		&WireguardPeer{},
 		&MeshNode{},
 		&MeshNodeEvent{},
 		// AI 管理模块
