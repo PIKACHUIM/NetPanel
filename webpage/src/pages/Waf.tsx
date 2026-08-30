@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react'
 import {
   Table, Button, Space, Switch, Modal, Form, Input, Select,
   Popconfirm, message, Typography, Tag, Drawer, Descriptions,
-  Badge, Tooltip, Divider, Alert, Row, Col, Statistic,
+  Badge, Tooltip, Divider, Alert, Row, Col, Statistic, DatePicker,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined,
   PauseCircleOutlined, FileTextOutlined, BugOutlined, ExperimentOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { wafApi, caddyApi, wafSecurityApi } from '../api'
@@ -28,6 +29,11 @@ const Waf: React.FC = () => {
   const [bans, setBans] = useState<any[]>([])
   const [statsLoading, setStatsLoading] = useState(false)
 
+  // 封禁表单弹窗
+  const [banModalOpen, setBanModalOpen] = useState(false)
+  const [banSubmitting, setBanSubmitting] = useState(false)
+  const [banForm] = Form.useForm()
+
   const fetchStats = async () => {
     setStatsLoading(true)
     try {
@@ -37,6 +43,49 @@ const Waf: React.FC = () => {
       setBans(banRes?.data || [])
     } catch { /* 忽略 */ } finally {
       setStatsLoading(false)
+    }
+  }
+
+  const handleOpenBanModal = () => {
+    banForm.resetFields()
+    banForm.setFieldsValue({ type: 'black' })
+    setBanModalOpen(true)
+  }
+
+  const handleBanSubmit = async () => {
+    const values = await banForm.validateFields()
+    setBanSubmitting(true)
+    try {
+      const payload = { ...values }
+      if (payload.expire_at) {
+        payload.expire_at = payload.expire_at.toISOString()
+      } else {
+        delete payload.expire_at
+      }
+      await wafSecurityApi.createBan(payload)
+      message.success('添加成功')
+      setBanModalOpen(false)
+      fetchStats()
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || '添加失败')
+    } finally {
+      setBanSubmitting(false)
+    }
+  }
+
+  const handleBanDelete = async (id: number) => {
+    await wafSecurityApi.deleteBan(id)
+    message.success('删除成功')
+    fetchStats()
+  }
+
+  const handleBanApply = async (id: number) => {
+    try {
+      await wafSecurityApi.applyBan(id)
+      message.success('已应用')
+      fetchStats()
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || '应用失败')
     }
   }
 
@@ -295,37 +344,37 @@ const Waf: React.FC = () => {
       {/* 安全中心：态势统计 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--shadow-card)' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>今日拦截攻击</Text>
-            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.today_blocked ?? 0}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}> 次</small></div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.today_blocked ?? 0}<small style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400 }}> 次</small></div>
           </div>
         </Col>
         <Col xs={12} sm={6}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--shadow-card)' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>封禁 IP</Text>
-            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.banned ?? 0}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}> 个</small></div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.banned ?? 0}<small style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400 }}> 个</small></div>
           </div>
         </Col>
         <Col xs={12} sm={6}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--shadow-card)' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>拦截率</Text>
-            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.block_rate?.toFixed?.(1) ?? '0'}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}>%</small></div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.block_rate?.toFixed?.(1) ?? '0'}<small style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400 }}>%</small></div>
           </div>
         </Col>
         <Col xs={12} sm={6}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--shadow-card)' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>运行中规则集</Text>
-            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.active_configs ?? 0}<small style={{ fontSize: 12, color: '#999', fontWeight: 400 }}> 个</small></div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.active_configs ?? 0}<small style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400 }}> 个</small></div>
           </div>
         </Col>
       </Row>
 
       {/* 封禁 / 黑白名单 */}
-      <div style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-card)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
           <b style={{ fontSize: 14 }}>封禁 / 黑白名单</b>
           <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>黑名单将自动联动系统防火墙生效</Text>
-          <Button size="small" type="primary" style={{ marginLeft: 'auto' }} onClick={() => message.info('可在「防火墙规则」中手动添加，安全中心封禁联动已在后端实现')}>
+          <Button size="small" type="primary" style={{ marginLeft: 'auto' }} icon={<PlusOutlined />} onClick={handleOpenBanModal}>
             添加封禁
           </Button>
         </div>
@@ -347,6 +396,21 @@ const Waf: React.FC = () => {
             )},
             { title: '原因', dataIndex: 'reason', key: 'reason', ellipsis: true, render: (v: string) => v || '-' },
             { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 160, render: (v: string) => v ? String(v).slice(0, 16) : '-' },
+            {
+              title: '操作', key: 'action', width: 110,
+              render: (_: any, r: any) => (
+                <Space size={4}>
+                  {r.type === 'black' && (
+                    <Tooltip title="重新应用到防火墙">
+                      <Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleBanApply(r.id)} />
+                    </Tooltip>
+                  )}
+                  <Popconfirm title="确定删除该记录？黑名单会同时解除防火墙规则" onConfirm={() => handleBanDelete(r.id)}>
+                    <Button size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
+              ),
+            },
           ]}
         />
       </div>
@@ -357,7 +421,7 @@ const Waf: React.FC = () => {
         rowKey="id"
         loading={loading}
         size="middle"
-        style={{ background: '#fff', borderRadius: 8 }}
+        style={{ background: 'var(--bg-card)', borderRadius: 8 }}
         pagination={{ pageSize: 20 }}
       />
 
@@ -455,6 +519,64 @@ const Waf: React.FC = () => {
         </Form>
       </Modal>
 
+      {/* 添加封禁/白名单弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <StopOutlined />
+            添加封禁 / 白名单
+          </Space>
+        }
+        open={banModalOpen}
+        onOk={handleBanSubmit}
+        okText="添加"
+        confirmLoading={banSubmitting}
+        onCancel={() => setBanModalOpen(false)}
+        width={520}
+        destroyOnHidden
+      >
+        <Form form={banForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Row gutter={16}>
+            <Col span={14}>
+              <Form.Item
+                name="ip"
+                label="IP / CIDR"
+                rules={[
+                  { required: true, message: '请输入 IP 或 CIDR' },
+                  {
+                    validator: (_, v) => {
+                      const isIP = /^(\d{1,3}\.){3}\d{1,3}([/]\d{1,2})?$/.test(v || '') || (v || '').includes(':')
+                      const isCIDR = (v || '').includes('/')
+                      if (!v || isIP || isCIDR) return Promise.resolve()
+                      return Promise.reject(new Error('格式无效，请输入如 192.168.1.100 或 10.0.0.0/24'))
+                    },
+                  },
+                ]}
+              >
+                <Input placeholder="如 203.0.113.50 或 198.51.100.0/24" />
+              </Form.Item>
+            </Col>
+            <Col span={10}>
+              <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+                <Select>
+                  <Option value="black">黑名单（联动防火墙封禁）</Option>
+                  <Option value="white">白名单（放行）</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="reason" label="封禁原因">
+            <Input placeholder="如：恶意扫描（可选）" />
+          </Form.Item>
+          <Form.Item name="expire_at" label="过期时间">
+            <DatePicker showTime style={{ width: '100%' }} placeholder="留空表示永久生效" />
+          </Form.Item>
+          <Form.Item name="remark" label={t('common.remark')}>
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* 拦截日志抽屉 */}
       <Drawer
         title={
@@ -524,7 +646,7 @@ const Waf: React.FC = () => {
             onChange={e => { setTestUri(e.target.value); setTestResult(null) }}
             placeholder={t('waf.testRulePlaceholder')}
             onPressEnter={handleTestRule}
-            prefix={<span style={{ color: '#999', fontSize: 12 }}>GET</span>}
+            prefix={<span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>GET</span>}
           />
           {testResult && (
             <Alert

@@ -241,10 +241,14 @@ func (h *FrpcHandler) SpeedTest(c *gin.Context) {
 	timeout := 5 * time.Second
 	results := make([]gin.H, len(targets))
 	var wg sync.WaitGroup
+	// 并发上限：目标服务端较多时避免不受控地同时建立大量 TCP 连接
+	sem := make(chan struct{}, 8)
 	for i, t := range targets {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(i int, t speedTestTarget) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			addr := net.JoinHostPort(t.ServerAddr, strconv.Itoa(t.ServerPort))
 			start := time.Now()
 			conn, err := net.DialTimeout("tcp", addr, timeout)

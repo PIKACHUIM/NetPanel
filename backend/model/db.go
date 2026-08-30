@@ -86,6 +86,7 @@ func autoMigrate(db *gorm.DB) error {
 		&AccessRule{},
 		&WafConfig{},
 		&WafLog{},
+		&WafBan{},
 		&FirewallRule{},
 		&CloudflareTunnel{},
 		&CallbackAccount{},

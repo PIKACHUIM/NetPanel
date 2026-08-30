@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,6 +26,19 @@ type WafHandler struct {
 
 func NewWafHandler(db *gorm.DB, log *logrus.Logger, firewallMgr *firewall.Manager) *WafHandler {
 	return &WafHandler{db: db, log: log, firewallMgr: firewallMgr}
+}
+
+// clampPage 归一化分页参数：page 从 1 起，page_size 限制在 1..100
+func clampPage(page, pageSize int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	} else if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
 }
 
 func (h *WafHandler) List(c *gin.Context) {
@@ -112,6 +126,7 @@ func (h *WafHandler) GetLogs(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	page, pageSize = clampPage(page, pageSize)
 
 	var logs []model.WafLog
 	var total int64
@@ -160,6 +175,7 @@ func (h *WafHandler) TestRule(c *gin.Context) {
 func (h *WafHandler) EventList(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	page, pageSize = clampPage(page, pageSize)
 	severity := c.Query("severity")
 	keyword := c.Query("keyword")
 
@@ -187,7 +203,9 @@ func (h *WafHandler) EventList(c *gin.Context) {
 // Stats 安全中心态势统计
 // GET /api/v1/security/waf/stats
 func (h *WafHandler) Stats(c *gin.Context) {
-	today := time.Now().Truncate(24 * time.Hour)
+	// 今日零点用本地时区计算；Truncate(24h) 会截断到 UTC 午夜，东八区下"今日"会从早上 8 点起算
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	var todayBlocked int64
 	h.db.Model(&model.WafLog{}).Where("action = ? AND created_at >= ?", "block", today).Count(&todayBlocked)
@@ -212,30 +230,32 @@ func (h *WafHandler) Stats(c *gin.Context) {
 	var sources []srcRow
 	h.db.Model(&model.WafLog{}).
 		Select("client_ip, COUNT(*) as cnt").
-		Where("created_at >= ?", time.Now().Add(-24*time.Hour)).
+		Where("created_at >= ?", now.Add(-24*time.Hour)).
 		Group("client_ip").Order("cnt desc").Limit(10).Scan(&sources)
 
-	// 近 24h 每小时趋势：应用层按小时聚合，避免依赖 SQLite 专用 strftime 方言
+	// 近 24h 每小时趋势：应用层按"绝对小时桶"（日期+小时）聚合，
+	// 既避免依赖 SQLite 专用 strftime 方言，也避免 24h 窗口跨天时昨天与今天同一小时混入同一桶
 	type trendRow struct {
 		Hour string
 		Cnt  int64
 	}
 	var trendLogs []struct {
-		model.WafLog
 		CreatedAt time.Time
 	}
+	curBucket := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location())
 	h.db.Model(&model.WafLog{}).
-		Where("created_at >= ?", time.Now().Add(-24*time.Hour)).
+		Where("created_at >= ?", curBucket.Add(-23*time.Hour)).
 		Select("created_at").Scan(&trendLogs)
-	hourCount := make(map[int]int64)
+	bucketCount := make(map[int64]int64)
 	for _, l := range trendLogs {
-		hourCount[l.CreatedAt.Hour()]++
+		t := l.CreatedAt.Local()
+		b := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, t.Location())
+		bucketCount[b.Unix()]++
 	}
 	trend := make([]trendRow, 0, 24)
-	for h := 0; h < 24; h++ {
-		if cnt, ok := hourCount[h]; ok {
-			trend = append(trend, trendRow{Hour: fmt.Sprintf("%02d", h), Cnt: cnt})
-		}
+	for i := 23; i >= 0; i-- {
+		b := curBucket.Add(-time.Duration(i) * time.Hour)
+		trend = append(trend, trendRow{Hour: b.Format("01-02 15:00"), Cnt: bucketCount[b.Unix()]})
 	}
 
 	// 最近 5 条事件
@@ -289,6 +309,13 @@ func (h *WafHandler) BanCreate(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
 		return
+	}
+	// 校验 IP/CIDR 格式，避免非法输入直接写入防火墙规则
+	if net.ParseIP(req.IP) == nil {
+		if _, _, err := net.ParseCIDR(req.IP); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "无效的 IP 或 CIDR 格式"})
+			return
+		}
 	}
 	// 检查重复
 	var dup int64
@@ -378,11 +405,12 @@ func (h *WafHandler) applyBanToFirewall(ban *model.WafBan) {
 	if h.firewallMgr == nil {
 		return
 	}
-	// 已有规则则先移除
+	// 已有规则则先移除，并删除旧 FirewallRule 记录，避免反复 apply 积累孤儿规则
 	if ban.FirewallRuleID > 0 {
 		var old model.FirewallRule
 		if err := h.db.First(&old, ban.FirewallRuleID).Error; err == nil {
 			_ = h.firewallMgr.RemoveRule(&old)
+			h.db.Delete(&model.FirewallRule{}, old.ID)
 		}
 	}
 
@@ -399,20 +427,24 @@ func (h *WafHandler) applyBanToFirewall(ban *model.WafBan) {
 	if err := h.db.Create(&rule).Error; err != nil {
 		ban.ApplyStatus = "error"
 		ban.LastError = "创建防火墙规则失败: " + err.Error()
+		ban.FirewallRuleID = 0
 		h.db.Model(ban).Updates(map[string]any{"apply_status": ban.ApplyStatus, "last_error": ban.LastError})
 		return
 	}
 
 	if err := h.firewallMgr.ApplyRule(&rule); err != nil {
+		// 应用失败时删除已落库的规则记录，避免残留"已启用但未生效"的脏规则
+		h.db.Delete(&model.FirewallRule{}, rule.ID)
+		ban.FirewallRuleID = 0
 		ban.ApplyStatus = "error"
 		ban.LastError = err.Error()
 	} else {
+		ban.FirewallRuleID = rule.ID
 		ban.ApplyStatus = "applied"
 		ban.LastError = ""
 	}
-	ban.FirewallRuleID = rule.ID
 	h.db.Model(ban).Updates(map[string]any{
-		"firewall_rule_id": rule.ID,
+		"firewall_rule_id": ban.FirewallRuleID,
 		"apply_status":     ban.ApplyStatus,
 		"last_error":       ban.LastError,
 	})
