@@ -19,6 +19,7 @@ import {
   ddnsApi, caddyApi,
   cronApi, storageApi, accessApi, wolApi,
   firewallApi, wireguardApi,
+  wafSecurityApi,
 } from '../api'
 import { useAppStore, hasWallpaper } from '../store/appStore'
 
@@ -451,6 +452,7 @@ const Dashboard: React.FC = () => {
   const [services, setServices] = useState<ServiceStatus[]>(defaultServices)
   const [netInterfaces, setNetInterfaces] = useState<NetInterface[]>([])
   const [firewallStats, setFirewallStats] = useState<FirewallStats | null>(null)
+  const [wafStats, setWafStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -509,6 +511,12 @@ const Dashboard: React.FC = () => {
           pending: rules.filter((r: any) => r.apply_status === 'pending').length,
           error: rules.filter((r: any) => r.apply_status === 'error').length,
         })
+      } catch { /* ignore */ }
+
+      // 获取安全中心态势（WAF）
+      try {
+        const wafRes = await wafSecurityApi.stats()
+        setWafStats((wafRes as any).data || null)
       } catch { /* ignore */ }
 
       // 服务列表顺序与上面 svcResults 对应
@@ -689,6 +697,46 @@ const Dashboard: React.FC = () => {
           value={info?.hostname || '-'}
           sub={`Go ${info?.go_version?.replace('go', '') || '-'} · v${info?.version || 'dev'}`}
           color="#13c2c2"
+          isDark={isDark}
+          hasWp={hasWp}
+        />
+      </div>
+
+      {/* ── 安全态势（WAF） ── */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <MiniInfoCard
+          icon={<SafetyOutlined />}
+          label="今日拦截攻击"
+          value={wafStats?.today_blocked ?? '-'}
+          sub="WAF 安全中心"
+          color="#ff4d4f"
+          isDark={isDark}
+          hasWp={hasWp}
+        />
+        <MiniInfoCard
+          icon={<FireOutlined />}
+          label="封禁 IP"
+          value={wafStats?.banned ?? '-'}
+          sub="黑白名单联动防火墙"
+          color="#fa8c16"
+          isDark={isDark}
+          hasWp={hasWp}
+        />
+        <MiniInfoCard
+          icon={<CheckCircleFilled />}
+          label="拦截率"
+          value={wafStats?.block_rate != null ? `${Number(wafStats.block_rate).toFixed(1)}%` : '-'}
+          sub="今日防护效果"
+          color="#52c41a"
+          isDark={isDark}
+          hasWp={hasWp}
+        />
+        <MiniInfoCard
+          icon={<SafetyOutlined />}
+          label="防火墙后端"
+          value={firewallStats?.backend || '-'}
+          sub={`规则 ${firewallStats?.total ?? 0} 条 · 生效 ${firewallStats?.applied ?? 0}`}
+          color="#722ed1"
           isDark={isDark}
           hasWp={hasWp}
         />
