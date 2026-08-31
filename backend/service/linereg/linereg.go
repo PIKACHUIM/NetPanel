@@ -270,12 +270,29 @@ func (m *Manager) LoadProbeConfig() error {
 	if m.db == nil {
 		return nil
 	}
-	if err := m.db.Where("key = ?", cfgKeyToolFilter).First(&cfg).Error; err == nil {
-		toolFilter = cfg.Value
+
+	intervalSec := loadConfigInt(m.db, cfgKeyIntervalSec, defaultIntervalSec)
+	failureThreshold := loadConfigInt(m.db, cfgKeyFailureThreshold, defaultFailureThreshold)
+	toleranceMs := loadConfigInt(m.db, cfgKeyToleranceMs, defaultToleranceMs)
+	maxConcurrent := loadConfigInt(m.db, cfgKeyMaxConcurrent, defaultMaxConcurrent)
+
+	// 下限校验：interval 为 0 或负数会导致 time.NewTimer panic；
+	// 其余参数非正数会使探测行为异常
+	if intervalSec < minIntervalSec {
+		m.log.Warnf("[线路选择] 探测间隔 %ds 过小，已修正为 %ds", intervalSec, minIntervalSec)
+		intervalSec = minIntervalSec
 	}
-	if err := m.db.Where("key = ?", cfgKeyRebindMode).First(&cfg).Error; err == nil && cfg.Value != "" {
-		rebindMode = cfg.Value
+	if failureThreshold <= 0 {
+		failureThreshold = defaultFailureThreshold
 	}
+	if toleranceMs < 0 {
+		toleranceMs = defaultToleranceMs
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = defaultMaxConcurrent
+	}
+	toolFilter := loadConfigStr(m.db, cfgKeyToolFilter, "")
+	rebindMode := loadConfigStr(m.db, cfgKeyRebindMode, RebindModeAuto)
 
 	intervalSec := loadConfigInt(m.db, cfgKeyIntervalSec, defaultIntervalSec)
 	failureThreshold := loadConfigInt(m.db, cfgKeyFailureThreshold, defaultFailureThreshold)
@@ -787,8 +804,8 @@ func BuildLines(db *gorm.DB) []selector.Line {
 	// ---- Cloudflare Tunnel（named 模式入口固定，可探测）----
 	// quick/token 模式无固定外部入口（trycloudflare 随机域名 / 远程配置），
 	// 不注册为线路；named 模式用 {tunnel_name}.cfargotunnel.com:443 探测。
-	var cfts []model.CloudflareTunnel
-	if err := db.Where("enable = ? AND type = ?", true, "named").Find(&cfts).Error; err == nil {
+	var cfts []model.CftunnelConfig
+	if err := db.Where("enable = ? AND mode = ?", true, "named").Find(&cfts).Error; err == nil {
 		for _, c := range cfts {
 			if c.TunnelName == "" {
 				continue
