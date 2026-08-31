@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +21,9 @@ type ProbeEngine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-
-	// 探测任务
-	probeTickers map[uint]*time.Ticker
-	mu           sync.RWMutex
+// 探测任务：每个任务持有独立的 cancel，支持精确停止单个任务
+probeCancels map[uint]context.CancelFunc
+mu           sync.RWMutex
 }
 
 // NewProbeEngine 创建探测引擎
@@ -35,7 +35,7 @@ func NewProbeEngine(db *gorm.DB, manager *Manager) *ProbeEngine {
 		manager:      manager,
 		ctx:          ctx,
 		cancel:       cancel,
-		probeTickers: make(map[uint]*time.Ticker),
+		probeCancels: make(map[uint]context.CancelFunc),
 	}
 }
 
@@ -62,49 +62,63 @@ func (p *ProbeEngine) Stop() {
 
 	// 停止所有探测任务
 	p.mu.Lock()
-	for _, ticker := range p.probeTickers {
-		ticker.Stop()
+	for id, cancel := range p.probeCancels {
+		cancel()
+		delete(p.probeCancels, id)
 	}
-	p.probeTickers = make(map[uint]*time.Ticker)
 	p.mu.Unlock()
 
 	p.wg.Wait()
 	log.Println("[ProbeEngine] 探测引擎已停止")
 }
 
-// StartProbe 启动单个探测任务
-func (p *ProbeEngine) StartProbe(probe model.MonitorProbe) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// minProbeInterval 探测间隔下限（秒）。
+// Interval 为 0 或负数会让 time.NewTicker 直接 panic，必须兜底。
+const minProbeInterval = 5
 
-	// 如果已存在，先停止
-	if ticker, ok := p.probeTickers[probe.ID]; ok {
-		ticker.Stop()
+// StartProbe 启动单个探测任务。
+//
+// 并发安全：原实现仅 Stop() 了旧 ticker，但旧 goroutine 仍阻塞在 select 上，
+// 只能等全局 Stop() 才退出——每次更新探测配置都会泄漏一个 goroutine。
+// 现为每个探测任务维护独立的 cancel，重启时精确回收旧协程。
+func (p *ProbeEngine) StartProbe(probe model.MonitorProbe) {
+	interval := probe.Interval
+	if interval < minProbeInterval {
+		log.Printf("[ProbeEngine] 探测任务 %s 间隔 %d 秒过小，已修正为 %d 秒\n",
+			probe.Name, interval, minProbeInterval)
+		interval = minProbeInterval
 	}
 
-	// 创建定时器
-	ticker := time.NewTicker(time.Duration(probe.Interval) * time.Second)
-	p.probeTickers[probe.ID] = ticker
+	p.mu.Lock()
+	// 如果已存在，先取消旧协程（避免同一探测任务重复运行并泄漏 goroutine）
+	if cancel, ok := p.probeCancels[probe.ID]; ok {
+		cancel()
+	}
+	ctx, cancel := context.WithCancel(p.ctx)
+	p.probeCancels[probe.ID] = cancel
+	p.mu.Unlock()
 
-	// 启动探测协程
 	p.wg.Add(1)
-	go func(probe model.MonitorProbe) {
+	go func(probe model.MonitorProbe, ctx context.Context) {
 		defer p.wg.Done()
 
+		ticker := time.NewTicker(time.Duration(interval) * time.Second)
+		defer ticker.Stop()
+
 		// 立即执行一次
-		p.executeProbe(probe)
+		p.executeProbe(ctx, probe)
 
 		for {
 			select {
-			case <-p.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				p.executeProbe(probe)
+				p.executeProbe(ctx, probe)
 			}
 		}
-	}(probe)
+	}(probe, ctx)
 
-	log.Printf("[ProbeEngine] 启动探测任务: %s (间隔 %d 秒)\n", probe.Name, probe.Interval)
+	log.Printf("[ProbeEngine] 启动探测任务: %s (间隔 %d 秒)\n", probe.Name, interval)
 }
 
 // StopProbe 停止单个探测任务
@@ -112,15 +126,15 @@ func (p *ProbeEngine) StopProbe(probeID uint) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if ticker, ok := p.probeTickers[probeID]; ok {
-		ticker.Stop()
-		delete(p.probeTickers, probeID)
+	if cancel, ok := p.probeCancels[probeID]; ok {
+		cancel()
+		delete(p.probeCancels, probeID)
 		log.Printf("[ProbeEngine] 停止探测任务: %d\n", probeID)
 	}
 }
 
 // executeProbe 执行探测
-func (p *ProbeEngine) executeProbe(probe model.MonitorProbe) {
+func (p *ProbeEngine) executeProbe(ctx context.Context, probe model.MonitorProbe) {
 	// 解析执行探测的服务器列表
 	var serverIDs []uint
 	if err := json.Unmarshal([]byte(probe.ServerIDs), &serverIDs); err != nil {
@@ -128,10 +142,22 @@ func (p *ProbeEngine) executeProbe(probe model.MonitorProbe) {
 		return
 	}
 
-	// 在每个服务器上执行探测
+	// 在每个服务器上执行探测。等待本轮全部完成后再返回，
+	// 避免探测耗时超过间隔时协程无上限堆积。
+	var wg sync.WaitGroup
 	for _, serverID := range serverIDs {
-		go p.probeOnServer(probe, serverID)
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		wg.Add(1)
+		go func(sid uint) {
+			defer wg.Done()
+			p.probeOnServer(probe, sid)
+		}(serverID)
 	}
+	wg.Wait()
 }
 
 // probeOnServer 在指定服务器上执行探测
@@ -158,10 +184,15 @@ func (p *ProbeEngine) probeOnServer(probe model.MonitorProbe, serverID uint) {
 		if probe.HTTPPath != "" {
 			url = url + probe.HTTPPath
 		}
-		if probe.ProbeType == "https" && !contains(url, "https://") {
-			url = "https://" + url
-		} else if probe.ProbeType == "http" && !contains(url, "http://") {
-			url = "http://" + url
+		// 仅当 URL 未带协议前缀时补全。
+		// 原实现使用自定义 contains()，其语义实为"前缀或后缀匹配"，与函数名不符，
+		// 这里直接使用 strings.HasPrefix，语义明确。
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			if probe.ProbeType == "https" {
+				url = "https://" + url
+			} else {
+				url = "http://" + url
+			}
 		}
 		success, responseTime, statusCode, err = p.manager.Collector.ProbeHTTP(url, probe.Timeout)
 	case "icmp":
@@ -293,8 +324,4 @@ func (p *ProbeEngine) GetProbeResults(probeID, serverID uint, start, end time.Ti
 	var results []model.MonitorProbeResult
 	err := query.Order("timestamp ASC").Find(&results).Error
 	return results, err
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s[:len(substr)] == substr || len(s) > len(substr) && s[len(s)-len(substr):] == substr)
 }

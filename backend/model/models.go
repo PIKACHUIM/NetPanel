@@ -155,7 +155,7 @@ type FrpcConfig struct {
 	// Web 管理端口
 	WebServerPort     int         `gorm:"default:0" json:"web_server_port"`
 	WebServerUser     string      `gorm:"size:100" json:"web_server_user"`
-	WebServerPassword string      `gorm:"size:255" json:"web_server_password"`
+	WebServerPassword Secret      `gorm:"size:255" json:"web_server_password"` // 响应中脱敏
 	LogLevel          string      `gorm:"size:20;default:'info'" json:"log_level"`
 	Proxies           []FrpcProxy `gorm:"foreignKey:FrpcID" json:"proxies"`
 	Status            string      `gorm:"size:20;default:'stopped'" json:"status"`
@@ -246,7 +246,7 @@ type FrpsConfig struct {
 	DashboardAddr     string `gorm:"size:100" json:"dashboard_addr"`
 	DashboardPort     int    `json:"dashboard_port"`
 	DashboardUser     string `gorm:"size:100" json:"dashboard_user"`
-	DashboardPassword string `gorm:"size:255" json:"dashboard_password"`
+	DashboardPassword Secret `gorm:"size:255" json:"dashboard_password"` // 响应中脱敏
 	// 是否启用 Prometheus 监控（需同时启用 Dashboard）
 	EnablePrometheus bool `gorm:"default:false" json:"enable_prometheus"`
 	// 限制
@@ -295,8 +295,9 @@ type NpsServerConfig struct {
 	HTTPSPort   int    `gorm:"default:443" json:"https_port"`   // HTTPS 代理端口
 	WebPort     int    `gorm:"default:8080" json:"web_port"`    // Web 管理端口
 	WebUsername string `gorm:"size:100;default:'admin'" json:"web_username"`
-	WebPassword string `gorm:"size:255;default:'123456'" json:"web_password"`
-	AuthKey     string `gorm:"size:255" json:"auth_key"` // 连接认证密钥
+	// 移除弱默认值 '123456'：默认口令会随新建配置自动生效，等同于公开后门
+	WebPassword Secret `gorm:"size:255" json:"web_password"`             // 响应中脱敏
+	AuthKey     Secret `gorm:"size:255" json:"auth_key"`                // 连接认证密钥（响应中脱敏）
 	LogLevel    string `gorm:"size:20;default:'info'" json:"log_level"`
 	Status      string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError   string `gorm:"type:text" json:"last_error"`
@@ -566,8 +567,9 @@ type CftunnelConfig struct {
 	CredentialsFile string `gorm:"size:500" json:"credentials_file"`
 	// named 模式：配置文件路径（可选，默认为临时生成的 config.yml）
 	ConfigFile string `gorm:"size:500" json:"config_file"`
-	// token 模式：远程配置 token（cloudflared tunnel run --token）
-	Token string `gorm:"type:text" json:"token"`
+	// token 模式：远程配置 token（cloudflared tunnel run，经 TUNNEL_TOKEN 环境变量传入）。
+	// 该 token 等价于隧道完整控制凭据，不序列化到 JSON，API 层以 has_token 布尔回显。
+	Token string `gorm:"type:text" json:"-"`
 	// 协议：http/https，默认 http
 	Protocol string `gorm:"size:20;default:'http'" json:"protocol"`
 	// QuickURL quick 模式的临时隧道地址（每次启动随机生成，
@@ -1075,26 +1077,6 @@ type FirewallRule struct {
 	Raw string `gorm:"type:text" json:"raw"`
 }
 
-// ===== CF 隧道（Cloudflare Tunnel，cloudflared） =====
-
-// CloudflareTunnel CF 隧道配置
-type CloudflareTunnel struct {
-	BaseModel
-	Name     string `gorm:"size:100;not null" json:"name"`
-	Type     string `gorm:"size:20;default:'quick'" json:"type"` // quick（快速隧道）/ named（命名隧道）
-	Enable   bool   `gorm:"default:false" json:"enable"`
-	// quick 模式：内网目标地址，如 http://192.168.1.10:5000
-	LocalURL string `gorm:"size:500" json:"local_url"`
-	// named 模式：Cloudflare API Token（仅入库，不回显）
-	Token      string `gorm:"size:1000" json:"-"`
-	TunnelName string `gorm:"size:100" json:"tunnel_name"` // 命名隧道名称
-	Hostname   string `gorm:"size:255" json:"hostname"`    // 公网域名，如 nas.example.com
-	Status     string `gorm:"size:20;default:'stopped'" json:"status"` // stopped/running/error
-	PublicURL  string `gorm:"size:500" json:"public_url"`  // quick 模式运行后生成的 trycloudflare 地址
-	LastError  string `gorm:"type:text" json:"last_error"`
-	Remark     string `gorm:"size:500" json:"remark"`
-}
-
 // ===== 回调账号 =====
 
 // CallbackAccount 回调账号
@@ -1215,7 +1197,7 @@ type MeshNode struct {
 	Name          string     `gorm:"size:100;not null" json:"name"`  // 节点名称
 	URL           string     `gorm:"size:500;not null" json:"url"`   // 节点URL（如 http://192.168.1.100:8080）
 	AdminUser     string     `gorm:"size:100" json:"admin_user"`     // 管理员用户名
-	AdminPassword string     `gorm:"size:255" json:"admin_password"` // 管理员密码
+	AdminPassword Secret     `gorm:"size:255" json:"admin_password"` // 管理员密码（响应中脱敏）
 	Enable        bool       `gorm:"default:true" json:"enable"`     // 是否启用
 	Remark        string     `gorm:"size:500" json:"remark"`         // 节点备注
 	NodeIP        string     `gorm:"size:100" json:"node_ip"`        // 节点IP（只读，从URL解析或心跳获取）
@@ -1244,7 +1226,7 @@ type AiProvider struct {
 	BaseModel
 	Name     string `gorm:"size:100;not null" json:"name"`
 	BaseURL  string `gorm:"size:500;not null" json:"base_url"` // e.g. https://api.openai.com
-	ApiKey   string `gorm:"size:500" json:"api_key"`
+	ApiKey   Secret `gorm:"size:500" json:"api_key"` // 响应中脱敏
 	Models   string `gorm:"type:text" json:"models"`    // JSON array: ["gpt-4","gpt-3.5-turbo"]
 	IsActive bool   `gorm:"default:true" json:"is_active"`
 	Remark   string `gorm:"size:500" json:"remark"`
@@ -1358,7 +1340,7 @@ type MonitorServer struct {
 	// SSH 模式配置
 	SSHAddr     string `gorm:"size:255" json:"ssh_addr"`     // SSH 地址，如 192.168.1.100:22
 	SSHUser     string `gorm:"size:100" json:"ssh_user"`     // SSH 用户名
-	SSHPassword string `gorm:"size:255" json:"ssh_password"` // SSH 密码
+	SSHPassword Secret `gorm:"size:255" json:"ssh_password"` // SSH 密码（响应中脱敏）
 	SSHKeyFile  string `gorm:"size:500" json:"ssh_key_file"` // SSH 私钥文件路径
 	// HTTP 探测模式配置
 	HTTPProbeURL     string `gorm:"size:500" json:"http_probe_url"`     // HTTP 探测地址

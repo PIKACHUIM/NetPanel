@@ -29,6 +29,7 @@ import (
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
+	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -658,8 +659,17 @@ func (h *DomainAccountHandler) Test(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "账号不存在"})
 		return
 	}
-	// TODO: 根据 account.Provider 调用对应 DNS 服务商 API 验证凭据
-	h.log.Infof("[域名账号] 测试连接: id=%d provider=%s", id, account.Provider)
+	provider := ddns.NewProvider(account.Provider, account.AccessID, account.AccessSecret)
+	if provider == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": fmt.Sprintf("不支持的 DNS 服务商: %s", account.Provider)})
+		return
+	}
+	if err := provider.VerifyCredentials(); err != nil {
+		h.log.Warnf("[域名账号] 测试连接失败: id=%d provider=%s err=%v", id, account.Provider, err)
+		c.JSON(http.StatusOK, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	h.log.Infof("[域名账号] 测试连接成功: id=%d provider=%s", id, account.Provider)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "连接测试成功"})
 }
 
@@ -1059,12 +1069,13 @@ func (h *DomainInfoHandler) Refresh(c *gin.Context) {
 // ===== 证书账号 =====
 
 type CertAccountHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
+	db      *gorm.DB
+	log     *logrus.Logger
+	certMgr *cert.Manager
 }
 
-func NewCertAccountHandler(db *gorm.DB, log *logrus.Logger) *CertAccountHandler {
-	return &CertAccountHandler{db: db, log: log}
+func NewCertAccountHandler(db *gorm.DB, log *logrus.Logger, certMgr *cert.Manager) *CertAccountHandler {
+	return &CertAccountHandler{db: db, log: log, certMgr: certMgr}
 }
 
 func (h *CertAccountHandler) List(c *gin.Context) {
@@ -1111,8 +1122,16 @@ func (h *CertAccountHandler) Verify(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "账号不存在"})
 		return
 	}
-	// TODO: 调用 ACME 接口验证账号有效性
-	h.log.Infof("[证书账号] 验证账号: id=%d type=%s email=%s", id, account.Type, account.Email)
+	if h.certMgr == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "证书服务未初始化"})
+		return
+	}
+	if err := h.certMgr.VerifyAccount(account.Email, account.Type, account.EabKid, account.EabHmacKey); err != nil {
+		h.log.Warnf("[证书账号] 验证账号失败: id=%d type=%s email=%s err=%v", id, account.Type, account.Email, err)
+		c.JSON(http.StatusOK, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	h.log.Infof("[证书账号] 验证账号成功: id=%d type=%s email=%s", id, account.Type, account.Email)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "账号验证成功"})
 }
 

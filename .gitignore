@@ -86,3 +86,5 @@ scripts/setup.iss.lock
 .codebuddy
 .codebuddy
 .agents
+.workbuddy/memory
+

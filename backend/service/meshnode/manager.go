@@ -264,7 +264,7 @@ func (m *Manager) getNodeToken(node *model.MeshNode) (string, error) {
 	loginURL := strings.TrimRight(node.URL, "/") + "/api/v1/auth/login"
 	loginBody, _ := json.Marshal(map[string]string{
 		"username": node.AdminUser,
-		"password": node.AdminPassword,
+		"password": node.AdminPassword.String(),
 	})
 
 	req, err := http.NewRequestWithContext(m.ctx, "POST", loginURL, bytes.NewReader(loginBody))

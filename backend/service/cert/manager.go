@@ -710,6 +710,50 @@ func (m *Manager) registerAccount(core *api.Core, user *acmeUser, ca, eabKid, ea
 	}, nil
 }
 
+// VerifyAccount 验证 ACME 证书账号凭据是否有效
+// 通过向 CA 注册一个临时 ACME 账号来验证：CA 可达、邮箱格式正确、EAB 凭据有效（若 CA 需要）
+// 注意：该操作只做注册验证，不保存任何状态，不产生证书订单
+func (m *Manager) VerifyAccount(email, ca, eabKid, eabHmacKey string) error {
+	if strings.TrimSpace(email) == "" {
+		return fmt.Errorf("邮箱地址不能为空")
+	}
+	if !strings.Contains(email, "@") {
+		return fmt.Errorf("邮箱地址格式无效")
+	}
+	if strings.TrimSpace(ca) == "" {
+		ca = "letsencrypt"
+	}
+
+	// 生成临时账号私钥
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return fmt.Errorf("生成私钥失败: %w", err)
+	}
+
+	user := &acmeUser{
+		Email: email,
+		key:   privateKey,
+	}
+
+	// 配置 lego 客户端
+	config := lego.NewConfig(user)
+	config.Certificate.KeyType = certcrypto.RSA2048
+	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	config.CADirURL = m.getCADirURL(ca)
+
+	// 创建 ACME 核心客户端
+	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, "", privateKey)
+	if err != nil {
+		return fmt.Errorf("创建 ACME 客户端失败: %w", err)
+	}
+
+	// 注册账号（成功即代表凭据有效）
+	if _, err := m.registerAccount(core, user, ca, eabKid, eabHmacKey); err != nil {
+		return fmt.Errorf("ACME 账号验证失败: %w", err)
+	}
+	return nil
+}
+
 // getDNSCredentials 获取 DNS 验证凭据
 func (m *Manager) getDNSCredentials(cert *model.DomainCert) (accessID, accessSecret, provider string, err error) {
 	if cert.DomainAccountID > 0 {

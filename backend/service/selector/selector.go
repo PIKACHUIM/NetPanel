@@ -269,6 +269,27 @@ func (s *Selector) toolAllowed(tool string) bool {
 	return ok
 }
 
+// MaxConcurrent 返回当前单轮探测的最大并发数。
+func (s *Selector) MaxConcurrent() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxConcurrent
+}
+
+// FailureThreshold 返回当前连续失败阈值。
+func (s *Selector) FailureThreshold() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.failureThreshold
+}
+
+// Tolerance 返回当前选线防抖容差。
+func (s *Selector) Tolerance() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tolerance
+}
+
 // SetLines 全量替换线路集合（保留锁线与当前选择；失效的锁线自动解除）。
 // 拷贝传入 slice，避免调用方后续修改污染内部状态。
 func (s *Selector) SetLines(lines []Line) {

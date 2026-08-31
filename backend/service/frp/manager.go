@@ -301,7 +301,7 @@ func buildClientConfig(cfg *model.FrpcConfig) (*v1.ClientCommonConfig, []v1.Prox
 		common.WebServer.Addr = "127.0.0.1"
 		common.WebServer.Port = cfg.WebServerPort
 		common.WebServer.User = cfg.WebServerUser
-		common.WebServer.Password = cfg.WebServerPassword
+		common.WebServer.Password = cfg.WebServerPassword.String()
 	}
 
 	// ===== 日志 =====
@@ -668,7 +668,7 @@ func buildServerConfig(cfg *model.FrpsConfig) (*v1.ServerConfig, error) {
 		}
 		frpCfg.WebServer.Port = cfg.DashboardPort
 		frpCfg.WebServer.User = cfg.DashboardUser
-		frpCfg.WebServer.Password = cfg.DashboardPassword
+		frpCfg.WebServer.Password = cfg.DashboardPassword.String()
 		// AssetsDir 为空时，frp 使用 assets.FileSystem（已通过 Register 注册），
 		// 可正常提供 Dashboard 静态页面
 	}

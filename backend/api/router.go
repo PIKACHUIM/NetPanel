@@ -89,6 +89,11 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth := apiV1.Group("")
 	auth.Use(middleware.JWTAuth())
 
+	// 需要管理员权限的路由（在 JWTAuth 之上叠加 AdminOnly）。
+	// 用于系统管理接口，以及可在宿主机/受管主机执行命令的高危能力。
+	admin := apiV1.Group("")
+	admin.Use(middleware.JWTAuth(), middleware.AdminOnly())
+
 	// 系统信息
 	sysHandler := handlers.NewSystemHandler(opts.DB, opts.Log, opts.Config)
 	auth.GET("/system/info", sysHandler.GetInfo)
@@ -278,7 +283,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 		auth.PUT("/domain/domains/:id/auto-sync", diHandler.UpdateAutoSync)
 
 	// 证书账号（ACME CA 账号，参考 dnsmgr cert_account）
-	certAccountHandler := handlers.NewCertAccountHandler(opts.DB, opts.Log)
+	certAccountHandler := handlers.NewCertAccountHandler(opts.DB, opts.Log, opts.CertMgr)
 	auth.GET("/domain/cert-accounts", certAccountHandler.List)
 	auth.POST("/domain/cert-accounts", certAccountHandler.Create)
 	auth.PUT("/domain/cert-accounts/:id", certAccountHandler.Update)
@@ -322,15 +327,15 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// 注入 DNS 解析记录同步回调到计划任务管理器
 	opts.CronMgr.SetSyncDNSRecordFunc(diHandler.DoSyncFromProvider)
 
-	// 计划任务
+	// 计划任务（写操作限管理员：shell 类型可在宿主机执行任意命令）
 	cronHandler := handlers.NewCronHandler(opts.DB, opts.Log, opts.CronMgr)
 	auth.GET("/cron", cronHandler.List)
-	auth.POST("/cron", cronHandler.Create)
-	auth.PUT("/cron/:id", cronHandler.Update)
-	auth.DELETE("/cron/:id", cronHandler.Delete)
-	auth.POST("/cron/:id/enable", cronHandler.Enable)
-	auth.POST("/cron/:id/disable", cronHandler.Disable)
-	auth.POST("/cron/:id/run", cronHandler.RunNow)
+	admin.POST("/cron", cronHandler.Create)
+	admin.PUT("/cron/:id", cronHandler.Update)
+	admin.DELETE("/cron/:id", cronHandler.Delete)
+	admin.POST("/cron/:id/enable", cronHandler.Enable)
+	admin.POST("/cron/:id/disable", cronHandler.Disable)
+	admin.POST("/cron/:id/run", cronHandler.RunNow)
 
 	// 网络存储
 	storageHandler := handlers.NewStorageHandler(opts.DB, opts.Log, opts.StorageMgr)
@@ -367,6 +372,10 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/cftunnel/:id/stop", cftunnelHandler.Stop)
 	auth.GET("/cftunnel/:id/status", cftunnelHandler.GetStatus)
 	auth.GET("/cftunnel/:id/logs", cftunnelHandler.GetLogs)
+	// cloudflared 二进制管理（隧道启动强依赖该二进制）
+	auth.GET("/cftunnel/binary", cftunnelHandler.GetBinaryPath)
+	auth.GET("/cftunnel/download/info", cftunnelHandler.GetDownloadInfo)
+	auth.POST("/cftunnel/download", cftunnelHandler.DownloadBinary)
 
 	// 访问控制
 	accessHandler := handlers.NewAccessHandler(opts.DB, opts.Log, opts.AccessMgr, opts.CaddyMgr)
@@ -422,26 +431,28 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/callback/tasks/:id", cbTaskHandler.Update)
 	auth.DELETE("/callback/tasks/:id", cbTaskHandler.Delete)
 
-	// ── 系统管理 ──────────────────────────────────────────────────────────────
+	// ── 系统管理（仅管理员）────────────────────────────────────────────────────
+	// 此前这些接口仅校验"是否登录"，任意普通用户可创建管理员账号实现提权。
 	// 日志查看
 	syslogHandler := handlers.NewSyslogHandler(opts.DB, opts.Log, opts.SyslogMgr)
-	auth.GET("/admin/logs", syslogHandler.QueryLogs)
-	auth.GET("/admin/logs/services", syslogHandler.GetLogServices)
-	auth.DELETE("/admin/logs", syslogHandler.CleanupLogs)
+	admin.GET("/admin/logs", syslogHandler.QueryLogs)
+	admin.GET("/admin/logs/services", syslogHandler.GetLogServices)
+	admin.DELETE("/admin/logs", syslogHandler.CleanupLogs)
 
 	// 用户管理
 	userHandler := handlers.NewUserHandler(opts.DB, opts.Log)
-	auth.GET("/admin/users", userHandler.ListUsers)
-	auth.POST("/admin/users", userHandler.CreateUser)
-	auth.PUT("/admin/users/:id", userHandler.UpdateUser)
-	auth.DELETE("/admin/users/:id", userHandler.DeleteUser)
+	admin.GET("/admin/users", userHandler.ListUsers)
+	admin.POST("/admin/users", userHandler.CreateUser)
+	admin.PUT("/admin/users/:id", userHandler.UpdateUser)
+	admin.DELETE("/admin/users/:id", userHandler.DeleteUser)
+	// 查询自身信息属于普通登录用户能力，不纳入 admin 组
 	auth.GET("/admin/users/me", userHandler.GetCurrentUser)
 
 	// OAuth Provider 管理
-	auth.GET("/admin/oauth-providers", oauthHandler.ListProviders)
-	auth.POST("/admin/oauth-providers", oauthHandler.CreateProvider)
-	auth.PUT("/admin/oauth-providers/:id", oauthHandler.UpdateProvider)
-	auth.DELETE("/admin/oauth-providers/:id", oauthHandler.DeleteProvider)
+	admin.GET("/admin/oauth-providers", oauthHandler.ListProviders)
+	admin.POST("/admin/oauth-providers", oauthHandler.CreateProvider)
+	admin.PUT("/admin/oauth-providers/:id", oauthHandler.UpdateProvider)
+	admin.DELETE("/admin/oauth-providers/:id", oauthHandler.DeleteProvider)
 
 	// ── 组网节点管理 ──────────────────────────────────────────────────────────
 	meshHandler := handlers.NewMeshNodeHandler(opts.DB, opts.Log, opts.MeshNodeMgr)
@@ -516,12 +527,12 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/monitor/probes/:id", monitorHandler.UpdateProbe)
 	auth.DELETE("/monitor/probes/:id", monitorHandler.DeleteProbe)
 	auth.GET("/monitor/probes/:id/results", monitorHandler.GetProbeResults)
-	// 任务管理
+	// 任务管理（写操作限管理员：可通过 SSH 在受管主机执行任意命令）
 	auth.GET("/monitor/tasks", monitorHandler.ListTasks)
-	auth.POST("/monitor/tasks", monitorHandler.CreateTask)
-	auth.PUT("/monitor/tasks/:id", monitorHandler.UpdateTask)
-	auth.DELETE("/monitor/tasks/:id", monitorHandler.DeleteTask)
-	auth.POST("/monitor/tasks/:id/execute", monitorHandler.ExecuteTask)
+	admin.POST("/monitor/tasks", monitorHandler.CreateTask)
+	admin.PUT("/monitor/tasks/:id", monitorHandler.UpdateTask)
+	admin.DELETE("/monitor/tasks/:id", monitorHandler.DeleteTask)
+	admin.POST("/monitor/tasks/:id/execute", monitorHandler.ExecuteTask)
 	auth.GET("/monitor/tasks/logs", monitorHandler.GetTaskLogs)
 	// 告警规则
 	auth.GET("/monitor/alerts", monitorHandler.ListAlerts)
@@ -547,9 +558,9 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/monitor/tunnels/:id", monitorHandler.UpdateTunnelBinding)
 	auth.DELETE("/monitor/tunnels/:id", monitorHandler.DeleteTunnelBinding)
 	auth.POST("/monitor/tunnels/:id/sync", monitorHandler.SyncTunnelStatus)
-
-	// WebSocket 终端（无需 JWT，通过 query 参数认证）
-	r.GET("/ws/terminal", monitorHandler.HandleTerminal)
+// WebSocket 终端：浏览器 WebSocket 无法自定义请求头，token 经 query 传入，
+// 由 HandleTerminal 内部完成鉴权（校验 token + 管理员权限 + Origin）
+r.GET("/ws/terminal", monitorHandler.HandleTerminal)
 
 	return r
 }

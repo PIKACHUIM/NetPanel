@@ -148,7 +148,7 @@ func (h *OAuthHandler) Callback(c *gin.Context) {
 	}
 
 	// 签发 JWT Token
-	jwtToken, err := middleware.GenerateToken(user.Username)
+	jwtToken, err := middleware.GenerateToken(user.Username, user.ID, user.IsAdmin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "Token 生成失败"})
 		return

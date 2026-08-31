@@ -1,15 +1,21 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 
+	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/frp"
@@ -493,32 +499,80 @@ func (h *MonitorHandler) GetAlertRecords(c *gin.Context) {
 
 // ===== WebSocket 终端 =====
 
-// HandleTerminal WebSocket 终端处理
-func (h *MonitorHandler) HandleTerminal(c *gin.Context) {
-	serverID, _ := strconv.ParseUint(c.Query("server_id"), 10, 32)
-	userID, _ := strconv.ParseUint(c.Query("user_id"), 10, 32)
-	
-	// 升级为 WebSocket
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true // 生产环境应该检查 Origin
-		},
+// terminalOriginAllowed 校验 WebSocket 握手的 Origin 是否与当前服务同源，
+// 或在 NETPANEL_ALLOWED_ORIGINS 白名单内，防止跨站 WebSocket 劫持（CSWSH）。
+func terminalOriginAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// 非浏览器客户端（如 CLI）不带 Origin，此时依赖 token 鉴权
+		return true
 	}
-	
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	u, err := url.Parse(origin)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	for _, allowed := range strings.Split(os.Getenv("NETPANEL_ALLOWED_ORIGINS"), ",") {
+		if v := strings.TrimSpace(allowed); v != "" && v == origin {
+			return true
+		}
+	}
+	return false
+}
+
+// HandleTerminal WebSocket 终端处理。
+//
+// 安全说明：原实现从 query 读取 user_id 且不校验任何凭据，任何人访问
+// /ws/terminal?server_id=1 即可获得受管主机的交互式 shell（凭据由服务端从
+// 数据库读取），且 CheckOrigin 恒为 true。现改为：
+//  1. 握手阶段强制校验 token（query 传入，因浏览器 WebSocket 无法自定义请求头）；
+//  2. 用户身份取自令牌声明，不信任客户端传入的 user_id；
+//  3. 仅管理员可开启远程终端；
+//  4. 校验 Origin 同源。
+func (h *MonitorHandler) HandleTerminal(c *gin.Context) {
+	// WebSocket 握手失败时不能用 c.JSON（连接尚未升级），统一返回 HTTP 错误码
+	token := c.Query("token")
+	if token == "" {
+		c.String(http.StatusUnauthorized, "缺少 token")
 		return
 	}
-	
-	// 创建终端会话
-	session, err := h.manager.TerminalSrv.CreateSession(uint(serverID), uint(userID), conn)
+	claims, err := middleware.ParseToken(token)
 	if err != nil {
+		c.String(http.StatusUnauthorized, "token 无效或已过期")
+		return
+	}
+	if !claims.IsAdmin {
+		c.String(http.StatusForbidden, "需要管理员权限")
+		return
+	}
+
+	serverID, err := strconv.ParseUint(c.Query("server_id"), 10, 32)
+	if err != nil || serverID == 0 {
+		c.String(http.StatusBadRequest, "server_id 非法")
+		return
+	}
+
+	upgrader := websocket.Upgrader{CheckOrigin: terminalOriginAllowed}
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		// Upgrade 失败时响应已写入，此处仅记录审计日志
+		logger.WriteLog("warn", "monitor", fmt.Sprintf("终端 WebSocket 升级失败: %v", err))
+		return
+	}
+
+	logger.WriteLog("info", "monitor", fmt.Sprintf("用户 %s 打开服务器 [%d] 远程终端", claims.Username, serverID))
+
+	// 用户身份取自令牌，避免客户端伪造 user_id
+	session, err := h.manager.TerminalSrv.CreateSession(uint(serverID), claims.UserID, conn)
+	if err != nil {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("会话创建失败: "+err.Error()))
 		conn.Close()
 		return
 	}
-	
-	// 处理会话
+
 	h.manager.TerminalSrv.HandleSession(session)
 }
 
@@ -797,7 +851,12 @@ func (h *MonitorHandler) queryTunnelStatus(tunnelType string, tunnelID uint) str
 	case "easytier":
 		status = h.easytierMgr.GetClientStatus(tunnelID)
 	case "cftunnel":
-		status = h.cftunnelMgr.GetStatus(tunnelID)
+		// GetStatus 始终返回进程运行状态；配置记录缺失时的 error 不影响状态映射
+		if st, _ := h.cftunnelMgr.GetStatus(tunnelID); st != nil {
+			if s, ok := st["status"].(string); ok {
+				status = s
+			}
+		}
 	case "wireguard":
 		status = h.wireguardMgr.GetStatus(tunnelID)
 	default:

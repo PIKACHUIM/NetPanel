@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
@@ -12,6 +13,7 @@ import (
 	"github.com/netpanel/netpanel/service/cron"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/storage"
+	cronv3 "github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -214,14 +216,56 @@ func (h *CronHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tasks})
 }
 
+// validateCronTask 校验计划任务的关键字段。
+// cron 表达式非法会导致 AddTask 静默失败（任务永不触发），必须前置校验。
+func validateCronTask(task *model.CronTask) error {
+	if strings.TrimSpace(task.CronExpr) == "" {
+		return fmt.Errorf("cron 表达式不能为空")
+	}
+	// 与 cron.Manager 使用同一解析规则（cron.WithSeconds()，即 6 段带秒格式），
+	// 否则校验通过的表达式仍可能被 AddFunc 拒绝而导致任务静默不触发
+	if _, err := cronv3.NewParser(
+		cronv3.Second | cronv3.Minute | cronv3.Hour | cronv3.Dom | cronv3.Month | cronv3.Dow | cronv3.Descriptor,
+	).Parse(task.CronExpr); err != nil {
+		return fmt.Errorf("cron 表达式非法（需为 6 段带秒格式，如 \"0 0 3 * * *\"）: %v", err)
+	}
+	switch task.TaskType {
+	case "shell":
+		if strings.TrimSpace(task.Command) == "" {
+			return fmt.Errorf("shell 任务的命令不能为空")
+		}
+		if !cron.ShellTaskEnabled() {
+			return fmt.Errorf("shell 任务已禁用（该类型可执行任意系统命令）；如确需启用，请设置环境变量 NETPANEL_ENABLE_SHELL_TASK=1 后重启")
+		}
+	case "http":
+		if strings.TrimSpace(task.HTTPURL) == "" {
+			return fmt.Errorf("http 任务的 URL 不能为空")
+		}
+	case "renew_cert", "update_ddns", "wol", "sync_dns_record":
+		if task.TargetID == 0 {
+			return fmt.Errorf("该任务类型需要指定目标 ID")
+		}
+	default:
+		return fmt.Errorf("未知任务类型: %q", task.TaskType)
+	}
+	return nil
+}
+
 func (h *CronHandler) Create(c *gin.Context) {
 	var task model.CronTask
 	if err := c.ShouldBindJSON(&task); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.db.Create(&task)
-	logger.WriteLog("info", "cron", fmt.Sprintf("创建计划任务: ID=%d", task.ID))
+	if err := validateCronTask(&task); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := h.db.Create(&task).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建失败: " + err.Error()})
+		return
+	}
+	logger.WriteLog("info", "cron", fmt.Sprintf("创建计划任务: ID=%d type=%s", task.ID, task.TaskType))
 	if task.Enable {
 		h.mgr.AddTask(&task)
 	}
@@ -229,48 +273,102 @@ func (h *CronHandler) Create(c *gin.Context) {
 }
 
 func (h *CronHandler) Update(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var req model.CronTask
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.RemoveTask(uint(id))
-	req.ID = uint(id)
-	h.db.Save(&req)
-	logger.WriteLog("info", "cron", fmt.Sprintf("修改计划任务: ID=%d", id))
-	if req.Enable {
-		h.mgr.AddTask(&req)
+	if err := validateCronTask(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
+
+	// 确认任务存在，并保留创建时间等原有字段
+	var existing model.CronTask
+	if err := h.db.First(&existing, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "任务不存在"})
+		return
+	}
+
+	h.mgr.RemoveTask(id)
+	// 使用 Updates 按字段更新，避免 Save 全量覆盖将未提交字段写为零值
+	updates := map[string]any{
+		"name":        req.Name,
+		"cron_expr":   req.CronExpr,
+		"task_type":   req.TaskType,
+		"command":     req.Command,
+		"http_url":    req.HTTPURL,
+		"http_method": req.HTTPMethod,
+		"http_body":   req.HTTPBody,
+		"target_id":   req.TargetID,
+		"enable":      req.Enable,
+		"remark":      req.Remark,
+	}
+	if err := h.db.Model(&existing).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "更新失败: " + err.Error()})
+		return
+	}
+	logger.WriteLog("info", "cron", fmt.Sprintf("修改计划任务: ID=%d", id))
+
+	if err := h.db.First(&existing, id).Error; err == nil && existing.Enable {
+		h.mgr.AddTask(&existing)
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": existing, "message": "更新成功"})
 }
 
 func (h *CronHandler) Delete(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.mgr.RemoveTask(uint(id))
-	h.db.Delete(&model.CronTask{}, id)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	h.mgr.RemoveTask(id)
+	if err := h.db.Delete(&model.CronTask{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "删除失败: " + err.Error()})
+		return
+	}
 	logger.WriteLog("info", "cron", fmt.Sprintf("删除计划任务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
 func (h *CronHandler) Enable(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var task model.CronTask
 	if err := h.db.First(&task, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "任务不存在"})
 		return
 	}
+	// 启用前复核：避免历史遗留的非法配置在启用时静默失效
+	if err := validateCronTask(&task); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := h.db.Model(&task).Update("enable", true).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "启用失败: " + err.Error()})
+		return
+	}
 	task.Enable = true
-	h.db.Save(&task)
 	h.mgr.AddTask(&task)
 	logger.WriteLog("info", "cron", fmt.Sprintf("启用计划任务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启用"})
 }
 
 func (h *CronHandler) Disable(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.mgr.RemoveTask(uint(id))
-	h.db.Model(&model.CronTask{}).Where("id = ?", id).Update("enable", false)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	h.mgr.RemoveTask(id)
+	if err := h.db.Model(&model.CronTask{}).Where("id = ?", id).Update("enable", false).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "禁用失败: " + err.Error()})
+		return
+	}
 	logger.WriteLog("info", "cron", fmt.Sprintf("禁用计划任务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已禁用"})
 }
