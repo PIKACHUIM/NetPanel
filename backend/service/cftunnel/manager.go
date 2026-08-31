@@ -78,10 +78,10 @@ func (r *ringBuffer) lines() []string {
 
 // Manager Cloudflare Tunnel 管理器
 type Manager struct {
-	db      *gorm.DB
-	log     *logrus.Logger
-	dataDir string
-	tunnels sync.Map // map[uint]*processEntry
+	db       *gorm.DB
+	log      *logrus.Logger
+	dataDir  string
+	tunnels  sync.Map // map[uint]*processEntry
 	stopping bool
 	mu       sync.Mutex
 }
@@ -237,7 +237,7 @@ func (m *Manager) Start(id uint) error {
 			}
 		} else {
 			m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
-				"status":    "stopped",
+				"status":     "stopped",
 				"public_url": "",
 			})
 			m.log.Infof("[CF隧道][%d] 进程已退出", id)
@@ -265,7 +265,7 @@ func (m *Manager) Stop(id uint) {
 	}
 	// 进程停止后 quick 隧道地址随即失效，一并清理
 	m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":    "stopped",
+		"status":     "stopped",
 		"public_url": "",
 	})
 }
