@@ -27,6 +27,7 @@ vendor/
 # IDE
 .idea/
 .vscode/
+.run/
 *.swp
 *.swo
 .DS_Store
