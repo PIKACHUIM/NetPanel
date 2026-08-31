@@ -121,6 +121,7 @@ export const tunserviceApi = {
   stop: (id: number) => request.post(`/v1/tunservice/${id}/stop`),
   candidates: (id: number) => request.get(`/v1/tunservice/${id}/candidates`),
   history: (id: number, limit = 100) => request.get(`/v1/tunservice/${id}/history?limit=${limit}`),
+  speedtest: (id: number) => request.get(`/v1/tunservice/${id}/speedtest`),
 }
 
 // ===== WireGuard =====

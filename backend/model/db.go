@@ -158,4 +158,8 @@ func initDefaultData(db *gorm.DB) {
 			Remark:   "系统管理员",
 		})
 	}
+
+	// 测速弹窗开关：确保键存在（默认开启；设为 false 时 Speedtest API 返回 403）
+	db.Where(&SystemConfig{Key: "speedtest_popup_enabled"}).
+		FirstOrCreate(&SystemConfig{Key: "speedtest_popup_enabled", Value: "true"})
 }

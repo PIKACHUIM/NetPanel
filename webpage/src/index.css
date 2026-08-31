@@ -204,6 +204,22 @@ body::after {
   }
 }
 
+/* ===== 测速弹窗动画 ===== */
+.speedtest-row {
+  animation: speedtestRowIn 0.35s ease-out backwards;
+}
+
+@keyframes speedtestRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ===== 状态标签 ===== */
 .status-running { color: #52c41a; }
 .status-stopped { color: #8c8c8c; }

@@ -167,6 +167,11 @@ func (m *Manager) Selector() *selector.Selector {
 	return m.selector
 }
 
+// SetProber 透传设置探测器（测试注入 / 即时测速复用）。
+func (m *Manager) SetProber(p selector.Prober) {
+	m.selector.SetProber(p)
+}
+
 // SetInterval 设置线路刷新间隔（须在 Start 前调用）。
 func (m *Manager) SetInterval(d time.Duration) {
 	if d > 0 {
