@@ -60,7 +60,10 @@ func (h *WafHandler) Create(c *gin.Context) {
 }
 
 func (h *WafHandler) Update(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var req model.WafConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
@@ -73,7 +76,10 @@ func (h *WafHandler) Update(c *gin.Context) {
 }
 
 func (h *WafHandler) Delete(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	h.db.Delete(&model.WafConfig{}, id)
 	h.db.Where("waf_config_id = ?", id).Delete(&model.WafLog{})
 	logger.WriteLog("info", "waf", fmt.Sprintf("删除WAF配置 [%d]", id))
@@ -81,7 +87,10 @@ func (h *WafHandler) Delete(c *gin.Context) {
 }
 
 func (h *WafHandler) Start(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var cfg model.WafConfig
 	if err := h.db.First(&cfg, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "WAF 配置不存在"})
@@ -107,7 +116,10 @@ func (h *WafHandler) Start(c *gin.Context) {
 }
 
 func (h *WafHandler) Stop(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	if waf.Default == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "WAF 引擎未初始化"})
 		return
@@ -123,7 +135,10 @@ func (h *WafHandler) Stop(c *gin.Context) {
 }
 
 func (h *WafHandler) GetLogs(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	page, pageSize = clampPage(page, pageSize)
@@ -145,7 +160,10 @@ func (h *WafHandler) GetLogs(c *gin.Context) {
 }
 
 func (h *WafHandler) TestRule(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var req struct {
 		Rule string `json:"rule"`
 	}
@@ -350,7 +368,10 @@ func (h *WafHandler) BanCreate(c *gin.Context) {
 // BanDelete 删除封禁/白名单（同时解除防火墙规则）
 // DELETE /api/v1/security/waf/bans/:id
 func (h *WafHandler) BanDelete(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var ban model.WafBan
 	if err := h.db.First(&ban, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "记录不存在"})
@@ -367,7 +388,10 @@ func (h *WafHandler) BanDelete(c *gin.Context) {
 // BanApply 手动应用到系统防火墙
 // POST /api/v1/security/waf/bans/:id/apply
 func (h *WafHandler) BanApply(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var ban model.WafBan
 	if err := h.db.First(&ban, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "记录不存在"})
@@ -390,7 +414,10 @@ func (h *WafHandler) BanApply(c *gin.Context) {
 // BanRemove 解除防火墙规则（不删除记录）
 // POST /api/v1/security/waf/bans/:id/remove
 func (h *WafHandler) BanRemove(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
 	var ban model.WafBan
 	if err := h.db.First(&ban, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "记录不存在"})

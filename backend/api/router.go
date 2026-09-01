@@ -398,23 +398,26 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 
 	// WAF 防火墙（Coraza，参考 coraza WAF 和 lucky 安全模块）
 	wafHandler := handlers.NewWafHandler(opts.DB, opts.Log, opts.FirewallMgr)
+	// 读操作：任意认证用户可查看
 	auth.GET("/security/waf", wafHandler.List)
-	auth.POST("/security/waf", wafHandler.Create)
-	auth.PUT("/security/waf/:id", wafHandler.Update)
-	auth.DELETE("/security/waf/:id", wafHandler.Delete)
-	auth.POST("/security/waf/:id/start", wafHandler.Start)
-	auth.POST("/security/waf/:id/stop", wafHandler.Stop)
 	auth.GET("/security/waf/:id/logs", wafHandler.GetLogs)
-	auth.POST("/security/waf/:id/test", wafHandler.TestRule)
 	// 安全中心：攻击事件与态势统计
 	auth.GET("/security/waf/events", wafHandler.EventList)
 	auth.GET("/security/waf/stats", wafHandler.Stats)
 	// 安全中心：封禁 / 黑白名单
 	auth.GET("/security/waf/bans", wafHandler.BanList)
-	auth.POST("/security/waf/bans", wafHandler.BanCreate)
-	auth.DELETE("/security/waf/bans/:id", wafHandler.BanDelete)
-	auth.POST("/security/waf/bans/:id/apply", wafHandler.BanApply)
-	auth.POST("/security/waf/bans/:id/remove", wafHandler.BanRemove)
+
+	// 写操作：可修改宿主防火墙/运行 WAF 规则，仅管理员
+	admin.POST("/security/waf", wafHandler.Create)
+	admin.PUT("/security/waf/:id", wafHandler.Update)
+	admin.DELETE("/security/waf/:id", wafHandler.Delete)
+	admin.POST("/security/waf/:id/start", wafHandler.Start)
+	admin.POST("/security/waf/:id/stop", wafHandler.Stop)
+	admin.POST("/security/waf/:id/test", wafHandler.TestRule)
+	admin.POST("/security/waf/bans", wafHandler.BanCreate)
+	admin.DELETE("/security/waf/bans/:id", wafHandler.BanDelete)
+	admin.POST("/security/waf/bans/:id/apply", wafHandler.BanApply)
+	admin.POST("/security/waf/bans/:id/remove", wafHandler.BanRemove)
 
 	// 回调账号
 	cbAccountHandler := handlers.NewCallbackAccountHandler(opts.DB, opts.Log, opts.CallbackMgr)
