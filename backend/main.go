@@ -19,6 +19,7 @@ import (
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/pkg/metrics"
 	"github.com/netpanel/netpanel/pkg/secret"
 	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/pkg/sysutil"
@@ -47,6 +48,7 @@ import (
 	"github.com/netpanel/netpanel/service/waf"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -358,7 +360,15 @@ func startServer() *http.Server {
 	// 访问控制中间件注入
 	accessMgr.SetGinEngine(router)
 
-	// 尝试绑定端口，若失败则自动寻找可用端口
+	// 注册Prometheus指标
+	if err := registerMetrics(); err != nil {
+		log.Warnf("注册Prometheus指标失败: %v", err)
+	}
+
+	// 挂载Prometheus metrics端点（无需认证，供Grafana采集）
+	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(metrics.GetRegistry(), promhttp.HandlerOpts{})))
+
+	// 挂载前端静态文件（SPA 模式：所有非 /api 路径均返回 index.html）
 	listenPort := findAvailablePort(*port, log)
 	caddyMgr.SetPanelPort(listenPort)
 	addr := fmt.Sprintf(":%d", listenPort)
@@ -466,4 +476,30 @@ func registerStopHandlers(
 		_ = mcpSrv.Stop()
 		log.Info("所有服务已停止")
 	}
+}
+
+
+// registerMetrics 注册Prometheus指标到全局注册表
+func registerMetrics() error {
+	reg := metrics.GetRegistry()
+
+	// 注册穿透服务指标
+	tunnelMetrics := metrics.NewTunnelMetrics()
+	if err := tunnelMetrics.Register(reg); err != nil {
+		return fmt.Errorf("注册穿透服务指标失败: %w", err)
+	}
+
+	// 注册证书指标
+	certMetrics := metrics.NewCertMetrics()
+	if err := certMetrics.Register(reg); err != nil {
+		return fmt.Errorf("注册证书指标失败: %w", err)
+	}
+
+	// 注册WAF指标
+	wafMetrics := metrics.NewWAFMetrics()
+	if err := wafMetrics.Register(reg); err != nil {
+		return fmt.Errorf("注册WAF指标失败: %w", err)
+	}
+
+	return nil
 }
