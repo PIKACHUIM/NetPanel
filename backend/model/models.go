@@ -296,8 +296,13 @@ type NpsServerConfig struct {
 	WebPort     int    `gorm:"default:8080" json:"web_port"`    // Web 管理端口
 	WebUsername string `gorm:"size:100;default:'admin'" json:"web_username"`
 	// 移除弱默认值 '123456'：默认口令会随新建配置自动生效，等同于公开后门
+<<<<<<< HEAD
 	WebPassword Secret `gorm:"size:255" json:"web_password"` // 响应中脱敏
 	AuthKey     Secret `gorm:"size:255" json:"auth_key"`     // 连接认证密钥（响应中脱敏）
+=======
+	WebPassword Secret `gorm:"size:255" json:"web_password"`             // 响应中脱敏
+	AuthKey     Secret `gorm:"size:255" json:"auth_key"`                // 连接认证密钥（响应中脱敏）
+>>>>>>> 585e284 (Fix/security review batch (#49))
 	LogLevel    string `gorm:"size:20;default:'info'" json:"log_level"`
 	Status      string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError   string `gorm:"type:text" json:"last_error"`
@@ -1226,8 +1231,13 @@ type AiProvider struct {
 	BaseModel
 	Name     string `gorm:"size:100;not null" json:"name"`
 	BaseURL  string `gorm:"size:500;not null" json:"base_url"` // e.g. https://api.openai.com
+<<<<<<< HEAD
 	ApiKey   Secret `gorm:"size:500" json:"api_key"`           // 响应中脱敏
 	Models   string `gorm:"type:text" json:"models"`           // JSON array: ["gpt-4","gpt-3.5-turbo"]
+=======
+	ApiKey   Secret `gorm:"size:500" json:"api_key"` // 响应中脱敏
+	Models   string `gorm:"type:text" json:"models"`    // JSON array: ["gpt-4","gpt-3.5-turbo"]
+>>>>>>> 585e284 (Fix/security review batch (#49))
 	IsActive bool   `gorm:"default:true" json:"is_active"`
 	Remark   string `gorm:"size:500" json:"remark"`
 }
