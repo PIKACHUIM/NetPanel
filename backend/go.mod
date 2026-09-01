@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/beego/beego v1.12.14
 	github.com/caddyserver/caddy/v2 v2.11.1
+	github.com/corazawaf/coraza/v3 v3.7.0
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/djylb/nps v0.34.1
 	github.com/fatedier/frp v0.67.0
@@ -23,7 +24,9 @@ require (
 	golang.org/x/net v0.52.0
 	golang.org/x/oauth2 v0.34.0
 	golang.org/x/sys v0.42.0
+	golang.org/x/time v0.14.0
 	google.golang.org/grpc v1.78.0
+	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.25.7
 )
 
@@ -61,7 +64,6 @@ require (
 	github.com/chenzhuoyu/iasm v0.9.0 // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/corazawaf/coraza/v3 v3.7.0 // indirect
 	github.com/corazawaf/libinjection-go v0.3.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/dgraph-io/badger v1.6.2 // indirect
@@ -209,7 +211,6 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
-	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
@@ -221,7 +222,6 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.0 // indirect
 	k8s.io/apimachinery v0.28.8 // indirect
 	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2 // indirect

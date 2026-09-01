@@ -3,6 +3,7 @@ package portforward
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,7 +125,7 @@ func (p *TCPProxy) handleConn(src net.Conn) {
 		src.Close()
 	}()
 
-	dst, err := net.Dial("tcp", fmt.Sprintf("%s:%d", p.targetAddr, p.targetPort))
+	dst, err := net.Dial("tcp", net.JoinHostPort(p.targetAddr, strconv.Itoa(p.targetPort)))
 	if err != nil {
 		p.log.Errorf("连接目标[TCP] %s:%d 失败: %v", p.targetAddr, p.targetPort, err)
 		return

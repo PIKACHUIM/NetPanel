@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import {
-  Card, Form, Input, Button, Select, Divider, message,
+  Card, Form, Input, Button, Select, Divider, message, Switch,
   Typography, Row, Col, Space, Tag, Alert,
 } from 'antd'
 import {
   LockOutlined, GlobalOutlined, InfoCircleOutlined,
-  CheckCircleOutlined,
+  CheckCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -25,6 +25,37 @@ const Settings: React.FC = () => {
   const [pwdForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [pwdSuccess, setPwdSuccess] = useState(false)
+  // 测速弹窗开关（SystemConfig: speedtest_popup_enabled，默认开启）
+  const [speedtestEnabled, setSpeedtestEnabled] = useState(true)
+  const [speedtestLoaded, setSpeedtestLoaded] = useState(false)
+
+  // 读取系统配置中的测速弹窗开关
+  const loadSpeedtestSwitch = async () => {
+    try {
+      const res = await systemApi.getConfig()
+      const val = res?.data?.speedtest_popup_enabled
+      if (val !== undefined) {
+        setSpeedtestEnabled(val === 'true' || val === '1')
+      }
+    } catch {
+      // 读取失败保持默认开启
+    }
+  }
+  if (!speedtestLoaded) {
+    setSpeedtestLoaded(true)
+    loadSpeedtestSwitch()
+  }
+
+  const handleSpeedtestSwitch = async (checked: boolean) => {
+    setSpeedtestEnabled(checked)
+    try {
+      await systemApi.updateConfig({ speedtest_popup_enabled: checked ? 'true' : 'false' })
+      message.success(t('settings.saved'))
+    } catch {
+      setSpeedtestEnabled(!checked)
+      message.error(t('common.failed'))
+    }
+  }
 
   const handleChangePassword = async () => {
     const values = await pwdForm.validateFields()
@@ -143,7 +174,24 @@ const Settings: React.FC = () => {
 
             <div>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                <InfoCircleOutlined style={{ marginRight: 6, color: '#0071e3' }} />
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                <ThunderboltOutlined style={{ marginRight: 6, color: '#0071e3' }} />
+                {t('settings.speedtestPopup')}
+              </Text>
+              <Space style={{ marginBottom: 4 }}>
+                <Switch checked={speedtestEnabled} onChange={handleSpeedtestSwitch} />
+                <Text type="secondary">{t('settings.speedtestPopupTip')}</Text>
+              </Space>
+              </div>
+
+              <Divider />
+
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                  <InfoCircleOutlined style={{ marginRight: 6, color: '#0071e3' }} />
+                  {t('settings.about')}
+                </Text>
+
                 {t('settings.about')}
               </Text>
               <div style={{ lineHeight: 2 }}>

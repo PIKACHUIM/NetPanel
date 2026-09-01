@@ -44,6 +44,9 @@ const (
 	defaultFailureThreshold = 2
 	defaultToleranceMs      = 50
 	defaultMaxConcurrent    = 8
+	// minIntervalSec 探测间隔下限：过小的间隔会造成无意义的探测压力，
+	// 且 0/负数会使 time.NewTimer 直接 panic
+	minIntervalSec = 5
 )
 
 // Manager 线路注册中心：持有 selector，负责周期刷新线路并驱动测速选线。
@@ -77,6 +80,11 @@ type Manager struct {
 	// 每次选线变化时更新；用户手动触发后清空。
 	pendingRebinds map[uint]string
 	pendingMu      sync.Mutex
+	// cfgMu 保护 interval 等运行期可变配置：写方为 HTTP handler goroutine，
+	// 读方为后台探测循环，无锁访问会构成 data race。
+	cfgMu sync.RWMutex
+	// reload 用于通知后台循环配置已变更，需按新间隔重排定时器
+	reload chan struct{}
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -95,6 +103,7 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 		lastUpstream:   make(map[uint]string),
 		rebindMode:     RebindModeAuto,
 		pendingRebinds: make(map[uint]string),
+		reload:         make(chan struct{}, 1),
 	}
 }
 
@@ -167,11 +176,36 @@ func (m *Manager) Selector() *selector.Selector {
 	return m.selector
 }
 
-// SetInterval 设置线路刷新间隔（须在 Start 前调用）。
+// SetProber 透传设置探测器（测试注入 / 即时测速复用）。
+func (m *Manager) SetProber(p selector.Prober) {
+	m.selector.SetProber(p)
+}
+
+// SetInterval 设置线路刷新间隔。支持运行期热更新：
+// 写入后会唤醒后台循环，使新间隔在下一轮生效，无需重启进程。
 func (m *Manager) SetInterval(d time.Duration) {
-	if d > 0 {
-		m.interval = d
+	if d <= 0 {
+		return
 	}
+	m.cfgMu.Lock()
+	m.interval = d
+	m.cfgMu.Unlock()
+
+	// 通知后台循环按新间隔重排定时器（非阻塞，避免未启动时卡住）
+	select {
+	case m.reload <- struct{}{}:
+	default:
+	}
+}
+
+// currentInterval 读取当前刷新间隔（加锁，避免与 SetInterval 形成 data race）。
+func (m *Manager) currentInterval() time.Duration {
+	m.cfgMu.RLock()
+	defer m.cfgMu.RUnlock()
+	if m.interval <= 0 {
+		return DefaultInterval
+	}
+	return m.interval
 }
 
 // SetMaxConcurrent 透传设置探测并发上限（须在 Start 前调用）。
@@ -201,43 +235,64 @@ func (m *Manager) SetToolFilter(filter string) {
 	m.selector.SetToolFilter(tools)
 }
 
-// LoadProbeConfig 从 SystemConfig 读取探测策略参数并应用。
-// 缺失的键使用默认值。应在 Start 前调用（间隔与并发在首轮探测前生效）。
-func (m *Manager) LoadProbeConfig() error {
-	intervalSec := defaultIntervalSec
-	failureThreshold := defaultFailureThreshold
-	toleranceMs := defaultToleranceMs
-	maxConcurrent := defaultMaxConcurrent
-	toolFilter := ""
-	rebindMode := RebindModeAuto
-
+// loadConfigInt 读取单个整型配置项，缺失或非法时返回默认值。
+//
+// 关键：每次查询必须使用**全新的局部变量**。原实现复用同一个
+// model.SystemConfig 变量做四次 First 查询，第一次查询后该变量的主键 ID
+// 已被填充，GORM 会把主键并入后续查询的 WHERE 条件
+// （变成 `WHERE key = ? AND id = <前一条的ID>`），导致后三项配置
+// 必然查不到而静默退回默认值——表现为 UI 显示的值与实际运行值不一致。
+func loadConfigInt(db *gorm.DB, key string, def int) int {
 	var cfg model.SystemConfig
-	if err := m.db.Where("key = ?", cfgKeyIntervalSec).First(&cfg).Error; err == nil {
-		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
-			intervalSec = v
-		}
+	if err := db.Where("key = ?", key).First(&cfg).Error; err != nil {
+		return def
 	}
-	if err := m.db.Where("key = ?", cfgKeyFailureThreshold).First(&cfg).Error; err == nil {
-		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
-			failureThreshold = v
-		}
+	v, err := strconv.Atoi(cfg.Value)
+	if err != nil {
+		return def
 	}
-	if err := m.db.Where("key = ?", cfgKeyToleranceMs).First(&cfg).Error; err == nil {
-		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
-			toleranceMs = v
-		}
+	return v
+}
+
+// loadConfigStr 读取单个字符串配置项，缺失时返回默认值。
+// 与 loadConfigInt 相同，必须使用全新的局部变量避免 GORM 主键污染。
+func loadConfigStr(db *gorm.DB, key string, def string) string {
+	var cfg model.SystemConfig
+	if err := db.Where("key = ?", key).First(&cfg).Error; err != nil {
+		return def
 	}
-	if err := m.db.Where("key = ?", cfgKeyMaxConcurrent).First(&cfg).Error; err == nil {
-		if v, perr := strconv.Atoi(cfg.Value); perr == nil {
-			maxConcurrent = v
-		}
+	return cfg.Value
+}
+
+// LoadProbeConfig 从 SystemConfig 读取探测策略四项参数并应用。
+// 缺失的键使用默认值。
+func (m *Manager) LoadProbeConfig() error {
+	if m.db == nil {
+		return nil
 	}
-	if err := m.db.Where("key = ?", cfgKeyToolFilter).First(&cfg).Error; err == nil {
-		toolFilter = cfg.Value
+
+	intervalSec := loadConfigInt(m.db, cfgKeyIntervalSec, defaultIntervalSec)
+	failureThreshold := loadConfigInt(m.db, cfgKeyFailureThreshold, defaultFailureThreshold)
+	toleranceMs := loadConfigInt(m.db, cfgKeyToleranceMs, defaultToleranceMs)
+	maxConcurrent := loadConfigInt(m.db, cfgKeyMaxConcurrent, defaultMaxConcurrent)
+
+	// 下限校验：interval 为 0 或负数会导致 time.NewTimer panic；
+	// 其余参数非正数会使探测行为异常
+	if intervalSec < minIntervalSec {
+		m.log.Warnf("[线路选择] 探测间隔 %ds 过小，已修正为 %ds", intervalSec, minIntervalSec)
+		intervalSec = minIntervalSec
 	}
-	if err := m.db.Where("key = ?", cfgKeyRebindMode).First(&cfg).Error; err == nil && cfg.Value != "" {
-		rebindMode = cfg.Value
+	if failureThreshold <= 0 {
+		failureThreshold = defaultFailureThreshold
 	}
+	if toleranceMs < 0 {
+		toleranceMs = defaultToleranceMs
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = defaultMaxConcurrent
+	}
+	toolFilter := loadConfigStr(m.db, cfgKeyToolFilter, "")
+	rebindMode := loadConfigStr(m.db, cfgKeyRebindMode, RebindModeAuto)
 
 	m.SetInterval(time.Duration(intervalSec) * time.Second)
 	m.SetFailureThreshold(failureThreshold)
@@ -302,14 +357,28 @@ func (m *Manager) Stop() {
 func (m *Manager) run(ctx context.Context) {
 	defer m.wg.Done()
 	m.refresh(ctx)
-	ticker := time.NewTicker(m.interval)
-	defer ticker.Stop()
+
+	// 使用 Timer 而非 Ticker：SetInterval 修改间隔后可立即按新值重排，
+	// 原实现在 run 入口固定创建 Ticker，导致间隔修改必须重启进程才生效。
+	timer := time.NewTimer(m.currentInterval())
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-m.reload:
+			// 间隔配置已变更：立即按新间隔重排
+			if !timer.Stop() {
+				// 抽干已触发但未消费的信号，避免立即重复执行
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(m.currentInterval())
+		case <-timer.C:
 			m.refresh(ctx)
+			timer.Reset(m.currentInterval())
 		}
 	}
 }
@@ -687,8 +756,8 @@ func BuildLines(db *gorm.DB) []selector.Line {
 	// ---- Cloudflare Tunnel（named 模式入口固定，可探测）----
 	// quick/token 模式无固定外部入口（trycloudflare 随机域名 / 远程配置），
 	// 不注册为线路；named 模式用 {tunnel_name}.cfargotunnel.com:443 探测。
-	var cfts []model.CloudflareTunnel
-	if err := db.Where("enable = ? AND type = ?", true, "named").Find(&cfts).Error; err == nil {
+	var cfts []model.CftunnelConfig
+	if err := db.Where("enable = ? AND mode = ?", true, "named").Find(&cfts).Error; err == nil {
 		for _, c := range cfts {
 			if c.TunnelName == "" {
 				continue

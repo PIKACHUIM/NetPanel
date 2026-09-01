@@ -27,6 +27,7 @@ vendor/
 # IDE
 .idea/
 .vscode/
+.run/
 *.swp
 *.swo
 .DS_Store
@@ -86,3 +87,5 @@ scripts/setup.iss.lock
 .codebuddy
 .codebuddy
 .agents
+.workbuddy/memory
+

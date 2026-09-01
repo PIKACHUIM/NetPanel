@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netpanel/netpanel/pkg/secret"
+
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/utils"
@@ -327,7 +329,7 @@ func (m *Manager) isUserAllowed(userID uint, allowedIDs []uint) bool {
 }
 
 // validateSessionCookieForAccess 验证 session cookie（复用 platform_auth 的逻辑）
-// 使用与 middleware/platform_auth.go 相同的 JWT 密钥签名
+// 使用与 middleware/platform_auth.go 相同的 session 派生密钥签名
 func validateSessionCookieForAccess(cookie string) (string, bool) {
 	parts := strings.SplitN(cookie, ".", 2)
 	if len(parts) != 2 {
@@ -343,8 +345,8 @@ func validateSessionCookieForAccess(cookie string) (string, bool) {
 		return "", false
 	}
 
-	// 验证 HMAC-SHA256 签名（使用与 auth 中间件相同的密钥）
-	mac := hmac.New(sha256.New, []byte("netpanel-secret-key-change-in-production"))
+	// 验证 HMAC-SHA256 签名（与 middleware.signSession 使用同一 session 派生密钥）
+	mac := hmac.New(sha256.New, secret.SessionKey())
 	mac.Write(payload)
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
 

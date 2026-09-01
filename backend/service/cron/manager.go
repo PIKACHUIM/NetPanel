@@ -1,9 +1,12 @@
 package cron
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -129,15 +132,85 @@ func (m *Manager) executeTask(id uint) {
 	})
 }
 
+// shellTaskEnabled 是否允许执行 shell 类型的计划任务。
+//
+// 安全说明：shell 任务以面板进程权限（通常为 root/Administrator）执行任意命令，
+// 且配置持久化后重启仍会执行，等价于一个可远程写入的后门。
+// 因此默认关闭，仅在显式设置 NETPANEL_ENABLE_SHELL_TASK=1 时启用。
+func shellTaskEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("NETPANEL_ENABLE_SHELL_TASK")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// ShellTaskEnabled 供 API 层做前置校验与提示。
+func ShellTaskEnabled() bool { return shellTaskEnabled() }
+
+const (
+	// shellTimeout 单次 shell 任务的最长执行时间，防止 goroutine 与进程被永久占用
+	shellTimeout = 5 * time.Minute
+	// shellMaxOutput 输出上限（字节），防止 `yes` 之类命令耗尽内存
+	shellMaxOutput = 256 * 1024
+)
+
 func (m *Manager) runShell(command string) (string, error) {
+	if !shellTaskEnabled() {
+		return "", fmt.Errorf("shell 任务已禁用：如需启用请设置环境变量 NETPANEL_ENABLE_SHELL_TASK=1")
+	}
+	if strings.TrimSpace(command) == "" {
+		return "", fmt.Errorf("命令为空")
+	}
+
+	// 超时控制：原实现使用 exec.Command + CombinedOutput，无超时且无输出上限
+	ctx, cancel := context.WithTimeout(context.Background(), shellTimeout)
+	defer cancel()
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", command)
+		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
 	} else {
-		cmd = exec.Command("sh", "-c", command)
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+
+	// 限制输出大小，避免大量输出直接读入内存
+	var buf bytes.Buffer
+	limited := &limitedWriter{w: &buf, remaining: shellMaxOutput}
+	cmd.Stdout = limited
+	cmd.Stderr = limited
+
+	err := cmd.Run()
+	out := buf.String()
+	if ctx.Err() == context.DeadlineExceeded {
+		return out, fmt.Errorf("命令执行超时（超过 %s）", shellTimeout)
+	}
+	if limited.truncated {
+		out += "\n...[输出已截断]"
+	}
+	return out, err
+}
+
+// limitedWriter 限制写入总量的 io.Writer，超出后丢弃剩余内容并标记截断。
+type limitedWriter struct {
+	w         io.Writer
+	remaining int
+	truncated bool
+}
+
+func (l *limitedWriter) Write(p []byte) (int, error) {
+	if l.remaining <= 0 {
+		l.truncated = true
+		return len(p), nil // 声称已写入，避免命令因写失败而提前中断
+	}
+	if len(p) > l.remaining {
+		l.truncated = true
+		if _, err := l.w.Write(p[:l.remaining]); err != nil {
+			return 0, err
+		}
+		l.remaining = 0
+		return len(p), nil
+	}
+	n, err := l.w.Write(p)
+	l.remaining -= n
+	return n, err
 }
 
 func (m *Manager) runHTTP(url, method, body string) (string, error) {

@@ -24,15 +24,24 @@ func NewInitHandler(db *gorm.DB, log *logrus.Logger) *InitHandler {
 	return &InitHandler{db: db, log: log}
 }
 
-// isInitialized 判断系统是否已初始化（存在用户或旧版 admin_password 配置即视为已初始化）
+// isInitialized 判断系统是否已初始化（存在用户或旧版 admin_password 配置即视为已初始化）。
+//
+// 安全说明：数据库查询失败时必须保守返回 true。若返回 false，未认证的调用方
+// 即可通过 /init/setup 创建管理员并覆盖 admin_password，形成认证绕过。
 func (h *InitHandler) isInitialized() bool {
 	var userCount int64
-	h.db.Model(&model.User{}).Count(&userCount)
+	if err := h.db.Model(&model.User{}).Count(&userCount).Error; err != nil {
+		h.log.Warnf("[初始化] 查询用户数失败，保守视为已初始化: %v", err)
+		return true
+	}
 	if userCount > 0 {
 		return true
 	}
 	var cfgCount int64
-	h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Count(&cfgCount)
+	if err := h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Count(&cfgCount).Error; err != nil {
+		h.log.Warnf("[初始化] 查询系统配置失败，保守视为已初始化: %v", err)
+		return true
+	}
 	return cfgCount > 0
 }
 
@@ -54,20 +63,12 @@ func (h *InitHandler) Setup(c *gin.Context) {
 		return
 	}
 
-	// 互斥锁：串行化"检查已初始化 -> 创建管理员"，避免并发请求同时通过检查
+	// 互斥锁：串行化"检查已初始化 -> 创建管理员"（单实例内的快速失败路径）
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if h.isInitialized() {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "系统已初始化，无需重复设置"})
-		return
-	}
-
-	// 用户名唯一性
-	var count int64
-	h.db.Model(&model.User{}).Where("username = ?", req.Username).Count(&count)
-	if count > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名已存在"})
 		return
 	}
 
@@ -84,8 +85,19 @@ func (h *InitHandler) Setup(c *gin.Context) {
 		IsAdmin:  true,
 		Remark:   "系统初始化创建",
 	}
-	// 事务：创建管理员与同步 admin_password 配置要么全部成功、要么全部回滚
+
+	// 事务内重新校验并写入：进程级互斥锁在多实例共用同一数据库时不成立，
+	// 必须由数据库保证"仅首次初始化可成功"这一不变量。
+	var alreadyInitialized bool
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		var userCount int64
+		if err := tx.Model(&model.User{}).Count(&userCount).Error; err != nil {
+			return err
+		}
+		if userCount > 0 {
+			alreadyInitialized = true
+			return fmt.Errorf("系统已初始化")
+		}
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
@@ -96,6 +108,10 @@ func (h *InitHandler) Setup(c *gin.Context) {
 		}
 		return tx.Create(&model.SystemConfig{Key: "admin_password", Value: hashed}).Error
 	}); err != nil {
+		if alreadyInitialized {
+			c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "系统已初始化，无需重复设置"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建失败: " + err.Error()})
 		return
 	}

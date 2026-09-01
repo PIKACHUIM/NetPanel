@@ -446,3 +446,52 @@ func TestSetToleranceChangesHysteresisWindow(t *testing.T) {
 		t.Fatalf("with tiny tolerance, expected switch to b, got %q", third.LineID)
 	}
 }
+
+// TestProbeLinesDoesNotMutateState 验证即时测速 ProbeLines 不刷新内部选线状态：
+// 传入线路的子集测速后，内部 results/current 保持原样（不触发切换）。
+func TestProbeLinesDoesNotMutateState(t *testing.T) {
+	s, f := newFake(
+		mkLines("a", "b"),
+		map[string]time.Duration{"a": 10 * time.Millisecond, "b": 200 * time.Millisecond},
+		nil,
+	)
+	s.ProbeAll(context.Background())
+	if sel := s.Select(); sel.LineID != "a" {
+		t.Fatalf("expected current a, got %q", sel.LineID)
+	}
+
+	// 只对 b 做一次即时测速（模拟手动测速），并让 b 变得最快
+	f.latencies["b"] = 5 * time.Millisecond
+	lines := []Line{byID(t, s, "b")}
+	res := s.ProbeLines(context.Background(), lines)
+	if r, ok := res["b"]; !ok || r.Err != nil {
+		t.Fatalf("ProbeLines should return result for b, got %v", res)
+	}
+	// 内部状态未被刷新：current 仍是 a（ProbeLines 不应改变选线结果）
+	if sel := s.Select(); sel.LineID != "a" {
+		t.Fatalf("ProbeLines must not refresh selection state, current should stay a, got %q", sel.LineID)
+	}
+}
+
+// TestProbeLinesCancellation 验证 ctx 取消时 ProbeLines 返回取消结果。
+func TestProbeLinesCancellation(t *testing.T) {
+	s, _ := newFake(mkLines("a"), map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 立即取消
+	res := s.ProbeLines(ctx, mkLines("a"))
+	if r, ok := res["a"]; !ok || r.Err == nil {
+		t.Fatalf("expected canceled result for a, got %v", res)
+	}
+}
+
+// byID 从 Selector 中按 id 取 Line（测试辅助）。
+func byID(t *testing.T, s *Selector, id string) Line {
+	t.Helper()
+	for _, l := range s.Lines() {
+		if l.ID == id {
+			return l
+		}
+	}
+	t.Fatalf("line %q not found", id)
+	return Line{}
+}
