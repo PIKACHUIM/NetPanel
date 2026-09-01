@@ -549,35 +549,6 @@ type EasytierServer struct {
 	Remark    string `gorm:"size:500" json:"remark"`
 }
 
-// ===== Cloudflare Tunnel (cloudflared) =====
-
-// CftunnelConfig Cloudflare Tunnel 配置
-type CftunnelConfig struct {
-	BaseModel
-	Name   string `gorm:"size:100;not null" json:"name"`
-	Enable bool   `gorm:"default:false" json:"enable"`
-	// 模式：quick（临时隧道）/ named（命名隧道）/ token（远程配置）
-	Mode string `gorm:"size:20;default:'quick'" json:"mode"`
-	// 本地服务地址，如 http://127.0.0.1:8080
-	LocalURL string `gorm:"size:500" json:"local_url"`
-	// named 模式：隧道名称或 UUID
-	TunnelName string `gorm:"size:255" json:"tunnel_name"`
-	// named 模式：凭据文件路径（可选，默认 ~/.cloudflared/<uuid>.json）
-	CredentialsFile string `gorm:"size:500" json:"credentials_file"`
-	// named 模式：配置文件路径（可选，默认为临时生成的 config.yml）
-	ConfigFile string `gorm:"size:500" json:"config_file"`
-	// token 模式：远程配置 token（cloudflared tunnel run --token）
-	Token string `gorm:"type:text" json:"token"`
-	// 协议：http/https，默认 http
-	Protocol string `gorm:"size:20;default:'http'" json:"protocol"`
-	// QuickURL quick 模式的临时隧道地址（每次启动随机生成，
-	// 从 cloudflared stdout 自动提取，供前端直接展示可访问入口）
-	QuickURL  string `gorm:"size:500" json:"quick_url"`
-	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
-	LastError string `gorm:"type:text" json:"last_error"`
-	Remark    string `gorm:"size:500" json:"remark"`
-}
-
 // ===== 穿透服务（用户视角） =====
 
 // TunService 穿透服务：一个「目标服务」由多条线路（frp/nps/easytier/wg/cf…）提供访问
