@@ -31,6 +31,7 @@ const DomainRecordDetail = lazy(() => import('./pages/DomainRecordDetail'))
 const Waf = lazy(() => import('./pages/Waf'))
 const Firewall = lazy(() => import('./pages/Firewall'))
 const CfTunnel = lazy(() => import('./pages/CfTunnel'))
+const Help = lazy(() => import('./pages/Help'))
 const Dnsmasq = lazy(() => import('./pages/Dnsmasq'))
 const Cron = lazy(() => import('./pages/Cron'))
 const Storage = lazy(() => import('./pages/Storage'))
@@ -126,6 +127,7 @@ const App: React.FC = () => {
         <Route path="domain/info/:domainInfoId/records" element={<Suspense fallback={<PageLoader />}><DomainRecordDetail /></Suspense>} />
         <Route path="security/waf" element={<Suspense fallback={<PageLoader />}><Waf /></Suspense>} />
         <Route path="security/firewall" element={<Suspense fallback={<PageLoader />}><Firewall /></Suspense>} />
+        <Route path="help" element={<Suspense fallback={<PageLoader />}><Help /></Suspense>} />
         <Route path="dnsmasq" element={<Suspense fallback={<PageLoader />}><Dnsmasq /></Suspense>} />
         <Route path="cron" element={<Suspense fallback={<PageLoader />}><Cron /></Suspense>} />
         <Route path="storage" element={<Suspense fallback={<PageLoader />}><Storage /></Suspense>} />

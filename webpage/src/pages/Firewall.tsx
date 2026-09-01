@@ -403,12 +403,12 @@ const Firewall: React.FC = () => {
         <div style={{
           display: 'flex', alignItems: 'center', gap: 16,
           padding: '8px 14px', marginBottom: 12, borderRadius: 8,
-          background: isSyncing ? 'rgba(22,119,255,0.06)' : 'rgba(0,0,0,0.02)',
-          border: `1px solid ${isSyncing ? 'rgba(22,119,255,0.2)' : 'rgba(0,0,0,0.06)'}`,
+          background: isSyncing ? 'rgba(0,113,227,0.06)' : 'rgba(0,0,0,0.02)',
+          border: `1px solid ${isSyncing ? 'rgba(0,113,227,0.2)' : 'rgba(0,0,0,0.06)'}`,
           fontSize: 12, color: 'rgba(0,0,0,0.55)',
         }}>
           {isSyncing
-            ? <><SyncOutlined spin style={{ color: '#1677ff' }} /><span style={{ color: '#1677ff' }}>正在从系统防火墙同步规则，请稍候...</span></>
+            ? <><SyncOutlined spin style={{ color: '#0071e3' }} /><span style={{ color: '#0071e3' }}>正在从系统防火墙同步规则，请稍候...</span></>
             : <><ClockCircleOutlined /><span>上次同步：{formatSyncTime(syncStatus.last_sync_at)}</span></>
           }
           <span>·</span>

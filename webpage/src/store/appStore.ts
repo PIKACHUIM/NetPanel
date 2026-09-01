@@ -12,7 +12,7 @@ export type ThemeMode = UIMode | 'glass-light' | 'glass-dark' | WallpaperKey
 
 // 壁纸配置（含专属主题色）
 export const wallpaperList = [
-  { key: 'none' as const, name: '简约UI', icon: '🎯', color: '#1677ff' },
+  { key: 'none' as const, name: '简约UI', icon: '🎯', color: '#0071e3' },
   { key: 'march7' as const, name: '三月七', icon: '❄️', color: '#7cc5ea', pc: '/wallpapers/march7/pc.png', mobile: '/wallpapers/march7/phone.png' },
   { key: 'firefly' as const, name: '流萤🌟', icon: '🦋', color: '#f59e0b', pc: '/wallpapers/firefly/pc.jpg', mobile: '/wallpapers/firefly/pc.jpg' },
   { key: 'nahida' as const, name: '纳西妲', icon: '🌿', color: '#4ade80', pc: '/wallpapers/nahida/pc.jpg', mobile: '/wallpapers/nahida/pc.jpg' },
@@ -25,7 +25,7 @@ export const wallpaperList = [
 // 获取当前壁纸的主题色
 export function getWallpaperColor(wallpaper: WallpaperKey): string {
   const w = wallpaperList.find(item => item.key === wallpaper)
-  return w?.color || '#1677ff'
+  return w?.color || '#0071e3'
 }
 
 // 兼容旧代码的 animeThemes 导出

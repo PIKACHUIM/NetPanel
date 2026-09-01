@@ -44,9 +44,9 @@ const Root: React.FC = () => {
           fontFamily: "'MapleMono', monospace",
           // 暗黑模式下的颜色调整
           ...(isDark ? {
-            colorBgContainer: '#0f1838',
-            colorBgElevated: '#162044',
-            colorBgSpotlight: '#1a2550',
+            colorBgContainer: '#17181f',
+            colorBgElevated: '#1d1e26',
+            colorBgSpotlight: '#23242e',
             colorBgMask: 'rgba(0,0,0,0.65)',
             colorBorder: 'rgba(255,255,255,0.1)',
             colorBorderSecondary: 'rgba(255,255,255,0.06)',
@@ -70,19 +70,19 @@ const Root: React.FC = () => {
         },
         components: {
           Layout: {
-            siderBg: hasWp ? (isDark ? 'rgba(10,20,50,0.75)' : 'rgba(255,255,255,0.7)') : (isDark ? '#0a1028' : '#001529'),
-            triggerBg: hasWp ? (isDark ? 'rgba(10,20,50,0.85)' : 'rgba(255,255,255,0.8)') : (isDark ? '#0f1838' : '#002140'),
-            headerBg: hasWp ? 'rgba(255,255,255,0.06)' : (isDark ? '#0f1838' : '#ffffff'),
+            siderBg: hasWp ? (isDark ? 'rgba(23,24,31,0.75)' : 'rgba(255,255,255,0.7)') : (isDark ? '#17181f' : '#ffffff'),
+            triggerBg: hasWp ? (isDark ? 'rgba(23,24,31,0.85)' : 'rgba(255,255,255,0.8)') : (isDark ? '#1d1e26' : '#f5f5f7'),
+            headerBg: hasWp ? 'rgba(255,255,255,0.06)' : (isDark ? '#17181f' : '#ffffff'),
           },
           Menu: {
-            darkItemBg: hasWp ? 'transparent' : (isDark ? '#0a1028' : '#001529'),
-            darkSubMenuItemBg: hasWp ? 'rgba(0,0,0,0.2)' : (isDark ? '#060b1e' : '#000c17'),
-            darkItemSelectedBg: hasWp ? 'rgba(22,119,255,0.2)' : (isDark ? '#1677ff30' : '#1677ff'),
+            darkItemBg: hasWp ? 'transparent' : (isDark ? '#17181f' : '#ffffff'),
+            darkSubMenuItemBg: hasWp ? 'rgba(0,0,0,0.2)' : (isDark ? '#101116' : '#f5f5f7'),
+            darkItemSelectedBg: hasWp ? 'rgba(0,113,227,0.2)' : (isDark ? '#0071e330' : '#e8f1fd'),
             ...(hasWp && !isDark ? {
               itemBg: 'transparent',
               subMenuItemBg: 'rgba(0,0,0,0.03)',
-              itemSelectedBg: 'rgba(22,119,255,0.1)',
-              itemSelectedColor: '#1677ff',
+              itemSelectedBg: 'rgba(0,113,227,0.1)',
+              itemSelectedColor: '#0071e3',
               itemHoverBg: 'rgba(0,0,0,0.04)',
             } : {}),
           },
@@ -98,8 +98,8 @@ const Root: React.FC = () => {
             headerBg: hasWp ? 'rgba(255,255,255,0.05)' : (isDark ? '#1f1f1f' : '#fafafa'),
             footerBg: hasWp ? 'transparent' : (isDark ? '#1a1a1a' : '#fafafa'),
             rowHoverBg: (isDark || hasWp) ? 'rgba(255,255,255,0.04)' : undefined,
-            rowSelectedBg: isDark ? 'rgba(22,119,255,0.12)' : undefined,
-            rowSelectedHoverBg: isDark ? 'rgba(22,119,255,0.18)' : undefined,
+            rowSelectedBg: isDark ? 'rgba(0,113,227,0.12)' : undefined,
+            rowSelectedHoverBg: isDark ? 'rgba(0,113,227,0.18)' : undefined,
           },
           Tooltip: {
             colorBgSpotlight: isDark ? '#2a2a2a' : undefined,
@@ -112,11 +112,11 @@ const Root: React.FC = () => {
             colorBgElevated: isDark ? '#242424' : undefined,
           },
           Alert: {
-            colorInfoBg: isDark ? 'rgba(22,119,255,0.12)' : undefined,
+            colorInfoBg: isDark ? 'rgba(0,113,227,0.12)' : undefined,
             colorSuccessBg: isDark ? 'rgba(82,196,26,0.12)' : undefined,
             colorWarningBg: isDark ? 'rgba(250,173,20,0.12)' : undefined,
             colorErrorBg: isDark ? 'rgba(255,77,79,0.12)' : undefined,
-            colorInfoBorder: isDark ? 'rgba(22,119,255,0.3)' : undefined,
+            colorInfoBorder: isDark ? 'rgba(0,113,227,0.3)' : undefined,
             colorSuccessBorder: isDark ? 'rgba(82,196,26,0.3)' : undefined,
             colorWarningBorder: isDark ? 'rgba(250,173,20,0.3)' : undefined,
             colorErrorBorder: isDark ? 'rgba(255,77,79,0.3)' : undefined,
@@ -148,7 +148,7 @@ const Root: React.FC = () => {
           },
           Pagination: {
             itemBg: 'transparent',
-            itemActiveBg: isDark ? 'rgba(22,119,255,0.2)' : undefined,
+            itemActiveBg: isDark ? 'rgba(0,113,227,0.2)' : undefined,
           },
           Button: {
             borderRadius: 8,

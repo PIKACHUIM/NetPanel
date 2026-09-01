@@ -55,9 +55,9 @@ const isGlass = theme === 'glass-light' || theme === 'glass-dark'
           {icon && (
             <div style={{
               width: 34, height: 34, borderRadius: 9,
-              background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
+              background: 'linear-gradient(135deg, #0071e3 0%, #0958d9 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(22,119,255,0.35)',
+              boxShadow: '0 4px 12px rgba(0,113,227,0.35)',
               color: '#fff', fontSize: 16,
             }}>
               {icon}

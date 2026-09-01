@@ -160,7 +160,7 @@ const EntryTab: React.FC = () => {
               <Text code>{ips[0]}</Text>
               <Text code style={{ marginLeft: 4 }}>{ips[1]}</Text>
               {ips.length > 2 && <Tag color="blue" style={{ marginLeft: 4, cursor: 'pointer' }}>+{ips.length - 2}</Tag>}
-              <Badge count={ips.length} style={{ backgroundColor: '#1677ff', marginLeft: 6, fontSize: 11 }} size="small" />
+              <Badge count={ips.length} style={{ backgroundColor: '#0071e3', marginLeft: 6, fontSize: 11 }} size="small" />
             </span>
           </Tooltip>
         )
@@ -681,7 +681,7 @@ const IpDb: React.FC = () => {
     <div>
       <div style={{ marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          <DatabaseOutlined style={{ marginRight: 8, color: '#1677ff' }} />
+          <DatabaseOutlined style={{ marginRight: 8, color: '#0071e3' }} />
           {t('ipdb.title')}
         </Typography.Title>
       </div>
