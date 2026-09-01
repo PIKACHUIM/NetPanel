@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // DNSProvider DNS 服务商接口
@@ -51,10 +53,42 @@ func NewProvider(name, accessID, accessSecret string) DNSProvider {
 	}
 }
 
-// splitDomain 将完整域名拆分为主机记录和根域名
-// 例如 home.example.com -> ("home", "example.com")
-// 例如 example.com -> ("@", "example.com")
+// splitDomain 将完整域名拆分为主机记录和根域名。
+//
+// 使用公共后缀列表（Public Suffix List）识别根域名，可正确处理 eu.org、
+// co.uk、com.cn 等多段后缀；同时支持手动指定语法 "主机记录:根域名"，
+// 用于私有或特殊后缀（与 ddns-go 一致）。
+//
+// 例如 home.example.com  -> ("home", "example.com")
+// 例如 xxx.yyy.eu.org    -> ("xxx", "yyy.eu.org")
+// 例如 example.com       -> ("@", "example.com")
 func splitDomain(fullDomain string) (rr, domain string) {
+	fullDomain = strings.TrimSpace(fullDomain)
+	fullDomain = strings.TrimSuffix(fullDomain, ".")
+
+	// 手动指定语法：主机记录:根域名（如 "home:yyy.eu.org"）
+	if idx := strings.Index(fullDomain, ":"); idx > 0 {
+		sub := fullDomain[:idx]
+		root := strings.TrimSpace(fullDomain[idx+1:])
+		if sub == "" {
+			sub = "@"
+		}
+		if root == "" {
+			return "@", fullDomain
+		}
+		return sub, root
+	}
+
+	// 使用公共后缀列表识别可注册域名（eTLD+1）
+	if eTLD1, err := publicsuffix.EffectiveTLDPlusOne(fullDomain); err == nil && eTLD1 != "" {
+		if eTLD1 == fullDomain {
+			return "@", fullDomain
+		}
+		sub := strings.TrimSuffix(fullDomain, "."+eTLD1)
+		return sub, eTLD1
+	}
+
+	// 回退：按最后两段切分（兼容无法识别的后缀）
 	parts := strings.Split(fullDomain, ".")
 	if len(parts) <= 2 {
 		return "@", fullDomain

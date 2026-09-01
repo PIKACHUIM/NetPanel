@@ -174,7 +174,6 @@ const Settings: React.FC = () => {
 
             <div>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>
                 <ThunderboltOutlined style={{ marginRight: 6, color: '#0071e3' }} />
                 {t('settings.speedtestPopup')}
               </Text>
@@ -191,9 +190,6 @@ const Settings: React.FC = () => {
                   <InfoCircleOutlined style={{ marginRight: 6, color: '#0071e3' }} />
                   {t('settings.about')}
                 </Text>
-
-                {t('settings.about')}
-              </Text>
               <div style={{ lineHeight: 2 }}>
                 <div>
                   <Text type="secondary">版本：</Text>
