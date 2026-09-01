@@ -398,6 +398,11 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/security/waf/:id/logs", wafHandler.GetLogs)
 	auth.POST("/security/waf/:id/test", wafHandler.TestRule)
 
+	// WAF 分析
+	wafAnalyticsHandler := handlers.NewWafAnalyticsHandler(opts.DB, opts.Log)
+	auth.GET("/security/waf/analytics", wafAnalyticsHandler.GetAnalytics)
+	auth.GET("/security/waf/logs", wafAnalyticsHandler.GetLogs)
+
 	// 回调账号
 	cbAccountHandler := handlers.NewCallbackAccountHandler(opts.DB, opts.Log, opts.CallbackMgr)
 	auth.GET("/callback/accounts", cbAccountHandler.List)
