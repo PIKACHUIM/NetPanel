@@ -98,7 +98,7 @@ const Settings: React.FC = () => {
           <Card
             title={
               <Space>
-                <LockOutlined style={{ color: '#1677ff' }} />
+                <LockOutlined style={{ color: '#0071e3' }} />
                 {t('settings.changePassword')}
               </Space>
             }
@@ -150,7 +150,7 @@ const Settings: React.FC = () => {
           <Card
             title={
               <Space>
-                <GlobalOutlined style={{ color: '#1677ff' }} />
+                <GlobalOutlined style={{ color: '#0071e3' }} />
                 {t('settings.interfaceSettings')}
               </Space>
             }
@@ -174,20 +174,24 @@ const Settings: React.FC = () => {
 
             <div>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                <ThunderboltOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                <ThunderboltOutlined style={{ marginRight: 6, color: '#0071e3' }} />
                 {t('settings.speedtestPopup')}
               </Text>
               <Space style={{ marginBottom: 4 }}>
                 <Switch checked={speedtestEnabled} onChange={handleSpeedtestSwitch} />
                 <Text type="secondary">{t('settings.speedtestPopupTip')}</Text>
               </Space>
-            </div>
+              </div>
 
-            <Divider />
+              <Divider />
 
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                <InfoCircleOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                  <InfoCircleOutlined style={{ marginRight: 6, color: '#0071e3' }} />
+                  {t('settings.about')}
+                </Text>
+
                 {t('settings.about')}
               </Text>
               <div style={{ lineHeight: 2 }}>

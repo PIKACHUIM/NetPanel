@@ -24,6 +24,7 @@ import {
     MenuFoldOutlined,
     MenuUnfoldOutlined,
     NodeIndexOutlined,
+    QuestionCircleOutlined,
     SafetyOutlined,
     SettingOutlined,
     SwapOutlined,
@@ -221,6 +222,13 @@ const MainLayout: React.FC = () => {
                 {key: 'settings', icon: <SettingOutlined/>, label: t('menu.settings')},
             ],
         },
+        // ── 帮助 ──
+        {
+            key: 'help',
+            icon: <QuestionCircleOutlined/>,
+            label: t('menu.help'),
+            onClick: () => navigate('/help'),
+        },
     ]
 
     const userMenuItems: MenuProps['items'] = [
@@ -243,17 +251,17 @@ const MainLayout: React.FC = () => {
         },
     ]
 
-    // 侧边栏背景
+    // 侧边栏背景（白色极简 / 深灰暗色）
     const siderBg = hasWp
-        ? (isDark ? 'rgba(10,15,30,0.8)' : 'rgba(255,255,255,0.7)')
+        ? (isDark ? 'rgba(23,24,31,0.8)' : 'rgba(255,255,255,0.7)')
         : isDark
-            ? '#0a1028'
-            : '#001529'
+            ? '#17181f'
+            : '#ffffff'
 
     const logoBorderColor = hasWp && !isDark
         ? 'rgba(0,0,0,0.08)'
         : isLight
-            ? 'rgba(255,255,255,0.08)'
+            ? 'rgba(0,0,0,0.06)'
             : 'rgba(255,255,255,0.1)'
 
     // 顶部栏背景
@@ -322,10 +330,10 @@ const MainLayout: React.FC = () => {
                     >
                         <div style={{
                             width: 34, height: 34, borderRadius: 10,
-                            background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
+                            background: 'linear-gradient(135deg, #0071e3 0%, #0958d9 100%)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             flexShrink: 0,
-                            boxShadow: '0 4px 12px rgba(22,119,255,0.5)',
+                            boxShadow: '0 4px 12px rgba(0,113,227,0.5)',
                             transition: 'transform 0.2s',
                         }}>
                             <WifiOutlined style={{color: '#fff', fontSize: 17}}/>
@@ -333,14 +341,14 @@ const MainLayout: React.FC = () => {
                         {!collapsed && (
                             <div style={{marginLeft: 12}}>
                                 <Text style={{
-                                    color: hasWp && !isDark ? 'rgba(0,0,0,0.88)' : '#fff', fontSize: 16, fontWeight: 700,
+                                    color: !isDark ? 'rgba(0,0,0,0.88)' : '#fff', fontSize: 16, fontWeight: 700,
                                     letterSpacing: '0.3px', whiteSpace: 'nowrap',
                                     display: 'block', lineHeight: 1.2,
                                 }}>
                                     NetPanel
                                 </Text>
                                 <Text style={{
-                                    color: hasWp && !isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.35)', fontSize: 10,
+                                    color: !isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.35)', fontSize: 10,
                                     letterSpacing: '1px', whiteSpace: 'nowrap',
                                     display: 'block', lineHeight: 1,
                                 }}>
@@ -353,7 +361,7 @@ const MainLayout: React.FC = () => {
                     {/* 菜单 */}
                     <div style={{flex: 1, overflow: 'auto', paddingTop: 6}}>
                         <Menu
-                            theme={hasWp && !isDark ? 'light' : 'dark'}
+                            theme={isDark ? 'dark' : 'light'}
                             mode="inline"
                             selectedKeys={[selectedKey]}
                             defaultOpenKeys={openKeys}
@@ -477,8 +485,8 @@ const MainLayout: React.FC = () => {
                                                         style={{
                                                             display: 'flex', flexDirection: 'column', alignItems: 'center',
                                                             gap: 4, padding: '8px 4px', borderRadius: 8, cursor: 'pointer',
-                                                            background: wallpaper === w.key ? 'rgba(22,119,255,0.15)' : 'transparent',
-                                                            border: wallpaper === w.key ? '1px solid rgba(22,119,255,0.4)' : '1px solid transparent',
+                                                            background: wallpaper === w.key ? 'rgba(0,113,227,0.15)' : 'transparent',
+                                                            border: wallpaper === w.key ? '1px solid rgba(0,113,227,0.4)' : '1px solid transparent',
                                                             transition: 'all 0.2s',
                                                         }}
                                                     >
@@ -521,9 +529,9 @@ const MainLayout: React.FC = () => {
                                     <Avatar
                                         size={28}
                                         style={{
-                                            background: 'linear-gradient(135deg, #1677ff, #0958d9)',
+                                            background: 'linear-gradient(135deg, #0071e3, #0958d9)',
                                             flexShrink: 0,
-                                            boxShadow: '0 2px 8px rgba(22,119,255,0.4)',
+                                            boxShadow: '0 2px 8px rgba(0,113,227,0.4)',
                                         }}
                                         icon={<UserOutlined/>}
                                     />

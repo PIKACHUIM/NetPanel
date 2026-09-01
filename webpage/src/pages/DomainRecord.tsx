@@ -233,7 +233,7 @@ const DomainRecord: React.FC = () => {
     },
     {
       title: '记录数', dataIndex: 'record_count', width: 80,
-      render: (v: number) => <Badge count={v} showZero color="#1677ff" />,
+      render: (v: number) => <Badge count={v} showZero color="#0071e3" />,
     },
     {
       title: '添加时间', dataIndex: 'created_at', width: 160,

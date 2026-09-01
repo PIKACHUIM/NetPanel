@@ -457,7 +457,7 @@ const DomainCert: React.FC = () => {
       render: (name: string, r: any) => (
         <div>
           <Space>
-            <SafetyCertificateOutlined style={{ color: '#1677ff' }} />
+            <SafetyCertificateOutlined style={{ color: '#0071e3' }} />
             <Text strong>{name}</Text>
             {r.cert_type === 'manual' && <Tag color="orange" style={{ fontSize: 11 }}>{t('domainCert.certTypeManual')}</Tag>}
           </Space>

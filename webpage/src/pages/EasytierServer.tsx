@@ -22,7 +22,7 @@ const { Text } = Typography
 // 分组标题
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
-    <div style={{ width: 3, height: 14, background: '#1677ff', borderRadius: 2, flexShrink: 0 }} />
+    <div style={{ width: 3, height: 14, background: '#0071e3', borderRadius: 2, flexShrink: 0 }} />
     <span style={{ fontSize: 12, fontWeight: 600, color: '#595959', letterSpacing: '0.02em' }}>{children}</span>
     <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
   </div>
@@ -712,7 +712,7 @@ const EasytierServer: React.FC = () => {
               style={{ width: '100%' }}
               addonAfter={
                 <span
-                  style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12, userSelect: 'none' }}
+                  style={{ cursor: 'pointer', color: '#0071e3', fontSize: 12, userSelect: 'none' }}
                   onClick={() => {
                     const bytes = new Uint8Array(32)
                     crypto.getRandomValues(bytes)
@@ -754,7 +754,7 @@ const EasytierServer: React.FC = () => {
               style={{ width: '100%' }}
               addonAfter={
                 <span
-                  style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12, userSelect: 'none' }}
+                  style={{ cursor: 'pointer', color: '#0071e3', fontSize: 12, userSelect: 'none' }}
                   onClick={() => {
                     const bytes = new Uint8Array(32)
                     crypto.getRandomValues(bytes)
@@ -1063,7 +1063,7 @@ const EasytierServer: React.FC = () => {
                   placeholder="随机生成"
                   addonAfter={
                     <span
-                      style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12 }}
+                      style={{ cursor: 'pointer', color: '#0071e3', fontSize: 12 }}
                       onClick={() => quickForm.setFieldValue('network_name', genNetworkName())}
                     >刷新</span>
                   }
@@ -1076,7 +1076,7 @@ const EasytierServer: React.FC = () => {
                   placeholder="随机生成"
                   addonAfter={
                     <span
-                      style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12 }}
+                      style={{ cursor: 'pointer', color: '#0071e3', fontSize: 12 }}
                       onClick={() => quickForm.setFieldValue('network_password', genNetworkPassword())}
                     >刷新</span>
                   }

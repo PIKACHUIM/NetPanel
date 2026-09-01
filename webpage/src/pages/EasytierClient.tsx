@@ -22,7 +22,7 @@ const { Text } = Typography
 // 分组标题
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
-    <div style={{ width: 3, height: 14, background: '#1677ff', borderRadius: 2, flexShrink: 0 }} />
+    <div style={{ width: 3, height: 14, background: '#0071e3', borderRadius: 2, flexShrink: 0 }} />
     <span style={{ fontSize: 12, fontWeight: 600, color: '#595959', letterSpacing: '0.02em' }}>{children}</span>
     <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
   </div>
@@ -921,7 +921,7 @@ const EasytierClient: React.FC = () => {
               style={{ width: '100%' }}
               addonAfter={
                 <span
-                  style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12, userSelect: 'none' }}
+                  style={{ cursor: 'pointer', color: '#0071e3', fontSize: 12, userSelect: 'none' }}
                   onClick={() => {
                     // 生成 32 字节随机私钥并 Base64 编码
                     const bytes = new Uint8Array(32)
@@ -964,7 +964,7 @@ const EasytierClient: React.FC = () => {
               style={{ width: '100%' }}
               addonAfter={
                 <span
-                  style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12, userSelect: 'none' }}
+                  style={{ cursor: 'pointer', color: '#0071e3', fontSize: 12, userSelect: 'none' }}
                   onClick={() => {
                     const bytes = new Uint8Array(32)
                     crypto.getRandomValues(bytes)

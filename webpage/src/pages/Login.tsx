@@ -18,10 +18,10 @@ interface TopoEdge { from: number; to: number; delay: number }
 
 const TOPO_NODES: TopoNode[] = [
   { id: 0, cx: 50, cy: 46, r: 5.5,  color: '#0ea5e9', label: 'CORE'  }, // 中心枢纽
-  { id: 1, cx: 18, cy: 14, r: 3.0,  color: '#1677ff', label: 'FRP'   },
+  { id: 1, cx: 18, cy: 14, r: 3.0,  color: '#0071e3', label: 'FRP'   },
   { id: 2, cx: 78, cy: 20, r: 2.8,  color: '#722ed1', label: 'DDNS'  },
   { id: 3, cx: 10, cy: 58, r: 2.8,  color: '#13c2c2', label: 'WG'    },
-  { id: 4, cx: 85, cy: 60, r: 2.8,  color: '#1677ff', label: 'Caddy' },
+  { id: 4, cx: 85, cy: 60, r: 2.8,  color: '#0071e3', label: 'Caddy' },
   { id: 5, cx: 28, cy: 80, r: 2.8,  color: '#52c41a', label: 'DNS'   },
   { id: 6, cx: 70, cy: 82, r: 2.8,  color: '#722ed1', label: 'NPS'   },
   { id: 7, cx: 88, cy: 36, r: 2.4,  color: '#ff4d4f', label: 'FW'    },
@@ -283,10 +283,10 @@ const LoginPage: React.FC = () => {
         }}>
           <div style={{
             width: 72, height: 72, borderRadius: 20,
-            background: 'linear-gradient(135deg, #1677ff 0%, #722ed1 100%)',
+            background: 'linear-gradient(135deg, #0071e3 0%, #722ed1 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             marginBottom: 32,
-            boxShadow: '0 20px 50px rgba(22,119,255,0.3)',
+            boxShadow: '0 20px 50px rgba(0,113,227,0.3)',
             position: 'relative',
           }}>
             {/* 六边形网格纹理 */}
@@ -324,7 +324,7 @@ const LoginPage: React.FC = () => {
               ? ['端口映射', '内网穿透', '反向代理', 'DDNS', '证书管理', '防火墙']
               : ['Port Forward', 'NAT Traversal', 'Reverse Proxy', 'DDNS', 'Cert Mgmt', 'Firewall']
             ).map((tag, i) => {
-              const colors = ['#1677ff','#13c2c2','#722ed1','#52c41a','#fa8c16','#ff4d4f']
+              const colors = ['#0071e3','#13c2c2','#722ed1','#52c41a','#fa8c16','#ff4d4f']
               const c = colors[i % colors.length]
               return (
                 <span key={tag} style={{
@@ -418,12 +418,12 @@ const LoginPage: React.FC = () => {
           {isSiteAuth ? (
             <div style={{
               marginTop: 12, padding: '10px 14px',
-              background: 'rgba(22,119,255,0.08)',
-              border: '1px solid rgba(22,119,255,0.2)',
+              background: 'rgba(0,113,227,0.08)',
+              border: '1px solid rgba(0,113,227,0.2)',
               borderRadius: 8,
             }}>
               <Text style={{ color: rightTextColor, fontSize: 13 }}>
-                🔒 {language === 'zh' ? '正在访问' : 'Accessing'} <span style={{ color: '#1677ff', fontWeight: 600 }}>{siteHost}</span>
+                🔒 {language === 'zh' ? '正在访问' : 'Accessing'} <span style={{ color: '#0071e3', fontWeight: 600 }}>{siteHost}</span>
               </Text>
               <br />
               <Text style={{ color: rightSubColor, fontSize: 12 }}>
@@ -464,8 +464,8 @@ const LoginPage: React.FC = () => {
               type="primary" htmlType="submit" block loading={loading}
               style={{
                 height: 46, borderRadius: 10, fontSize: 15, fontWeight: 600,
-                background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 100%)',
-                border: 'none', boxShadow: '0 8px 24px rgba(22,119,255,0.3)',
+                background: 'linear-gradient(135deg, #0071e3 0%, #0958d9 100%)',
+                border: 'none', boxShadow: '0 8px 24px rgba(0,113,227,0.3)',
               }}
             >
               {t('login.login')}
