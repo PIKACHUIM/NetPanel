@@ -419,6 +419,11 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/security/waf/bans/:id/apply", wafHandler.BanApply)
 	admin.POST("/security/waf/bans/:id/remove", wafHandler.BanRemove)
 
+	// WAF 分析
+	wafAnalyticsHandler := handlers.NewWafAnalyticsHandler(opts.DB, opts.Log)
+	auth.GET("/security/waf/analytics", wafAnalyticsHandler.GetAnalytics)
+	auth.GET("/security/waf/logs", wafAnalyticsHandler.GetLogs)
+
 	// 回调账号
 	cbAccountHandler := handlers.NewCallbackAccountHandler(opts.DB, opts.Log, opts.CallbackMgr)
 	auth.GET("/callback/accounts", cbAccountHandler.List)
