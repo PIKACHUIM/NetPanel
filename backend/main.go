@@ -19,6 +19,7 @@ import (
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/pkg/secret"
 	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/pkg/sysutil"
 	"github.com/netpanel/netpanel/service/access"
@@ -165,6 +166,13 @@ func startServer() *http.Server {
 	// 初始化配置
 	cfg := config.Init(*dataDir)
 
+	// 初始化签名密钥（JWT / session Cookie）
+	// 必须在数据库与路由之前完成：密钥缺失时拒绝启动，避免退化为硬编码默认值
+	if err := secret.Init(*dataDir); err != nil {
+		log.Fatalf("签名密钥初始化失败: %v", err)
+	}
+	log.Infof("[系统核心] 签名密钥已加载（指纹 %s）", secret.Fingerprint())
+
 	// 初始化数据库
 	db, err := model.InitDB(*dataDir)
 	if err != nil {
@@ -226,7 +234,7 @@ func startServer() *http.Server {
 	
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
-	monitorMgr := monitor.NewManager(db)
+	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
 	_ = logMonitor // 暂时不使用，预留给未来的日志集成
 
 	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）

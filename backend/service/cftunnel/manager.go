@@ -1,5 +1,5 @@
 // Package cftunnel Cloudflare Tunnel (cloudflared) 进程管理：
-// 支持 quick（临时隧道）/ named（命名隧道，Token 认证）两种模式，
+// 支持 quick（临时隧道）/ named（命名隧道）/ token（远程配置）三种模式，
 // 通过命令行方式管理 cloudflared 进程（与 easytier 类似的进程管理方式）。
 package cftunnel
 
@@ -8,14 +8,18 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
@@ -26,6 +30,8 @@ const (
 	maxLogLines = 500
 	// binaryName cloudflared 可执行文件名
 	binaryName = "cloudflared"
+	// configDirName named 模式临时配置目录
+	configDirName = "cftunnel"
 )
 
 // quickURLRe 匹配 cloudflared quick 模式日志中的临时隧道地址，
@@ -78,10 +84,10 @@ func (r *ringBuffer) lines() []string {
 
 // Manager Cloudflare Tunnel 管理器
 type Manager struct {
-	db       *gorm.DB
-	log      *logrus.Logger
-	dataDir  string
-	tunnels  sync.Map // map[uint]*processEntry
+	db      *gorm.DB
+	log     *logrus.Logger
+	dataDir string
+	tunnels sync.Map // map[uint]*processEntry
 	stopping bool
 	mu       sync.Mutex
 }
@@ -91,15 +97,25 @@ func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 	return &Manager{db: db, log: log, dataDir: dataDir}
 }
 
-// getBinaryPath 返回 cloudflared 二进制路径（data/bin/cloudflared）
+// getBinaryPath 返回 cloudflared 二进制路径（data/bin/cloudflared[.exe]）。
+// Windows 下带 .exe 后缀，与 downloader.DownloadBinary 落盘的文件名保持一致。
 func (m *Manager) getBinaryPath() string {
-	return filepath.Join(m.dataDir, "bin", binaryName)
+	name := binaryName
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(m.dataDir, "bin", name)
 }
 
 // isBinaryAvailable 检查 cloudflared 二进制是否存在
 func (m *Manager) isBinaryAvailable() bool {
 	info, err := os.Stat(m.getBinaryPath())
 	return err == nil && !info.IsDir()
+}
+
+// IsBinaryAvailable 供 API 层判断二进制是否已就绪
+func (m *Manager) IsBinaryAvailable() bool {
+	return m.isBinaryAvailable()
 }
 
 // GetBinaryPath 供前端/API 展示二进制路径
@@ -114,7 +130,7 @@ func (m *Manager) GetBinDir() string {
 
 // StartAll 启动所有启用状态的隧道
 func (m *Manager) StartAll() {
-	var tunnels []model.CloudflareTunnel
+	var tunnels []model.CftunnelConfig
 	if err := m.db.Where("enable = ?", true).Find(&tunnels).Error; err != nil {
 		m.log.Warnf("[CF隧道] 读取配置失败: %v", err)
 		return
@@ -132,27 +148,27 @@ func (m *Manager) StopAll() {
 	m.stopping = true
 	m.mu.Unlock()
 	m.tunnels.Range(func(key, _ interface{}) bool {
-		m.Stop(key.(uint))
+		_ = m.Stop(key.(uint))
 		return true
 	})
 }
 
 // Start 启动指定隧道
 func (m *Manager) Start(id uint) error {
-	m.Stop(id)
+	_ = m.Stop(id)
 
 	if !m.isBinaryAvailable() {
 		return fmt.Errorf("cloudflared 二进制不存在，请先下载: %s", m.getBinaryPath())
 	}
 
-	var cfg model.CloudflareTunnel
+	var cfg model.CftunnelConfig
 	if err := m.db.First(&cfg, id).Error; err != nil {
 		return fmt.Errorf("CF 隧道配置不存在: %w", err)
 	}
 
-	args, err := m.buildArgs(&cfg)
+	args, extraEnv, err := m.buildArgs(&cfg)
 	if err != nil {
-		m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
+		m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
 			"status":     "error",
 			"last_error": err.Error(),
 		})
@@ -162,6 +178,10 @@ func (m *Manager) Start(id uint) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, m.getBinaryPath(), args...)
 	cmd.Dir = filepath.Dir(m.getBinaryPath())
+	if len(extraEnv) > 0 {
+		// token 等敏感凭据经环境变量传入，不出现在进程命令行中
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 
 	logBuf := newRingBuffer(maxLogLines)
 	var stderrBuf bytes.Buffer
@@ -171,7 +191,7 @@ func (m *Manager) Start(id uint) error {
 
 	if err := cmd.Start(); err != nil {
 		cancel()
-		m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
+		m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
 			"status":     "error",
 			"last_error": err.Error(),
 		})
@@ -189,9 +209,9 @@ func (m *Manager) Start(id uint) error {
 			logBuf.write(line)
 			// quick 模式：隧道地址每次启动随机生成，从日志中提取并落库，
 			// 前端可直接展示可访问入口，无需翻日志
-			if cfg.Type == "quick" {
+			if cfg.Mode == "quick" {
 				if url := quickURLRe.FindString(line); url != "" {
-					m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Update("public_url", url)
+					m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("quick_url", url)
 					m.log.Infof("[CF隧道][%d] quick 入口已更新: %s", id, url)
 				}
 			}
@@ -215,10 +235,10 @@ func (m *Manager) Start(id uint) error {
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
 			m.log.Warnf("[CF隧道][%d] %s", id, errMsg)
-			m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
+			m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
 				"status":     "error",
 				"last_error": errMsg,
-				"public_url": "",
+				"quick_url":  "",
 			})
 			// 自动重启（延迟 5 秒，关闭期间不重启）
 			time.Sleep(5 * time.Second)
@@ -228,7 +248,7 @@ func (m *Manager) Start(id uint) error {
 			if isStopping {
 				return
 			}
-			var cur model.CloudflareTunnel
+			var cur model.CftunnelConfig
 			if m.db.First(&cur, id).Error == nil && cur.Enable {
 				m.log.Infof("[CF隧道][%d] 尝试自动重启...", id)
 				if restartErr := m.Start(id); restartErr != nil {
@@ -236,15 +256,15 @@ func (m *Manager) Start(id uint) error {
 				}
 			}
 		} else {
-			m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
-				"status":     "stopped",
-				"public_url": "",
+			m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+				"status":    "stopped",
+				"quick_url": "",
 			})
 			m.log.Infof("[CF隧道][%d] 进程已退出", id)
 		}
 	}()
 
-	m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
+	m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"status":     "running",
 		"last_error": "",
 	})
@@ -252,8 +272,8 @@ func (m *Manager) Start(id uint) error {
 	return nil
 }
 
-// Stop 停止指定隧道
-func (m *Manager) Stop(id uint) {
+// Stop 停止指定隧道。进程未运行时仅同步数据库状态，不视为错误。
+func (m *Manager) Stop(id uint) error {
 	if val, ok := m.tunnels.Load(id); ok {
 		entry := val.(*processEntry)
 		entry.cancel()
@@ -264,24 +284,42 @@ func (m *Manager) Stop(id uint) {
 		m.tunnels.Delete(id)
 	}
 	// 进程停止后 quick 隧道地址随即失效，一并清理
-	m.db.Model(&model.CloudflareTunnel{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":     "stopped",
-		"public_url": "",
-	})
+	return m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":    "stopped",
+		"quick_url": "",
+	}).Error
 }
 
 // Restart 重启指定隧道
 func (m *Manager) Restart(id uint) error {
-	m.Stop(id)
+	_ = m.Stop(id)
 	return m.Start(id)
 }
 
-// GetStatus 返回隧道运行状态
-func (m *Manager) GetStatus(id uint) string {
-	if _, ok := m.tunnels.Load(id); ok {
-		return "running"
+// GetStatus 返回隧道运行状态详情（running/status/pid/quick_url/last_error）。
+// 返回的 map 始终反映进程的真实内存状态；error 仅表示数据库配置记录缺失，
+// 供 API 层回 404 使用，监控等只关心运行状态的调用方可忽略该 error。
+func (m *Manager) GetStatus(id uint) (map[string]any, error) {
+	st := map[string]any{
+		"id":      id,
+		"running": false,
+		"status":  "stopped",
 	}
-	return "stopped"
+	if val, ok := m.tunnels.Load(id); ok {
+		st["running"] = true
+		st["status"] = "running"
+		if entry, ok := val.(*processEntry); ok && entry.cmd != nil && entry.cmd.Process != nil {
+			st["pid"] = entry.cmd.Process.Pid
+		}
+	}
+
+	var cfg model.CftunnelConfig
+	if err := m.db.First(&cfg, id).Error; err != nil {
+		return st, fmt.Errorf("CF 隧道配置不存在: %w", err)
+	}
+	st["quick_url"] = cfg.QuickURL
+	st["last_error"] = cfg.LastError
+	return st, nil
 }
 
 // GetLogs 返回隧道日志
@@ -292,26 +330,148 @@ func (m *Manager) GetLogs(id uint) []string {
 	return nil
 }
 
-// buildArgs 根据模式构建 cloudflared 命令行参数。
+// buildArgs 根据模式构建 cloudflared 命令行参数与额外环境变量。
 //
 //	quick:  cloudflared tunnel --url <local_url> --no-autoupdate
-//	named:  cloudflared tunnel run --token <token> --no-autoupdate
-func (m *Manager) buildArgs(cfg *model.CloudflareTunnel) ([]string, error) {
-	switch cfg.Type {
+//	named:  cloudflared tunnel --config <config.yml> run <name|uuid> --no-autoupdate
+//	token:  cloudflared tunnel run --no-autoupdate  （token 经 TUNNEL_TOKEN 环境变量传入）
+//
+// 安全约束：
+//   - token 不作为命令行参数传递，避免在 ps / /proc/<pid>/cmdline 中泄露凭据；
+//   - TunnelName 需通过白名单校验，防止被当作 cloudflared flag 解析（flag 注入）。
+func (m *Manager) buildArgs(cfg *model.CftunnelConfig) (args []string, env []string, err error) {
+	switch cfg.Mode {
 	case "quick":
 		if cfg.LocalURL == "" {
-			return nil, fmt.Errorf("quick 模式需要填写本地服务地址（LocalURL）")
+			return nil, nil, fmt.Errorf("quick 模式需要填写本地服务地址（LocalURL）")
 		}
-		return []string{"tunnel", "--url", cfg.LocalURL, "--no-autoupdate"}, nil
+		if err := validateLocalURL(cfg.LocalURL); err != nil {
+			return nil, nil, err
+		}
+		return []string{"tunnel", "--url", cfg.LocalURL, "--no-autoupdate"}, nil, nil
 
 	case "named":
-		// 命名隧道统一走 Token 认证（与 API 层 Create/Update 校验一致）
-		if cfg.Token == "" {
-			return nil, fmt.Errorf("named 模式需要填写 Cloudflare Tunnel Token")
+		if cfg.TunnelName == "" {
+			return nil, nil, fmt.Errorf("named 模式需要填写隧道名称或 UUID")
 		}
-		return []string{"tunnel", "run", "--token", cfg.Token, "--no-autoupdate"}, nil
+		if err := ValidateTunnelName(cfg.TunnelName); err != nil {
+			return nil, nil, err
+		}
+		out := []string{"tunnel"}
+		configPath := cfg.ConfigFile
+		if configPath == "" {
+			// 自动生成临时 config.yml（若凭据文件已提供）
+			if cfg.CredentialsFile != "" {
+				generated, genErr := m.writeTempConfig(cfg)
+				if genErr != nil {
+					return nil, nil, genErr
+				}
+				configPath = generated
+			}
+		}
+		if configPath != "" {
+			out = append(out, "--config", configPath)
+		}
+		out = append(out, "run", cfg.TunnelName, "--no-autoupdate")
+		return out, nil, nil
+
+	case "token":
+		if cfg.Token == "" {
+			return nil, nil, fmt.Errorf("token 模式需要填写 Token")
+		}
+		// Token 经环境变量传入，不进入 argv
+		return []string{"tunnel", "run", "--no-autoupdate"},
+			[]string{"TUNNEL_TOKEN=" + cfg.Token}, nil
 
 	default:
-		return nil, fmt.Errorf("未知模式: %q（可选 quick/named）", cfg.Type)
+		return nil, nil, fmt.Errorf("未知模式: %q（可选 quick/named/token）", cfg.Mode)
 	}
+}
+
+// tunnelNameRe 隧道名称/UUID 白名单：字母数字开头，允许 . _ - ，长度 1-63。
+// 作用是阻断以 - 开头被 cloudflared 误解析为 flag，以及含换行导致的 YAML 注入。
+var tunnelNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`)
+
+// ValidateTunnelName 校验隧道名称是否合法（供 API 层前置校验复用）。
+func ValidateTunnelName(name string) error {
+	if !tunnelNameRe.MatchString(name) {
+		return fmt.Errorf("隧道名称非法：仅允许字母、数字、下划线、点、连字符，且需以字母或数字开头（长度 1-63）")
+	}
+	return nil
+}
+
+// validateLocalURL 校验 quick 模式的本地服务地址，阻断以 - 开头的 flag 注入。
+func validateLocalURL(raw string) error {
+	if strings.HasPrefix(raw, "-") {
+		return fmt.Errorf("本地服务地址非法：不能以 - 开头")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("本地服务地址解析失败: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "tcp" {
+		return fmt.Errorf("本地服务地址仅支持 http/https/tcp 协议")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("本地服务地址缺少主机名")
+	}
+	return nil
+}
+
+// tunnelConfigFile named 模式生成的 config.yml 结构，交由 yaml 库序列化，
+// 避免手工拼接字符串导致换行注入任意配置键。
+type tunnelConfigFile struct {
+	Tunnel          string `yaml:"tunnel"`
+	CredentialsFile string `yaml:"credentials-file"`
+}
+
+// writeTempConfig 为 named 模式生成临时 config.yml（写入 dataDir/cftunnel/<id>.yml）
+func (m *Manager) writeTempConfig(cfg *model.CftunnelConfig) (string, error) {
+	credPath, err := m.resolveCredentialsFile(cfg.CredentialsFile)
+	if err != nil {
+		return "", err
+	}
+
+	dir := filepath.Join(m.dataDir, configDirName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("创建配置目录失败: %w", err)
+	}
+	path := filepath.Join(dir, fmt.Sprintf("tunnel-%d.yml", cfg.ID))
+
+	content, err := yaml.Marshal(tunnelConfigFile{
+		Tunnel:          cfg.TunnelName,
+		CredentialsFile: credPath,
+	})
+	if err != nil {
+		return "", fmt.Errorf("序列化配置失败: %w", err)
+	}
+	// 配置内含凭据文件路径，限制为仅属主可读写
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		return "", fmt.Errorf("写入配置文件失败: %w", err)
+	}
+	return path, nil
+}
+
+// resolveCredentialsFile 校验凭据文件路径：必须位于数据目录内，防止路径穿越
+// 导致 cloudflared 读取宿主机任意文件（如 /root/.ssh/id_rsa）。
+func (m *Manager) resolveCredentialsFile(raw string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("凭据文件路径为空")
+	}
+	abs, err := filepath.Abs(raw)
+	if err != nil {
+		return "", fmt.Errorf("解析凭据文件路径失败: %w", err)
+	}
+	baseAbs, err := filepath.Abs(m.dataDir)
+	if err != nil {
+		return "", fmt.Errorf("解析数据目录失败: %w", err)
+	}
+	rel, err := filepath.Rel(baseAbs, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("凭据文件必须位于数据目录内: %s", baseAbs)
+	}
+	if info, err := os.Stat(abs); err != nil || info.IsDir() {
+		return "", fmt.Errorf("凭据文件不存在或不是文件: %s", abs)
+	}
+	return abs, nil
 }

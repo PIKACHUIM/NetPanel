@@ -2,17 +2,21 @@ package monitor
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 	"gorm.io/gorm"
@@ -24,17 +28,40 @@ import (
 type Collector struct {
 	db      *gorm.DB
 	manager *Manager
-	
-	// SSH 连接池
+
+	// dataDir 数据目录，用于存放 known_hosts
+	dataDir string
+
+	// SSH 连接池。sshMu 保护 sshClients 的并发读写：
+	// 该 map 会被探测引擎的并发 goroutine、监控任务与终端会话同时访问。
+	sshMu      sync.Mutex
 	sshClients map[uint]*ssh.Client
+
+	// knownHostsMu 串行化 known_hosts 文件的追加写入
+	knownHostsMu sync.Mutex
 }
 
 // NewCollector 创建数据采集器
 func NewCollector(db *gorm.DB, manager *Manager) *Collector {
+	dataDir := "./data"
+	if manager != nil && manager.DataDir != "" {
+		dataDir = manager.DataDir
+	}
 	return &Collector{
 		db:         db,
 		manager:    manager,
+		dataDir:    dataDir,
 		sshClients: make(map[uint]*ssh.Client),
+	}
+}
+
+// CloseAll 关闭所有 SSH 连接，供服务停止时回收资源。
+func (c *Collector) CloseAll() {
+	c.sshMu.Lock()
+	defer c.sshMu.Unlock()
+	for id, client := range c.sshClients {
+		_ = client.Close()
+		delete(c.sshClients, id)
 	}
 }
 
@@ -84,46 +111,138 @@ func (c *Collector) CollectMetricsViaSSH(server model.MonitorServer) (*model.Mon
 	return metric, nil
 }
 
-// getSSHClient 获取或创建 SSH 客户端
+// getSSHClient 获取或创建 SSH 客户端。
+//
+// 并发安全：sshClients 会被探测引擎的并发 goroutine、监控任务与终端会话同时访问，
+// 原实现无锁保护，属确定的并发 map 读写，会触发
+// "fatal error: concurrent map writes" 使整个进程崩溃。
 func (c *Collector) getSSHClient(server model.MonitorServer) (*ssh.Client, error) {
 	// 检查现有连接
-	if client, ok := c.sshClients[server.ID]; ok {
+	c.sshMu.Lock()
+	client, ok := c.sshClients[server.ID]
+	c.sshMu.Unlock()
+	if ok {
 		// 测试连接是否有效
 		session, err := client.NewSession()
 		if err == nil {
 			session.Close()
 			return client, nil
 		}
-		// 连接失效，删除
+		// 连接失效：关闭并移除，避免文件描述符泄漏
+		_ = client.Close()
+		c.sshMu.Lock()
 		delete(c.sshClients, server.ID)
+		c.sshMu.Unlock()
 	}
-	
+
+	hostKeyCallback, err := c.hostKeyCallback()
+	if err != nil {
+		return nil, err
+	}
+
 	// 创建新连接
 	config := &ssh.ClientConfig{
 		User:            server.SSHUser,
 		Timeout:         10 * time.Second,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 	}
-	
-	// 认证方式
-	if server.SSHPassword != "" {
-		config.Auth = []ssh.AuthMethod{
-			ssh.Password(server.SSHPassword),
+
+	// 认证方式：优先私钥，其次密码
+	switch {
+	case server.SSHKeyFile != "":
+		keyData, readErr := os.ReadFile(server.SSHKeyFile)
+		if readErr != nil {
+			return nil, fmt.Errorf("读取 SSH 私钥失败: %w", readErr)
 		}
-	} else if server.SSHKeyFile != "" {
-		// TODO: 读取私钥文件
-		return nil, fmt.Errorf("私钥认证暂未实现")
-	} else {
+		signer, parseErr := ssh.ParsePrivateKey(keyData)
+		if parseErr != nil {
+			return nil, fmt.Errorf("解析 SSH 私钥失败（如已加密请使用未加密私钥）: %w", parseErr)
+		}
+		config.Auth = []ssh.AuthMethod{ssh.PublicKeys(signer)}
+	case server.SSHPassword != "":
+		config.Auth = []ssh.AuthMethod{ssh.Password(server.SSHPassword.String())}
+	default:
 		return nil, fmt.Errorf("未配置 SSH 认证信息")
 	}
-	
-	client, err := ssh.Dial("tcp", server.SSHAddr, config)
+
+	newClient, err := ssh.Dial("tcp", server.SSHAddr, config)
 	if err != nil {
 		return nil, err
 	}
-	
-	c.sshClients[server.ID] = client
-	return client, nil
+
+	c.sshMu.Lock()
+	// 双检：并发场景下可能已有其他 goroutine 建立了连接
+	if existing, ok := c.sshClients[server.ID]; ok {
+		c.sshMu.Unlock()
+		_ = newClient.Close()
+		return existing, nil
+	}
+	c.sshClients[server.ID] = newClient
+	c.sshMu.Unlock()
+	return newClient, nil
+}
+
+// hostKeyCallback 构造主机指纹校验回调。
+//
+// 原实现使用 ssh.InsecureIgnoreHostKey()，完全放弃主机身份校验，
+// 使监控通道可被中间人攻击（攻击者可窃取 SSH 凭据）。
+// 现改为基于 known_hosts 校验：
+//   - 已记录的主机：指纹不匹配时拒绝连接；
+//   - 未记录的新主机：首次连接时记录指纹（TOFU，Trust On First Use）；
+//   - 设置 NETPANEL_SSH_STRICT_HOST_KEY=1 时，未记录的主机也一律拒绝。
+func (c *Collector) hostKeyCallback() (ssh.HostKeyCallback, error) {
+	path := filepath.Join(c.dataDir, "known_hosts")
+	if err := os.MkdirAll(c.dataDir, 0o700); err != nil {
+		return nil, fmt.Errorf("创建数据目录失败: %w", err)
+	}
+	// 确保文件存在，knownhosts.New 对不存在的文件会报错
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if f, createErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600); createErr == nil {
+			f.Close()
+		}
+	}
+
+	verify, err := knownhosts.New(path)
+	if err != nil {
+		return nil, fmt.Errorf("加载 known_hosts 失败: %w", err)
+	}
+
+	strict := os.Getenv("NETPANEL_SSH_STRICT_HOST_KEY") == "1"
+
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		err := verify(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+		// 指纹不匹配（已记录但对不上）：一律拒绝，这是中间人攻击的典型特征
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) && len(keyErr.Want) > 0 {
+			return fmt.Errorf("SSH 主机密钥校验失败（可能存在中间人攻击）: %s", hostname)
+		}
+		// 未记录的新主机
+		if strict {
+			return fmt.Errorf("未知的 SSH 主机 %s；严格模式下需先手动写入 known_hosts", hostname)
+		}
+		return c.appendKnownHost(path, hostname, key)
+	}, nil
+}
+
+// appendKnownHost 将新主机指纹追加到 known_hosts（首次连接信任）。
+func (c *Collector) appendKnownHost(path, hostname string, key ssh.PublicKey) error {
+	c.knownHostsMu.Lock()
+	defer c.knownHostsMu.Unlock()
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("写入 known_hosts 失败: %w", err)
+	}
+	defer f.Close()
+
+	line := knownhosts.Line([]string{hostname}, key)
+	if _, err := f.WriteString(line + "\n"); err != nil {
+		return fmt.Errorf("写入 known_hosts 失败: %w", err)
+	}
+	return nil
 }
 
 // executeCommandViaSSH 通过 SSH 执行命令

@@ -35,6 +35,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// 用户身份信息：随 JWT 下发，作为后续权限判定的依据
+	var (
+		userID  uint
+		isAdmin bool
+	)
+
 	// 优先从 User 表查找用户
 	var user model.User
 	if err := h.db.Where("username = ?", req.Username).First(&user).Error; err == nil {
@@ -47,6 +53,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
 			return
 		}
+		userID = user.ID
+		isAdmin = user.IsAdmin
 	} else {
 		// User 表中不存在，兼容旧版：仅允许 admin 用户通过 SystemConfig 验证
 		if req.Username != "admin" {
@@ -62,9 +70,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
 			return
 		}
+		// 旧版引导账号视为管理员（此路径无对应 User 记录，userID 保持 0）
+		isAdmin = true
 	}
 
-	token, err := middleware.GenerateToken(req.Username)
+	token, err := middleware.GenerateToken(req.Username, userID, isAdmin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成 Token 失败"})
 		return
@@ -79,6 +89,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"data": gin.H{
 			"token":    token,
 			"username": req.Username,
+			"is_admin": isAdmin,
 		},
 	})
 }

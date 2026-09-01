@@ -1,0 +1,74 @@
+name: PR Checks
+
+# PR 门禁：编译 + 测试 + 前端类型检查
+# 目的：防止编译失败 / 测试失败 / 类型错误的代码被合入 main
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.25'
+  NODE_VERSION: '24'
+
+jobs:
+  # ===== 后端：编译 + 测试 =====
+  backend:
+    name: Backend (build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Verify go.mod / go.sum consistency
+        run: go mod verify
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+  # ===== 前端：类型检查 + 构建 =====
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webpage
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: webpage/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # build 脚本已包含 tsc 类型检查（"tsc && vite build"）
+      - name: Typecheck & Build
+        run: npm run build

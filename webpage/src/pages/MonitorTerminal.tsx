@@ -6,6 +6,7 @@ import { FitAddon } from 'xterm-addon-fit'
 import { WebLinksAddon } from 'xterm-addon-web-links'
 import 'xterm/css/xterm.css'
 import { monitorApi } from '../api'
+import { useAppStore } from '../store/appStore'
 
 const { Option } = Select
 const { Text } = Typography
@@ -126,13 +127,19 @@ const MonitorTerminal: React.FC = () => {
     term.writeln('正在连接到服务器...')
 
     try {
-      // 获取认证 token
-      const token = localStorage.getItem('token') || ''
-      
-      // 构建 WebSocket URL
+      // 获取认证 token。
+      // 注意：token 由 zustand persist 存储在 'netpanel-store' 中，
+      // 并非 localStorage.token，此前直接读 'token' 恒为空字符串。
+      const token = useAppStore.getState().token || ''
+      if (!token) {
+        term.writeln('✗ 未登录或登录已过期，请重新登录')
+        return
+      }
+
+      // 构建 WebSocket URL（浏览器 WebSocket 无法自定义请求头，token 只能经 query 传递）
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const host = window.location.host
-      const wsUrl = `${protocol}//${host}/ws/terminal?server_id=${selectedServerId}&token=${token}`
+      const wsUrl = `${protocol}//${host}/ws/terminal?server_id=${selectedServerId}&token=${encodeURIComponent(token)}`
 
       const ws = new WebSocket(wsUrl)
 

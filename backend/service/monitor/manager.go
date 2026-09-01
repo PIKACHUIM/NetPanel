@@ -21,6 +21,9 @@ type Manager struct {
 	grpcServer  *grpc.Server
 	grpcAddr    string
 	grpcPort    int
+
+	// DataDir 数据目录，用于存放 known_hosts 等文件
+	DataDir string
 	
 	// Agent 连接池
 	agentConnections sync.Map // key: server_id, value: *AgentConnection
@@ -55,12 +58,22 @@ type AgentConnection struct {
 
 // NewManager 创建监控管理器
 func NewManager(db *gorm.DB) *Manager {
+	return NewManagerWithDataDir(db, "./data")
+}
+
+// NewManagerWithDataDir 创建监控管理器并指定数据目录（用于 known_hosts 等文件）
+func NewManagerWithDataDir(db *gorm.DB, dataDir string) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+
 	m := &Manager{
 		DB:               db,
 		grpcAddr:         "0.0.0.0",
 		grpcPort:         50051,
+		DataDir:          dataDir,
 		ctx:              ctx,
 		cancel:           cancel,
 		heartbeatTimeout: 60 * time.Second,

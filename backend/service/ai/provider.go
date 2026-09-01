@@ -89,7 +89,7 @@ func (m *Manager) FetchModels(provider *model.AiProvider) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+provider.ApiKey)
+	req.Header.Set("Authorization", "Bearer "+provider.ApiKey.String())
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -136,7 +136,7 @@ func (m *Manager) ChatCompletion(provider *model.AiProvider, req *ChatCompletion
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+provider.ApiKey)
+	httpReq.Header.Set("Authorization", "Bearer "+provider.ApiKey.String())
 
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(httpReq)
@@ -181,7 +181,7 @@ func (m *Manager) StreamChatCompletion(provider *model.AiProvider, req *ChatComp
 			return
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Authorization", "Bearer "+provider.ApiKey)
+		httpReq.Header.Set("Authorization", "Bearer "+provider.ApiKey.String())
 		httpReq.Header.Set("Accept", "text/event-stream")
 
 		client := &http.Client{Timeout: 300 * time.Second}

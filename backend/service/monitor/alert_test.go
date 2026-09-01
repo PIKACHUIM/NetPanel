@@ -18,6 +18,13 @@ func newAlertTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("打开测试数据库失败: %v", err)
 	}
+	// 测试结束时关闭底层连接，否则 Windows 下 SQLite 文件句柄未释放，
+	// 会导致 t.TempDir() 的 RemoveAll cleanup 失败。
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	if err := db.AutoMigrate(
 		&model.MonitorProbe{},
 		&model.MonitorProbeResult{},

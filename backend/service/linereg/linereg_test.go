@@ -29,7 +29,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.EasytierClient{},
 		&model.WireguardConfig{},
 		&model.WireguardPeer{},
-		&model.CloudflareTunnel{},
+		&model.CftunnelConfig{},
 		&model.ProbeHistory{},
 		&model.TunService{},
 	); err != nil {
@@ -60,12 +60,12 @@ func seedData(db *gorm.DB) {
 	db.Model(&peerB).Update("enable", false)
 	db.Create(&model.WireguardPeer{WireguardID: wg.ID, Name: "无端点", Enable: true, PublicKey: "CCC", Endpoint: ""})
 
-	// CF 隧道：仅 named 模式且有隧道名的注册为线路
-	db.Create(&model.CloudflareTunnel{Name: "cf named", Enable: true, Type: "named", TunnelName: "my-tunnel", LocalURL: "http://127.0.0.1:8080"})
-	db.Create(&model.CloudflareTunnel{Name: "cf quick", Enable: true, Type: "quick", LocalURL: "http://127.0.0.1:8081"})
-	db.Create(&model.CloudflareTunnel{Name: "cf 无 Token", Enable: true, Type: "named", TunnelName: ""})
-	db.Create(&model.CloudflareTunnel{Name: "cf 停用", Enable: false, Type: "named", TunnelName: "off-tunnel"})
-	db.Create(&model.CloudflareTunnel{Name: "cf 另一无名", Enable: true, Type: "named", Token: "eyJhIjoi", TunnelName: ""})
+	// CF 隧道：仅 named 模式注册为线路
+	db.Create(&model.CftunnelConfig{Name: "cf named", Enable: true, Mode: "named", TunnelName: "my-tunnel", LocalURL: "http://127.0.0.1:8080"})
+	db.Create(&model.CftunnelConfig{Name: "cf quick", Enable: true, Mode: "quick", LocalURL: "http://127.0.0.1:8081"})
+	db.Create(&model.CftunnelConfig{Name: "cf token", Enable: true, Mode: "token", Token: "eyJhIjoi"})
+	db.Create(&model.CftunnelConfig{Name: "cf 停用", Enable: false, Mode: "named", TunnelName: "off-tunnel"})
+	db.Create(&model.CftunnelConfig{Name: "cf 无名", Enable: true, Mode: "named", TunnelName: ""})
 }
 
 func TestBuildLines(t *testing.T) {
