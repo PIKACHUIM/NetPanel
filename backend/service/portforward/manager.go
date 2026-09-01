@@ -76,7 +76,7 @@ func (p *TCPProxy) Start() error {
 		return nil
 	}
 
-	addr := fmt.Sprintf("%s:%d", p.listenIP, p.listenPort)
+	addr := net.JoinHostPort(p.listenIP, fmt.Sprintf("%d", p.listenPort))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("监听 %s 失败: %w", addr, err)
@@ -124,7 +124,7 @@ func (p *TCPProxy) handleConn(src net.Conn) {
 		src.Close()
 	}()
 
-	dst, err := net.Dial("tcp", fmt.Sprintf("%s:%d", p.targetAddr, p.targetPort))
+	dst, err := net.Dial("tcp", net.JoinHostPort(p.targetAddr, fmt.Sprintf("%d", p.targetPort)))
 	if err != nil {
 		p.log.Errorf("连接目标[TCP] %s:%d 失败: %v", p.targetAddr, p.targetPort, err)
 		return
@@ -217,7 +217,7 @@ func (p *UDPProxy) Start() error {
 		return nil
 	}
 
-	addr := fmt.Sprintf("%s:%d", p.listenIP, p.listenPort)
+	addr := net.JoinHostPort(p.listenIP, fmt.Sprintf("%d", p.listenPort))
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return err
@@ -251,7 +251,7 @@ func (p *UDPProxy) serve() {
 		copy(data, buf[:n])
 		atomic.AddInt64(&p.trafficIn, int64(n))
 
-		targetAddrStr := fmt.Sprintf("%s:%d", p.targetAddr, p.targetPort)
+		targetAddrStr := net.JoinHostPort(p.targetAddr, fmt.Sprintf("%d", p.targetPort))
 		key := remoteAddr.String()
 
 		val, ok := sessions.Load(key)
