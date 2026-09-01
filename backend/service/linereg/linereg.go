@@ -692,8 +692,8 @@ func BuildLines(db *gorm.DB) []selector.Line {
 	// ---- Cloudflare Tunnel（named 模式入口固定，可探测）----
 	// quick/token 模式无固定外部入口（trycloudflare 随机域名 / 远程配置），
 	// 不注册为线路；named 模式用 {tunnel_name}.cfargotunnel.com:443 探测。
-	var cfts []model.CloudflareTunnel
-	if err := db.Where("enable = ? AND type = ?", true, "named").Find(&cfts).Error; err == nil {
+	var cfts []model.CftunnelConfig
+	if err := db.Where("enable = ? AND mode = ?", true, "named").Find(&cfts).Error; err == nil {
 		for _, c := range cfts {
 			if c.TunnelName == "" {
 				continue
