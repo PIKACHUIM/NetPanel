@@ -343,6 +343,33 @@ func (m *Manager) GetClientStatus(id uint) string {
 	return "stopped"
 }
 
+// GetClientDetail 获取 NPS 客户端诊断信息
+func (m *Manager) GetClientDetail(id uint) (map[string]interface{}, error) {
+	var cfg model.NpsClientConfig
+	if err := m.db.Where("id = ?", id).First(&cfg).Error; err != nil {
+		return nil, err
+	}
+
+	var logs []model.SystemLog
+	m.db.Where("service = 'nps' AND message LIKE ?", "%"+cfg.Name+"%").
+		Order("log_time DESC").Limit(30).Find(&logs)
+
+	logLines := make([]string, 0, len(logs))
+	for _, l := range logs {
+		logLines = append(logLines, fmt.Sprintf("[%s] %s", l.LogTime.Format("15:04:05"), l.Message))
+	}
+
+	return map[string]interface{}{
+		"id":           cfg.ID,
+		"name":         cfg.Name,
+		"status":       m.GetClientStatus(id),
+		"last_error":   cfg.LastError,
+		"server_addr":  cfg.ServerAddr,
+		"server_port":  cfg.ServerPort,
+		"recent_logs":  logLines,
+	}, nil
+}
+
 // setClientError 设置客户端错误状态
 func (m *Manager) setClientError(id uint, errMsg string) {
 	m.db.Model(&model.NpsClientConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
