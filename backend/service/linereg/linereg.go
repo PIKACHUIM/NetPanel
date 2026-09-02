@@ -49,12 +49,22 @@ const (
 	minIntervalSec = 5
 )
 
+// LineHealthEvent selector.HealthEvent 的类型别名：供上层（main）注入健康
+// 事件外送（如桥接 callback 任务触发）时引用，避免上层依赖 selector 包。
+type LineHealthEvent = selector.HealthEvent
+
+// HealthEventSink 线路健康事件外送通道（SystemLog 之外的可选通知，如触发
+// callback 任务）。由上层注入；实现须快速返回（在探测循环内被调用）。
+type HealthEventSink func(ev LineHealthEvent)
+
 // Manager 线路注册中心：持有 selector，负责周期刷新线路并驱动测速选线。
 type Manager struct {
 	db       *gorm.DB
 	log      *logrus.Logger
 	interval time.Duration
 	selector *selector.Selector
+	// eventSink 健康转换事件外送（进入不可达 / 恢复时触发），可为 nil。
+	eventSink HealthEventSink
 
 	// caddyUpdater 选线切换回调：把选中线路的入口同步到绑定的 Caddy 站点。
 	// 由上层注入（main.go），避免本包依赖 caddy。
@@ -95,7 +105,7 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 	if log == nil {
 		log = logrus.New()
 	}
-	return &Manager{
+	m := &Manager{
 		db:             db,
 		log:            log,
 		interval:       DefaultInterval,
@@ -105,6 +115,11 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 		pendingRebinds: make(map[uint]string),
 		reload:         make(chan struct{}, 1),
 	}
+	// 注册健康转换观察者：进入不可达 / 恢复时写日志、落 SystemLog 并外送事件。
+	m.selector.SetHealthObserver(func(ev selector.HealthEvent) {
+		m.handleHealthEvent(ev)
+	})
+	return m
 }
 
 // 端口层重绑模式取值。
@@ -179,6 +194,13 @@ func (m *Manager) Selector() *selector.Selector {
 // SetProber 透传设置探测器（测试注入 / 即时测速复用）。
 func (m *Manager) SetProber(p selector.Prober) {
 	m.selector.SetProber(p)
+}
+
+// SetHealthEventSink 注册健康转换事件外送通道（可选，如桥接 callback 任务）。
+// 事件已由 linereg 内部写入运行日志与 SystemLog（Service=linereg），sink 仅
+// 用于额外通知；在 Start 前调用即可。
+func (m *Manager) SetHealthEventSink(fn HealthEventSink) {
+	m.eventSink = fn
 }
 
 // SetInterval 设置线路刷新间隔。支持运行期热更新：
@@ -352,6 +374,33 @@ func (m *Manager) Stop() {
 	}
 	m.wg.Wait()
 	m.log.Info("[线路选择] 后台测速选线已停止")
+}
+
+// handleHealthEvent 处理 selector 健康转换事件（进入不可达 / 恢复）：
+// 写入运行日志与 SystemLog（Service=linereg），并外送事件供上层通知
+// （如触发用户配置的 callback 任务）。由 selector.ProbeAll 的调用方
+// goroutine（linereg 后台循环）内触发，需快速返回。
+func (m *Manager) handleHealthEvent(ev selector.HealthEvent) {
+	msg := fmt.Sprintf("[线路健康] 线路 %s (%s): %s → %s（连续失败 %d 次）",
+		ev.LineID, ev.Tool, ev.From, ev.To, ev.ConsecutiveFailures)
+	level := "info"
+	if ev.To == selector.HealthUnreachable {
+		level = "warn"
+		m.log.Warn(msg)
+	} else {
+		m.log.Info(msg)
+	}
+	if err := m.db.Create(&model.SystemLog{
+		Level:   level,
+		Service: "linereg",
+		Message: msg,
+		LogTime: time.Now(),
+	}).Error; err != nil {
+		m.log.Warnf("[线路健康] SystemLog 写入失败: %v", err)
+	}
+	if m.eventSink != nil {
+		m.eventSink(ev)
+	}
 }
 
 func (m *Manager) run(ctx context.Context) {

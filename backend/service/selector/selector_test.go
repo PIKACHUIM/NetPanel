@@ -495,3 +495,90 @@ func byID(t *testing.T, s *Selector, id string) Line {
 	t.Fatalf("line %q not found", id)
 	return Line{}
 }
+
+// ---- M2：健康语义（Reachable / ConsecutiveFailures / observer 转换） ----
+
+func TestProbeResultHealthFields(t *testing.T) {
+	lines := mkLines("a")
+	s, f := newFake(lines, map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
+
+	// 探测成功：reachable、连续失败 0，Snapshot 健康。
+	okRes := s.ProbeAll(context.Background())
+	if r := okRes["a"]; !r.Reachable || r.ConsecutiveFailures != 0 {
+		t.Fatalf("成功后 Reachable/ConsecutiveFailures 应为 true/0，得到 %+v", r)
+	}
+	if h := s.Snapshot().Health["a"]; h != HealthHealthy {
+		t.Fatalf("成功后健康状态应为 healthy，得到 %q", h)
+	}
+
+	// 探测失败（threshold 默认 1）：不可达、连续失败 1，Snapshot unreachable。
+	f.errors = map[string]error{"a": errors.New("down")}
+	failRes := s.ProbeAll(context.Background())
+	if r := failRes["a"]; r.Reachable || r.ConsecutiveFailures != 1 {
+		t.Fatalf("失败后 Reachable/ConsecutiveFailures 应为 false/1，得到 %+v", r)
+	}
+	if h := s.Snapshot().Health["a"]; h != HealthUnreachable {
+		t.Fatalf("失败后健康状态应为 unreachable，得到 %q", h)
+	}
+}
+
+func TestHealthObserverEnterAndRecover(t *testing.T) {
+	lines := mkLines("a")
+	s, f := newFake(lines, map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
+
+	var events []HealthEvent
+	s.SetHealthObserver(func(ev HealthEvent) { events = append(events, ev) })
+
+	// 第 1 轮失败（threshold=1）→ 进入不可达。
+	f.errors = map[string]error{"a": errors.New("down")}
+	s.ProbeAll(context.Background())
+	if len(events) != 1 || events[0].LineID != "a" || events[0].From != HealthHealthy || events[0].To != HealthUnreachable {
+		t.Fatalf("进入不可达事件不符: %+v", events)
+	}
+
+	// 持续失败不重复触发。
+	s.ProbeAll(context.Background())
+	if len(events) != 1 {
+		t.Fatalf("持续失败不应重复触发事件，得到 %d 个: %+v", len(events), events)
+	}
+
+	// 恢复成功 → unreachable → healthy。
+	delete(f.errors, "a")
+	s.ProbeAll(context.Background())
+	if len(events) != 2 || events[1].From != HealthUnreachable || events[1].To != HealthHealthy {
+		t.Fatalf("恢复事件不符: %+v", events)
+	}
+}
+
+func TestHealthObserverThresholdAboveOne(t *testing.T) {
+	lines := mkLines("a")
+	s, f := newFake(lines, map[string]time.Duration{"a": 10 * time.Millisecond}, nil)
+	s.SetFailureThreshold(3)
+
+	var events []HealthEvent
+	s.SetHealthObserver(func(ev HealthEvent) { events = append(events, ev) })
+
+	// 前两轮失败：degraded（阈值 3 未到），不应触发事件。
+	f.errors = map[string]error{"a": errors.New("down")}
+	s.ProbeAll(context.Background())
+	s.ProbeAll(context.Background())
+	if len(events) != 0 {
+		t.Fatalf("未达阈值不应触发事件，得到 %+v", events)
+	}
+	if h := s.Snapshot().Health["a"]; h != HealthDegraded {
+		t.Fatalf("两次失败（阈值 3）健康状态应为 degraded，得到 %q", h)
+	}
+
+	// 第三轮失败：跨过阈值 → degraded → unreachable。
+	s.ProbeAll(context.Background())
+	if len(events) != 1 || events[0].From != HealthDegraded || events[0].To != HealthUnreachable {
+		t.Fatalf("达阈值进入不可达事件不符: %+v", events)
+	}
+
+	// 恢复 → unreachable → healthy。
+	delete(f.errors, "a")
+	s.ProbeAll(context.Background())
+	if len(events) != 2 || events[1].To != HealthHealthy {
+		t.Fatalf("恢复事件不符: %+v", events)
+	}
+}

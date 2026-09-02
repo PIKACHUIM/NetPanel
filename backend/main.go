@@ -231,7 +231,7 @@ func startServer() *http.Server {
 	// AI 管理器
 	logAi := logger.NewDBLogger(log, "ai")
 	aiMgr := ai.NewManager(db, logAi)
-	
+
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
@@ -245,6 +245,15 @@ func startServer() *http.Server {
 	// 切换落地：选线结果变化时热加载 Caddy 反代目标（域名层）与 DNS 解析（DNS 层）
 	lineregMgr.SetCaddyUpdater(caddyMgr.UpdateUpstream)
 	lineregMgr.SetDNSUpdater(dnsmasqMgr.SetRecord)
+	// 线路健康转换事件（进入不可达 / 恢复）→ 触发用户配置的 callback 任务
+	// （trigger_type: line_unreachable / line_recovered；UI 创建入口后续版本提供）
+	lineregMgr.SetHealthEventSink(func(ev linereg.LineHealthEvent) {
+		typ := "line_recovered"
+		if ev.To == "unreachable" {
+			typ = "line_unreachable"
+		}
+		callbackMgr.Trigger(callback.TriggerEvent{Type: typ})
+	})
 
 	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
 	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,
@@ -289,7 +298,7 @@ func startServer() *http.Server {
 	meshNodeMgr.Start()
 	aiMgr.Start()
 	lineregMgr.Start()
-	
+
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
 		log.Errorf("监控服务启动失败: %v", err)
