@@ -6,8 +6,8 @@ import (
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
-	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
@@ -15,16 +15,17 @@ import (
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/frpmaster"
 	"github.com/netpanel/netpanel/service/linereg"
+	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
-	"github.com/netpanel/netpanel/service/ai"
-	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -39,6 +40,7 @@ type RouterOptions struct {
 	PortForwardMgr *portforward.Manager
 	StunMgr        *stun.Manager
 	FrpMgr         *frp.Manager
+	FrpMasterMgr   *frpmaster.Manager
 	NpsMgr         *nps.Manager
 	EasytierMgr    *easytier.Manager
 	CftunnelMgr    *cftunnel.Manager
@@ -84,6 +86,12 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	apiV1.GET("/auth/oauth/providers", oauthHandler.ListPublicProviders)
 	apiV1.GET("/auth/oauth/:provider/authorize", oauthHandler.Authorize)
 	apiV1.GET("/auth/oauth/:provider/callback", oauthHandler.Callback)
+
+	// frpc 多节点 Master：远程节点控制面（节点凭 node_id+token 认证，无面板 JWT）
+	fmHandler := handlers.NewFrpMasterHandler(opts.DB, opts.Log, opts.FrpMasterMgr)
+	apiV1.POST("/frpmaster/agent/heartbeat", fmHandler.Heartbeat)
+	apiV1.POST("/frpmaster/agent/status", fmHandler.ReportStatus)
+	apiV1.GET("/frpmaster/agent/config", fmHandler.FetchConfig)
 
 	// 需要认证的路由
 	auth := apiV1.Group("")
@@ -274,13 +282,13 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 
 	// 域名管理（域名列表，参考 dnsmgr domain 表）
 	diHandler := handlers.NewDomainInfoHandler(opts.DB, opts.Log)
-		auth.GET("/domain/domains", diHandler.List)
-		auth.GET("/domain/domains/fetch", diHandler.FetchFromProvider)
-		auth.POST("/domain/domains", diHandler.Create)
-		auth.PUT("/domain/domains/:id", diHandler.Update)
-		auth.DELETE("/domain/domains/:id", diHandler.Delete)
-		auth.POST("/domain/domains/:id/refresh", diHandler.Refresh)
-		auth.PUT("/domain/domains/:id/auto-sync", diHandler.UpdateAutoSync)
+	auth.GET("/domain/domains", diHandler.List)
+	auth.GET("/domain/domains/fetch", diHandler.FetchFromProvider)
+	auth.POST("/domain/domains", diHandler.Create)
+	auth.PUT("/domain/domains/:id", diHandler.Update)
+	auth.DELETE("/domain/domains/:id", diHandler.Delete)
+	auth.POST("/domain/domains/:id/refresh", diHandler.Refresh)
+	auth.PUT("/domain/domains/:id/auto-sync", diHandler.UpdateAutoSync)
 
 	// 证书账号（ACME CA 账号，参考 dnsmgr cert_account）
 	certAccountHandler := handlers.NewCertAccountHandler(opts.DB, opts.Log, opts.CertMgr)
@@ -302,8 +310,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/domain/certs/:id/step/create-order", certHandler.StepCreateOrder)
 	auth.POST("/domain/certs/:id/step/set-dns", certHandler.StepSetDNS)
 	auth.POST("/domain/certs/:id/step/validate", certHandler.StepValidate)
-		auth.POST("/domain/certs/:id/step/obtain", certHandler.StepObtain)
-		auth.POST("/domain/certs/:id/confirm-dns", certHandler.ConfirmDNS)
+	auth.POST("/domain/certs/:id/step/obtain", certHandler.StepObtain)
+	auth.POST("/domain/certs/:id/confirm-dns", certHandler.ConfirmDNS)
 
 	// 域名解析（子域名解析记录，按域名ID查询）
 	drHandler := handlers.NewDomainRecordHandler(opts.DB, opts.Log)
@@ -512,6 +520,12 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/ai/plugins/:id", aiHandler.DeletePlugin)
 	auth.POST("/ai/plugins/:id/toggle", aiHandler.TogglePlugin)
 
+	// ── frpc 多节点 Master（管理面）────────────────────────────────────────────
+	auth.GET("/frpmaster/nodes", fmHandler.List)
+	auth.POST("/frpmaster/nodes", fmHandler.Create)
+	admin.DELETE("/frpmaster/nodes/:id", fmHandler.Delete)
+	auth.GET("/frpmaster/nodes/:id/config", fmHandler.ConfigPreview)
+
 	// ── 服务监控 ────────────────────────────────────────────────────────────────
 	monitorHandler := handlers.NewMonitorHandler(opts.DB, opts.FrpMgr, opts.NpsMgr, opts.EasytierMgr, opts.CftunnelMgr, opts.WireguardMgr)
 	// 服务器管理
@@ -561,9 +575,9 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/monitor/tunnels/:id", monitorHandler.UpdateTunnelBinding)
 	auth.DELETE("/monitor/tunnels/:id", monitorHandler.DeleteTunnelBinding)
 	auth.POST("/monitor/tunnels/:id/sync", monitorHandler.SyncTunnelStatus)
-// WebSocket 终端：浏览器 WebSocket 无法自定义请求头，token 经 query 传入，
-// 由 HandleTerminal 内部完成鉴权（校验 token + 管理员权限 + Origin）
-r.GET("/ws/terminal", monitorHandler.HandleTerminal)
+	// WebSocket 终端：浏览器 WebSocket 无法自定义请求头，token 经 query 传入，
+	// 由 HandleTerminal 内部完成鉴权（校验 token + 管理员权限 + Origin）
+	r.GET("/ws/terminal", monitorHandler.HandleTerminal)
 
 	return r
 }
