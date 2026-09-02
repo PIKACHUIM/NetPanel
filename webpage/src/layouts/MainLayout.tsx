@@ -109,6 +109,15 @@ const MainLayout: React.FC = () => {
             ],
         },
         {
+            key: 'frpmaster',
+            icon: <ClusterOutlined/>,
+            label: t('menu.frpmaster'),
+            children: [
+                {key: 'frp/master/nodes', icon: <ClusterOutlined/>, label: t('menu.frpmaster')},
+                {key: 'frp/master/pool', icon: <ApartmentOutlined/>, label: t('menu.pool')},
+            ],
+        },
+        {
             key: 'web-service',
             icon: <GlobalOutlined/>,
             label: t('menu.webService'),
@@ -558,6 +567,7 @@ function getOpenKeys(pathname: string): string[] {
     if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun') || pathname.startsWith('/frp')) return ['port-mapping']
     if (pathname.startsWith('/nps') || pathname.startsWith('/easytier') || pathname.startsWith('/wireguard')) return ['network']
     if (pathname.startsWith('/mesh')) return ['mesh']
+    if (pathname.startsWith('/frp/master')) return ['frpmaster']
     if (pathname.startsWith('/ddns') || pathname.startsWith('/caddy')) return ['web-service']
     if (pathname.startsWith('/ipdb') || pathname.startsWith('/access') || pathname.startsWith('/security')) return ['security']
     if (pathname.startsWith('/dnsmasq') || pathname.startsWith('/wol') || pathname.startsWith('/storage') || pathname.startsWith('/cron')) return ['intranet']
