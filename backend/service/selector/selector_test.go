@@ -495,3 +495,104 @@ func byID(t *testing.T, s *Selector, id string) Line {
 	t.Fatalf("line %q not found", id)
 	return Line{}
 }
+
+// ---- M1：加权（Weight）与区域偏好（PreferRegion）选线 ----
+
+func TestWeightedSelectionPrefersHighWeight(t *testing.T) {
+	// B 更慢但权重 3x：score_B = 150/3 = 50 < score_A = 100，应选 B。
+	lines := []Line{
+		{ID: "a", Name: "a", Tool: "fake", Address: "127.0.0.1:1", Weight: 1},
+		{ID: "b", Name: "b", Tool: "fake", Address: "127.0.0.1:1", Weight: 3},
+	}
+	s, _ := newFake(lines, map[string]time.Duration{
+		"a": 100 * time.Millisecond,
+		"b": 150 * time.Millisecond,
+	}, nil)
+	s.ProbeAll(context.Background())
+	if got := s.Select().LineID; got != "b" {
+		t.Fatalf("expected weighted winner b, got %q", got)
+	}
+}
+
+func TestLegacyLinesWithoutWeightKeepFastest(t *testing.T) {
+	// 未配置 Weight（全 0）= 纯延迟模式，行为与旧版一致。
+	lines := mkLines("a", "b")
+	s, _ := newFake(lines, map[string]time.Duration{
+		"a": 200 * time.Millisecond,
+		"b": 50 * time.Millisecond,
+	}, nil)
+	s.ProbeAll(context.Background())
+	if got := s.Select().LineID; got != "b" {
+		t.Fatalf("legacy mode should pick fastest b, got %q", got)
+	}
+}
+
+func TestWeightedZeroWeightExcludedFromAutoSelection(t *testing.T) {
+	// 加权模式下 Weight<=0 的线路不参与自动选线，但仍保留在集合中（可展示/锁线）。
+	lines := []Line{
+		{ID: "fast", Name: "fast", Tool: "fake", Address: "127.0.0.1:1", Weight: 0},
+		{ID: "slow", Name: "slow", Tool: "fake", Address: "127.0.0.1:1", Weight: 1},
+	}
+	s, _ := newFake(lines, map[string]time.Duration{
+		"fast": 10 * time.Millisecond,
+		"slow": 100 * time.Millisecond,
+	}, nil)
+	s.ProbeAll(context.Background())
+	if got := s.Select().LineID; got != "slow" {
+		t.Fatalf("weight-0 line must be excluded from auto selection, got %q", got)
+	}
+	if l := byID(t, s, "fast"); l.ID != "fast" {
+		t.Fatalf("excluded line should remain registered in the set")
+	}
+}
+
+func TestWeightedLockedExcludedLineStillHonored(t *testing.T) {
+	// 手动锁定的线路不受加权排除影响（与 toolFilter 锁线语义一致）。
+	lines := []Line{
+		{ID: "fast", Name: "fast", Tool: "fake", Address: "127.0.0.1:1", Weight: 0},
+		{ID: "slow", Name: "slow", Tool: "fake", Address: "127.0.0.1:1", Weight: 1},
+	}
+	s, _ := newFake(lines, map[string]time.Duration{
+		"fast": 10 * time.Millisecond,
+		"slow": 100 * time.Millisecond,
+	}, nil)
+	s.Lock("fast")
+	s.ProbeAll(context.Background())
+	if got := s.Select().LineID; got != "fast" {
+		t.Fatalf("locked weight-0 line should still be honored, got %q", got)
+	}
+}
+
+func TestPreferRegionSelectsRegionFirst(t *testing.T) {
+	// cn-east 线路明显更慢，但命中偏好区域，应优先选中。
+	lines := []Line{
+		{ID: "local", Name: "local", Tool: "fake", Address: "127.0.0.1:1", Region: "cn-east", Weight: 1},
+		{ID: "remote", Name: "remote", Tool: "fake", Address: "127.0.0.1:1", Region: "us-west", Weight: 1},
+	}
+	s, _ := newFake(lines, map[string]time.Duration{
+		"local":  200 * time.Millisecond,
+		"remote": 20 * time.Millisecond,
+	}, nil)
+	s.SetPreferRegion("cn-east")
+	s.ProbeAll(context.Background())
+	if got := s.Select().LineID; got != "local" {
+		t.Fatalf("region preference should pick cn-east local line, got %q", got)
+	}
+}
+
+func TestPreferRegionFallsBackWhenRegionUnavailable(t *testing.T) {
+	// 偏好区域线路全部不可用时，回退到其他区域的最优线路。
+	lines := []Line{
+		{ID: "local", Name: "local", Tool: "fake", Address: "127.0.0.1:1", Region: "cn-east", Weight: 1},
+		{ID: "remote", Name: "remote", Tool: "fake", Address: "127.0.0.1:1", Region: "us-west", Weight: 1},
+	}
+	s, _ := newFake(lines, map[string]time.Duration{
+		"local":  200 * time.Millisecond,
+		"remote": 20 * time.Millisecond,
+	}, map[string]error{"local": errors.New("down")})
+	s.SetPreferRegion("cn-east")
+	s.ProbeAll(context.Background())
+	if got := s.Select().LineID; got != "remote" {
+		t.Fatalf("should fall back to remote when cn-east down, got %q", got)
+	}
+}
