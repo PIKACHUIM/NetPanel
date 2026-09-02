@@ -201,3 +201,30 @@ func (h *FrpMasterHandler) FetchConfig(c *gin.Context) {
 	}
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(toml))
 }
+
+// agentLogsReq 节点日志回传。
+type agentLogsReq struct {
+	NodeID uint     `json:"node_id"`
+	Token  string   `json:"token"`
+	Logs   []string `json:"logs"`
+}
+
+// ReportLogs POST /api/v1/frpmaster/agent/logs —— 节点日志回传聚合
+// （落 SystemLog，Service=frpmaster；单批上限由 Manager 截断）。
+func (h *FrpMasterHandler) ReportLogs(c *gin.Context) {
+	var req agentLogsReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请求体解析失败"})
+		return
+	}
+	if !h.mgr.Authenticate(req.NodeID, req.Token) {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "节点 token 校验失败"})
+		return
+	}
+	n, err := h.mgr.SaveLogs(req.NodeID, req.Logs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "日志写入失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "written": n})
+}

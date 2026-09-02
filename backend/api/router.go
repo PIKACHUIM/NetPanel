@@ -91,6 +91,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	fmHandler := handlers.NewFrpMasterHandler(opts.DB, opts.Log, opts.FrpMasterMgr)
 	apiV1.POST("/frpmaster/agent/heartbeat", fmHandler.Heartbeat)
 	apiV1.POST("/frpmaster/agent/status", fmHandler.ReportStatus)
+	apiV1.POST("/frpmaster/agent/logs", fmHandler.ReportLogs)
 	apiV1.GET("/frpmaster/agent/config", fmHandler.FetchConfig)
 
 	// 需要认证的路由
