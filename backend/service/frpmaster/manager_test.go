@@ -2,6 +2,7 @@ package frpmaster
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("打开内存数据库失败: %v", err)
 	}
-	if err := db.AutoMigrate(&model.FrpMasterNode{}); err != nil {
+	if err := db.AutoMigrate(&model.FrpMasterNode{}, &model.SystemLog{}); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
 	return db
@@ -173,5 +174,84 @@ func TestDelete(t *testing.T) {
 	}
 	if nodes, _ := m.List(); len(nodes) != 0 {
 		t.Fatalf("删除后应无节点，得到 %+v", nodes)
+	}
+}
+
+// TestLinesFromOnlineNodes 只有心跳在线（LastSeen 在窗口内）的节点才提供候选线路。
+func TestLinesFromOnlineNodes(t *testing.T) {
+	m := newTestMgr(t)
+
+	// 节点 A：注册后立即心跳（在线）；节点 B：从不心跳（离线）。
+	a, _, err := m.Create(CreateRequest{
+		Name: "node-a", Region: "cn-east",
+		ServerAddr: "frp-a.example.com", ServerPort: 7000,
+	})
+	if err != nil {
+		t.Fatalf("创建节点 A 失败: %v", err)
+	}
+	if _, _, err := m.Create(CreateRequest{
+		Name: "node-b", ServerAddr: "frp-b.example.com", ServerPort: 7000,
+	}); err != nil {
+		t.Fatalf("创建节点 B 失败: %v", err)
+	}
+	if err := m.Heartbeat(a.ID); err != nil {
+		t.Fatalf("节点 A 心跳失败: %v", err)
+	}
+
+	lines := m.Lines()
+	if len(lines) != 1 {
+		t.Fatalf("应只有在线节点 A 提供线路，得到 %+v", lines)
+	}
+	l := lines[0]
+	if l.ID != fmt.Sprintf("fnode:%d", a.ID) || l.Tool != "frpc-remote" ||
+		l.Address != "frp-a.example.com:7000" || l.Name != "node-a" {
+		t.Fatalf("线路内容不符: %+v", l)
+	}
+
+	// A 心跳超时后同样离线 → 不应再提供线路。
+	time.Sleep(80 * time.Millisecond)
+	if got := m.Lines(); len(got) != 0 {
+		t.Fatalf("节点全部离线后不应有候选线路，得到 %+v", got)
+	}
+}
+
+// TestSaveLogs 日志回传落 SystemLog：空行跳过、消息带节点前缀、超批截断。
+func TestSaveLogs(t *testing.T) {
+	m := newTestMgr(t)
+	db := m.db
+
+	// 空输入不落库。
+	if n, err := m.SaveLogs(1, nil); err != nil || n != 0 {
+		t.Fatalf("空输入应写 0 行, n=%d err=%v", n, err)
+	}
+
+	// 正常回传：空行跳过，其余落 SystemLog（Service=frpmaster，前缀带节点 id）。
+	n, err := m.SaveLogs(7, []string{"line1", "", "  ", "line2"})
+	if err != nil || n != 2 {
+		t.Fatalf("应写 2 行, n=%d err=%v", n, err)
+	}
+	var rows []model.SystemLog
+	if err := db.Where("service = ?", "frpmaster").Find(&rows).Error; err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("应有 2 条 SystemLog, 得到 %d", len(rows))
+	}
+	if rows[0].Message != "[节点 7] line1" || rows[1].Message != "[节点 7] line2" {
+		t.Fatalf("消息前缀不符: %+v", rows)
+	}
+
+	// 超过单批上限被截断为 maxAgentLogBatch 行。
+	bulk := make([]string, maxAgentLogBatch+50)
+	for i := range bulk {
+		bulk[i] = "x"
+	}
+	if n, err := m.SaveLogs(7, bulk); err != nil || n != maxAgentLogBatch {
+		t.Fatalf("超批应截断为 %d 行, n=%d err=%v", maxAgentLogBatch, n, err)
+	}
+	var cnt int64
+	db.Model(&model.SystemLog{}).Where("service = ?", "frpmaster").Count(&cnt)
+	if cnt != int64(2+maxAgentLogBatch) {
+		t.Fatalf("累计行数不符: %d", cnt)
 	}
 }

@@ -593,3 +593,30 @@ func TestLineHost(t *testing.T) {
 		}
 	}
 }
+
+// TestRefreshMergesRemoteLines 远程线路 provider 的线路合并进候选集合，
+// provider 不再返回时（如节点离线）自动从选线状态清理。
+func TestRefreshMergesRemoteLines(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(&fakeProber{}, 0)
+	m.SetRemoteLineProvider(func() []selector.Line {
+		return []selector.Line{
+			{ID: "fnode:1", Name: "节点A", Tool: "frpc-remote", Address: "1.2.3.4:7000"},
+		}
+	})
+	m.refresh(context.Background())
+	// 本机 6 条（frp1+nps1+et2+wg1+cftunnel1）+ 远程 1 条
+	if got := len(m.Selector().Lines()); got != 7 {
+		t.Fatalf("refresh 后应有 7 条线路（6 本机 + 1 远程）, got %d", got)
+	}
+
+	// provider 不再返回远程线路 → 全量刷新后回到 6 条（fnode:1 被清理）。
+	m.SetRemoteLineProvider(func() []selector.Line { return nil })
+	m.refresh(context.Background())
+	if got := len(m.Selector().Lines()); got != 6 {
+		t.Fatalf("移除远程线路后应回到 6 条, got %d", got)
+	}
+}
