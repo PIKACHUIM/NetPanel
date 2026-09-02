@@ -420,8 +420,10 @@ func (m *Manager) refresh(ctx context.Context) {
 }
 
 // effectiveLine 返回某服务在本次选线中的有效线路。
-// 若服务设置了 LockedLine 且该线路存在于其 LineRefs，则使用 LockedLine
-// （服务级锁线优先于全局选线）；否则使用全局选中线路 globalLineID。
+// 优先级：
+//  1. 服务级锁线（LockedLine 存在且命中 LineRefs）
+//  2. 池引用（PoolRef 非空时直接使用全局选线结果，候选池已含远程线路）
+//  3. 全局默认选线（保留现有效率，向后兼容）
 func (m *Manager) effectiveLine(svc model.TunService, globalLineID string) string {
 	if svc.LockedLine != "" {
 		var refs []string
@@ -432,6 +434,11 @@ func (m *Manager) effectiveLine(svc model.TunService, globalLineID string) strin
 				}
 			}
 		}
+	}
+	// 绑池时直接沿用全局最优线路：刷新时 SetLines 已把池内线路（含远程节点入口）
+	// 统一接入 selector，选中线路必然属于候选池；不再做 LineRefs 逐行校验。
+	if svc.PoolRef != "" {
+		return globalLineID
 	}
 	return globalLineID
 }
