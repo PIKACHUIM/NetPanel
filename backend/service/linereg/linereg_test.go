@@ -2,6 +2,7 @@ package linereg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.CftunnelConfig{},
 		&model.ProbeHistory{},
 		&model.TunService{},
+		&model.SystemLog{},
 	); err != nil {
 		t.Fatalf("迁移失败: %v", err)
 	}
@@ -591,5 +593,53 @@ func TestLineHost(t *testing.T) {
 		if got := lineHost(in); got != want {
 			t.Errorf("lineHost(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// errInjectProber 可注入故障的探测器（健康事件集成测试用）。
+type errInjectProber struct {
+	err error
+}
+
+func (p *errInjectProber) Probe(_ context.Context, line selector.Line) selector.ProbeResult {
+	if p.err != nil {
+		return selector.ProbeResult{LineID: line.ID, Err: &selector.ProbeError{Reason: p.err.Error()}}
+	}
+	return selector.ProbeResult{LineID: line.ID, TCPLatency: 10 * time.Millisecond}
+}
+
+// TestHealthEventSinkAndSystemLog 验证健康转换事件闭环：
+// selector 探测失败 → linereg observer → SystemLog 落库 + sink 外送；恢复同理。
+func TestHealthEventSinkAndSystemLog(t *testing.T) {
+	db := newTestDB(t)
+	m := NewManager(db, nil, 0)
+	m.SetFailureThreshold(1)
+
+	var sink []selector.HealthEvent
+	m.SetHealthEventSink(func(ev selector.HealthEvent) { sink = append(sink, ev) })
+
+	m.SetProber(&errInjectProber{err: errors.New("down")})
+	m.selector.SetLines([]selector.Line{{ID: "frp:1", Name: "测试线路", Tool: "frp", Address: "127.0.0.1:1"}})
+
+	// 失败一轮 → 进入不可达：1 个事件 + 1 条 warn SystemLog。
+	m.selector.ProbeAll(context.Background())
+	if len(sink) != 1 || sink[0].To != selector.HealthUnreachable {
+		t.Fatalf("进入不可达事件不符: %+v", sink)
+	}
+	var cnt int64
+	db.Model(&model.SystemLog{}).Where("service = ?", "linereg").Count(&cnt)
+	if cnt != 1 {
+		t.Fatalf("SystemLog 应有 1 条 linereg 记录, got %d", cnt)
+	}
+
+	// 恢复一轮 → healthy：事件 +1，SystemLog +1（info）。
+	m.SetProber(&errInjectProber{})
+	m.selector.ProbeAll(context.Background())
+	if len(sink) != 2 || sink[1].From != selector.HealthUnreachable || sink[1].To != selector.HealthHealthy {
+		t.Fatalf("恢复事件不符: %+v", sink)
+	}
+	db.Model(&model.SystemLog{}).Where("service = ?", "linereg").Count(&cnt)
+	if cnt != 2 {
+		t.Fatalf("SystemLog 应有 2 条 linereg 记录, got %d", cnt)
 	}
 }
