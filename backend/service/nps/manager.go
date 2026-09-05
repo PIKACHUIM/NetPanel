@@ -256,7 +256,7 @@ func (m *Manager) StartClient(id uint) error {
 	}
 	vkey := cfg.VkeyOrID
 	if vkey == "" {
-		vkey = cfg.AuthKey
+		vkey = cfg.AuthKey.String()
 	}
 	if vkey == "" {
 		return fmt.Errorf("NPS 客户端 [%s] vkey 或 auth_key 不能为空", cfg.Name)

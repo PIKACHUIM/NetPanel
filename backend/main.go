@@ -26,6 +26,7 @@ import (
 	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
+	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
@@ -181,6 +182,13 @@ func startServer() *http.Server {
 
 	// 初始化系统日志管理器，并注入全局日志写入器
 	// 必须在各服务 logger 创建之前完成，确保 DBHook 能正常写入
+	// 初始化加密模块（敏感配置 AES-256-GCM 加密存储）
+	if err := crypto.InitKey(); err != nil {
+		log.Warnf("[init] %v，敏感配置将以明文存储", err)
+	} else {
+		log.Infof("[init] 加密模块已初始化")
+	}
+
 	syslogMgr := syslog.NewManager(db, log)
 	logger.SetDBWriter(syslogMgr)
 

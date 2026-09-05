@@ -759,7 +759,7 @@ func (m *Manager) getDNSCredentials(cert *model.DomainCert) (accessID, accessSec
 	if cert.DomainAccountID > 0 {
 		var account model.DomainAccount
 		if dbErr := m.db.First(&account, cert.DomainAccountID).Error; dbErr == nil {
-			return account.AccessID, account.AccessSecret, account.Provider, nil
+			return account.AccessID, account.AccessSecret.String(), account.Provider, nil
 		}
 	}
 	return "", "", "", fmt.Errorf("未配置 DNS 账号，请关联域名账号")

@@ -358,7 +358,7 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		args = append(args, "--network-name", cfg.NetworkName)
 	}
 	if cfg.NetworkPassword != "" {
-		args = append(args, "--network-secret", cfg.NetworkPassword)
+		args = append(args, "--network-secret", cfg.NetworkPassword.String())
 	}
 
 	// 虚拟 IP（DHCP 模式与手动指定互斥）
@@ -527,7 +527,7 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		args = append(args, "--private-mode")
 	}
 	if cfg.PrivateKey != "" {
-		args = append(args, "--private-key", cfg.PrivateKey)
+		args = append(args, "--private-key", cfg.PrivateKey.String())
 	}
 	if cfg.PreSharedKey != "" {
 		args = append(args, "--pre-shared-key", cfg.PreSharedKey)
@@ -896,7 +896,7 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 		args = append(args, "--private-mode")
 	}
 	if cfg.PrivateKey != "" {
-		args = append(args, "--private-key", cfg.PrivateKey)
+		args = append(args, "--private-key", cfg.PrivateKey.String())
 	}
 	if cfg.PreSharedKey != "" {
 		args = append(args, "--pre-shared-key", cfg.PreSharedKey)

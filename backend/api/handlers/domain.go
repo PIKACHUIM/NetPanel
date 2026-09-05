@@ -67,13 +67,13 @@ func newDNSRecordProvider(acc model.DomainAccount) dnsRecordProvider {
 		// Cloudflare: AccessID = Zone ID（可选），AccessSecret = API Token
 		// 若 AuthType == api_key，则 AccessID=Email, AccessSecret=Global API Key
 		if acc.AuthType == "api_key" {
-			return &cfProvider{email: acc.Email, apiKey: acc.AccessSecret}
+			return &cfProvider{email: acc.Email, apiKey: acc.AccessSecret.String()}
 		}
-		return &cfProvider{apiToken: acc.AccessSecret, zoneID: acc.AccessID}
+		return &cfProvider{apiToken: acc.AccessSecret.String(), zoneID: acc.AccessID}
 	case "alidns", "aliyun":
-		return &aliDNSRecordProvider{accessKeyID: acc.AccessID, accessKeySecret: acc.AccessSecret}
+		return &aliDNSRecordProvider{accessKeyID: acc.AccessID, accessKeySecret: acc.AccessSecret.String()}
 	case "dnspod":
-		return &dnspodRecordProvider{secretID: acc.AccessID, secretKey: acc.AccessSecret}
+		return &dnspodRecordProvider{secretID: acc.AccessID, secretKey: acc.AccessSecret.String()}
 	default:
 		return nil
 	}
@@ -630,7 +630,7 @@ func (h *DomainAccountHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	// 如果 Secret 是掩码则保留原值
-	if strings.HasPrefix(req.AccessSecret, "****") {
+	if strings.HasPrefix(req.AccessSecret.String(), "****") {
 		req.AccessSecret = existing.AccessSecret
 	}
 	h.db.Save(&req)
@@ -659,7 +659,7 @@ func (h *DomainAccountHandler) Test(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "账号不存在"})
 		return
 	}
-	provider := ddns.NewProvider(account.Provider, account.AccessID, account.AccessSecret)
+	provider := ddns.NewProvider(account.Provider, account.AccessID, account.AccessSecret.String())
 	if provider == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": fmt.Sprintf("不支持的 DNS 服务商: %s", account.Provider)})
 		return
