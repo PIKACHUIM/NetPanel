@@ -20,35 +20,6 @@ env:
   NODE_VERSION: '24'
 
 jobs:
-  # ===== 后端：编译 + 测试 =====
-  backend:
-    name: Backend (build + test)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Verify go.mod / go.sum consistency
-        run: go mod verify
-
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./... -count=1
-
   # ===== 前端：类型检查 + 构建 =====
   frontend:
     name: Frontend (typecheck + build)
@@ -70,5 +41,44 @@ jobs:
         run: npm ci
 
       # build 脚本已包含 tsc 类型检查（"tsc && vite build"）
+      # vite.config 中 outDir: '../backend/embed/dist'，输出到仓库根目录的 backend/embed/dist/
       - name: Typecheck & Build
         run: npm run build
+
+      - name: Upload webpage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webpage-dist
+          path: ${{ github.workspace }}/backend/embed/dist/
+          retention-days: 1
+
+  # ===== 后端：编译 + 测试 =====
+  backend:
+    name: Backend (build + test)
+    runs-on: ubuntu-latest
+    needs: frontend
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download webpage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: webpage-dist
+          # download-artifact 的 path 相对于 $GITHUB_WORKSPACE（仓库根），
+          # 而 go build 的 //go:embed embed/dist 相对 backend/，需落到 backend/embed/dist/
+          path: backend/embed/dist/
+
+      - name: Verify go.mod / go.sum consistency
+        run: go mod verify
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
