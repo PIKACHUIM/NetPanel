@@ -3,8 +3,11 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,4 +28,37 @@ func parseUintParam(c *gin.Context, name string) (uint, bool) {
 		return 0, false
 	}
 	return uint(v), true
+}
+
+// diffJSON 将 before/after 转为 JSON 并做基础脱敏（替换 token/secret 类字段）。
+func diffJSON(before, after interface{}) string {
+	if before == nil && after == nil {
+		return ""
+	}
+	sanitized := func(v interface{}) string {
+		if v == nil {
+			return "{}"
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			return "{}"
+		}
+		s := string(b)
+		s = strings.NewReplacer(
+			`"token":"`, `"token":"[REDACTED]"`,
+			`"secret":"`, `"secret":"[REDACTED]"`,
+			`"password":"`, `"password":"[REDACTED]"`,
+			`"cert":"`, `"cert":"[REDACTED]"`,
+			`"key":"`, `"key":"[REDACTED]"`,
+			`"ClientSecret":"`, `"ClientSecret":"[REDACTED]"`,
+			`"PrivateKey":"`, `"PrivateKey":"[REDACTED]"`,
+		).Replace(s)
+		return s
+	}
+	beforeJSON := sanitized(before)
+	afterJSON := sanitized(after)
+	if beforeJSON == afterJSON {
+		return ""
+	}
+	return fmt.Sprintf("before=%s|after=%s", beforeJSON, afterJSON)
 }
