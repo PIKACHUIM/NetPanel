@@ -592,6 +592,23 @@ export const initApi = {
   setup: (data: { username: string; password: string }) => request.post('/v1/init/setup', data),
 }
 
+// ===== frpc 多节点 Master（M4） =====
+export const frpmasterApi = {
+  listNodes: () => request.get('/v1/frpmaster/nodes'),
+  createNode: (data: { name: string; region?: string; server_addr: string; server_port: number; frps_token?: string; remark?: string }) =>
+    request.post('/v1/frpmaster/nodes', data),
+  deleteNode: (id: number) => request.delete(`/v1/frpmaster/nodes/${id}`),
+  previewConfig: (id: number) => request.get(`/v1/frpmaster/nodes/${id}/config`),
+  agentHeartbeat: (nodeId: number, token: string) =>
+    request.post('/v1/frpmaster/agent/heartbeat', { node_id: nodeId, token }),
+  agentStatus: (nodeId: number, token: string, tunnels?: unknown) =>
+    request.post('/v1/frpmaster/agent/status', { node_id: nodeId, token, tunnels }),
+  agentConfig: (nodeId: number, token: string) =>
+    request.get(`/v1/frpmaster/agent/config?node_id=${nodeId}&token=${encodeURIComponent(token)}`),
+  agentLogs: (nodeId: number, token: string, logs: string[]) =>
+    request.post('/v1/frpmaster/agent/logs', { node_id: nodeId, token, logs }),
+}
+
 // ===== 线路探测策略（linereg） =====
 export interface ProbeConfig {
     interval_sec: number

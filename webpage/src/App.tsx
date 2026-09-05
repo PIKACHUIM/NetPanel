@@ -62,6 +62,8 @@ const MonitorTerminal = lazy(() => import('./pages/MonitorTerminal'))
 const MonitorDDNS = lazy(() => import('./pages/MonitorDDNS'))
 const MonitorNotifications = lazy(() => import('./pages/MonitorNotifications'))
 const MonitorTunnels = lazy(() => import('./pages/MonitorTunnels'))
+const FrpMasterNodes = lazy(() => import('./pages/FrpmasterNodes'))
+const Pool = lazy(() => import('./pages/Pool'))
 
 const PageLoader: React.FC = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 300 }}>
@@ -157,6 +159,8 @@ const App: React.FC = () => {
         <Route path="monitor/ddns" element={<Suspense fallback={<PageLoader />}><MonitorDDNS /></Suspense>} />
         <Route path="monitor/notifications" element={<Suspense fallback={<PageLoader />}><MonitorNotifications /></Suspense>} />
         <Route path="monitor/tunnels" element={<Suspense fallback={<PageLoader />}><MonitorTunnels /></Suspense>} />
+        <Route path="frp/master/nodes" element={<Suspense fallback={<PageLoader />}><FrpMasterNodes /></Suspense>} />
+        <Route path="frp/master/pool" element={<Suspense fallback={<PageLoader />}><Pool /></Suspense>} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

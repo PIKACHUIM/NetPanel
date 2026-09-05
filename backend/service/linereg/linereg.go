@@ -55,6 +55,9 @@ type Manager struct {
 	log      *logrus.Logger
 	interval time.Duration
 	selector *selector.Selector
+	// remoteLines 远程线路提供者（如 frpc Master 的在线节点），可为 nil。
+	// 每轮 refresh 合并其返回的线路参与自动测速选线。
+	remoteLines func() []selector.Line
 
 	// caddyUpdater 选线切换回调：把选中线路的入口同步到绑定的 Caddy 站点。
 	// 由上层注入（main.go），避免本包依赖 caddy。
@@ -179,6 +182,14 @@ func (m *Manager) Selector() *selector.Selector {
 // SetProber 透传设置探测器（测试注入 / 即时测速复用）。
 func (m *Manager) SetProber(p selector.Prober) {
 	m.selector.SetProber(p)
+}
+
+// SetRemoteLineProvider 注册远程线路提供者（可选；如 frpc Master 在线节点）。
+// refresh 每轮把 provider 返回的线路合并进候选集合参与测速选线；provider
+// 不再返回某线路时，SetLines 全量刷新会自动清理其选线状态。
+// 在 Start 前调用即可。
+func (m *Manager) SetRemoteLineProvider(fn func() []selector.Line) {
+	m.remoteLines = fn
 }
 
 // SetInterval 设置线路刷新间隔。支持运行期热更新：
@@ -386,6 +397,13 @@ func (m *Manager) run(ctx context.Context) {
 // refresh 从数据库重建线路集合，刷新 selector 并执行一轮测速选线。
 func (m *Manager) refresh(ctx context.Context) {
 	lines := BuildLines(m.db)
+	// 合并远程线路（如 frpc Master 在线节点）：provider 因节点离线不再返回时，
+	// SetLines 全量刷新会自动清理对应线路的选线状态与锁线。
+	if m.remoteLines != nil {
+		if remote := m.remoteLines(); len(remote) > 0 {
+			lines = append(lines, remote...)
+		}
+	}
 	m.selector.SetLines(lines)
 	if len(lines) == 0 {
 		return
@@ -402,8 +420,10 @@ func (m *Manager) refresh(ctx context.Context) {
 }
 
 // effectiveLine 返回某服务在本次选线中的有效线路。
-// 若服务设置了 LockedLine 且该线路存在于其 LineRefs，则使用 LockedLine
-// （服务级锁线优先于全局选线）；否则使用全局选中线路 globalLineID。
+// 优先级：
+//  1. 服务级锁线（LockedLine 存在且命中 LineRefs）
+//  2. 池引用（PoolRef 非空时直接使用全局选线结果，候选池已含远程线路）
+//  3. 全局默认选线（保留现有效率，向后兼容）
 func (m *Manager) effectiveLine(svc model.TunService, globalLineID string) string {
 	if svc.LockedLine != "" {
 		var refs []string
@@ -414,6 +434,11 @@ func (m *Manager) effectiveLine(svc model.TunService, globalLineID string) strin
 				}
 			}
 		}
+	}
+	// 绑池时直接沿用全局最优线路：刷新时 SetLines 已把池内线路（含远程节点入口）
+	// 统一接入 selector，选中线路必然属于候选池；不再做 LineRefs 逐行校验。
+	if svc.PoolRef != "" {
+		return globalLineID
 	}
 	return globalLineID
 }
