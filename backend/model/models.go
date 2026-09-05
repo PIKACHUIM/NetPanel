@@ -980,8 +980,9 @@ type AccessRule struct {
 	BindIPDBIDs string `gorm:"type:text" json:"bind_ipdb_ids"`          // JSON 数组，绑定 IP 地址库条目 ID 列表
 	BindSiteIDs string `gorm:"type:text" json:"bind_site_ids"`          // JSON 数组，绑定网站服务（CaddySite）ID 列表
 	// 用户认证策略
-	AuthMode       string `gorm:"size:20;default:''" json:"auth_mode"` // 空=不要求登录, basic_auth=Basic Auth, page_login=页面跳转登录
+	AuthMode       string `gorm:"size:20;default:''" json:"auth_mode"` // 空=不要求登录, basic_auth=Basic Auth, page_login=页面跳转, oidc=OIDC 登录
 	AllowedUserIDs string `gorm:"type:text" json:"allowed_user_ids"`   // JSON 数组，允许访问的用户 ID 列表（空数组=所有已登录用户）
+	OidcProviderID uint  `gorm:"default:0" json:"oidc_provider_id"` // OIDC 认证绑定的 Provider ID（0=不要求）
 	Remark         string `gorm:"size:500" json:"remark"`
 }
 
