@@ -1005,6 +1005,33 @@ func (m *Manager) GetClientLogs(id uint) []string {
 	return []string{}
 }
 
+// GetClientDetail 获取 EasyTier 客户端诊断信息
+func (m *Manager) GetClientDetail(id uint) (map[string]interface{}, error) {
+	var cfg model.EasytierClient
+	if err := m.db.Where("id = ?", id).First(&cfg).Error; err != nil {
+		return nil, err
+	}
+
+	peers, _ := m.GetClientPeers(id)
+	logs := m.GetClientLogs(id)
+
+	result := map[string]interface{}{
+		"id":           cfg.ID,
+		"name":         cfg.Name,
+		"status":       m.GetClientStatus(id),
+		"last_error":   cfg.LastError,
+		"server_addr":  cfg.ServerAddr,
+		"network_name": cfg.NetworkName,
+		"virtual_ip":   cfg.VirtualIP,
+		"hostname":     cfg.Hostname,
+		"listen_ports": cfg.ListenPorts,
+		"no_tun":       cfg.NoTun,
+		"peers":        peers,
+		"recent_logs":  logs,
+	}
+	return result, nil
+}
+
 // GetServerLogs 获取服务端实例的实时日志（最近 maxLogLines 行）
 func (m *Manager) GetServerLogs(id uint) []string {
 	if val, ok := m.servers.Load(id); ok {
