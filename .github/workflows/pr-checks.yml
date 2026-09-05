@@ -41,6 +41,7 @@ jobs:
         run: npm ci
 
       # build 脚本已包含 tsc 类型检查（"tsc && vite build"）
+      # vite.config 中 outDir: '../backend/embed/dist'，输出到仓库根目录的 backend/embed/dist/
       - name: Typecheck & Build
         run: npm run build
 
@@ -48,7 +49,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: webpage-dist
-          path: backend/embed/dist/
+          path: ${{ github.workspace }}/backend/embed/dist/
           retention-days: 1
 
   # ===== 后端：编译 + 测试 =====
@@ -61,13 +62,6 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: backend/go.sum
 
       - name: Download webpage artifact
         uses: actions/download-artifact@v4
