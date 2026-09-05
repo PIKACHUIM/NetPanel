@@ -67,7 +67,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: webpage-dist
-          path: embed/dist/
+          # download-artifact 的 path 相对于 $GITHUB_WORKSPACE（仓库根），
+          # 而 go build 的 //go:embed embed/dist 相对 backend/，需落到 backend/embed/dist/
+          path: backend/embed/dist/
 
       - name: Verify go.mod / go.sum consistency
         run: go mod verify
