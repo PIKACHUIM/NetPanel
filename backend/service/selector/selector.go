@@ -49,6 +49,14 @@ type ProbeResult struct {
 	HTTPLatency time.Duration
 	// Err 非空表示该线路本次不可用（超时/拒绝/握手失败）。
 	Err error
+
+	// Reachable 本轮探测节点是否可达（Err==nil 时为 true）。由 ProbeAll
+	// 刷新连续失败计数后回填，供 API/UI 区分「瞬时失败」与「持续不可达」。
+	Reachable bool
+	// ConsecutiveFailures 该线路截至本轮探测的连续失败次数（成功清零）。
+	// 达到 failureThreshold 即视为持续不可达（unreachable），会从自动选线
+	// 候选剔除，恢复成功后自动清零重新纳入。
+	ConsecutiveFailures int
 }
 
 // ProbeError 标记线路不可用，带人类可读原因。
@@ -153,6 +161,51 @@ type Selection struct {
 	Latency time.Duration
 }
 
+// HealthState 线路健康状态（由 Selector 依据连续失败计数派生，非持久）。
+type HealthState string
+
+// 健康状态取值。
+const (
+	// HealthHealthy 最近一次探测成功（连续失败计数为 0）。
+	HealthHealthy HealthState = "healthy"
+	// HealthDegraded 连续失败但未达阈值（仅当 failureThreshold>1 时出现）。
+	// 仍有 lastGood 兜底时 usable() 仍可能判定其可用。
+	HealthDegraded HealthState = "degraded"
+	// HealthUnreachable 连续失败次数达到阈值，已从自动选线候选剔除；
+	// 恢复（探测成功）后自动重新纳入。
+	HealthUnreachable HealthState = "unreachable"
+)
+
+// HealthEvent 线路健康状态转换事件：仅在跨过 unreachable 边界时产生 ——
+// 进入不可达（healthy/degraded → unreachable）或恢复（unreachable → healthy）。
+// 供上层（如 linereg）写日志、触发通知或回调。
+type HealthEvent struct {
+	LineID string
+	Tool   string
+	From   HealthState
+	To     HealthState
+	// ConsecutiveFailures 事件发生时该线路的连续失败次数。
+	ConsecutiveFailures int
+	At                  time.Time
+}
+
+// HealthObserver 健康状态转换观察者。在 ProbeAll 的调用方 goroutine 内被调用
+// （已持锁解除后），实现须快速返回；需要耗时操作请自行异步化。
+type HealthObserver func(ev HealthEvent)
+
+// stateOf 由连续失败次数派生健康状态（failureThreshold<=1 时退化为
+// healthy/unreachable 二态）。stateOf 不依赖 lastGood：线路是否「可用」由
+// usable() 判定（含兜底），健康状态只反映失败计数，两者语义分离。
+func stateOf(streak, threshold int) HealthState {
+	if streak >= threshold {
+		return HealthUnreachable
+	}
+	if streak == 0 {
+		return HealthHealthy
+	}
+	return HealthDegraded
+}
+
 // Selector 持有线路集合与选线状态，负责并发测速与自动/手动选线。
 type Selector struct {
 	mu sync.Mutex
@@ -184,6 +237,8 @@ type Selector struct {
 	lockedLine string
 	// current 当前生效线路 id。
 	current string
+	// healthObserver 健康状态转换观察者（跨过 unreachable 边界时回调）。
+	healthObserver HealthObserver
 }
 
 // NewSelector 创建选择器。tolerance<=0 时取默认 50ms；maxConcurrent<=0 时
@@ -337,6 +392,15 @@ func (s *Selector) SetProber(p Prober) {
 	s.prober = p
 }
 
+// SetHealthObserver 注册健康状态转换观察者（进入不可达 / 恢复时回调）。
+// 观察者在 ProbeAll 的调用方 goroutine 内、锁外被调用；传 nil 可取消。
+// 建议在首次 ProbeAll 前设置，避免错过早期事件。
+func (s *Selector) SetHealthObserver(fn HealthObserver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.healthObserver = fn
+}
+
 // ProbeLines 对给定线路做一次即时并发测速，不刷新内部选线状态
 // （current/锁线/探测历史均不受影响）。用于「用户手动测速」等一次性场景。
 // 复用与 ProbeAll 相同的信号量限流；返回 lineID -> ProbeResult。
@@ -360,6 +424,15 @@ func (s *Selector) ProbeLines(ctx context.Context, lines []Line) map[string]Prob
 		wg.Add(1)
 		go func(l Line) {
 			defer wg.Done()
+			// ctx 已取消时确定性返回「probe canceled」，而非与 sem 发送竞态：
+			select {
+			case <-ctx.Done():
+				mu.Lock()
+				results[l.ID] = ProbeResult{LineID: l.ID, Err: &ProbeError{Reason: "probe canceled"}}
+				mu.Unlock()
+				return
+			default:
+			}
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
@@ -418,17 +491,55 @@ func (s *Selector) ProbeAll(ctx context.Context) map[string]ProbeResult {
 	wg.Wait()
 
 	s.mu.Lock()
-	s.results = results
-	// 更新连续失败计数与最近成功结果：成功清零，失败累加（供阈值判可用）。
+	// 锁内收集健康转换事件，锁外统一派发（观察者可能在回调里反向调用
+	// Selector，持锁派发会死锁）。
+	observer := s.healthObserver
+	var events []HealthEvent
+	toolOf := make(map[string]string, len(s.lines))
+	for _, l := range s.lines {
+		toolOf[l.ID] = l.Tool
+	}
+	now := time.Now()
+	// 更新连续失败计数与最近成功结果：成功清零，失败累加（供阈值判可用）；
+	// 同时回填健康字段（Reachable / ConsecutiveFailures）到本次结果副本。
 	for id, r := range results {
+		prevStreak := s.failStreak[id]
 		if r.Err != nil {
 			s.failStreak[id]++
 		} else {
 			s.failStreak[id] = 0
 			s.lastGood[id] = r
 		}
+		curStreak := s.failStreak[id]
+
+		r.Reachable = r.Err == nil
+		r.ConsecutiveFailures = curStreak
+		results[id] = r
+
+		// 仅跨过 unreachable 边界（进入不可达 / 恢复）时产生事件，
+		// 避免 healthy↔degraded 的瞬时抖动刷屏。
+		from := stateOf(prevStreak, s.failureThreshold)
+		to := stateOf(curStreak, s.failureThreshold)
+		if (from == HealthUnreachable) != (to == HealthUnreachable) {
+			events = append(events, HealthEvent{
+				LineID:              id,
+				Tool:                toolOf[id],
+				From:                from,
+				To:                  to,
+				ConsecutiveFailures: curStreak,
+				At:                  now,
+			})
+		}
 	}
+	s.results = results
 	s.mu.Unlock()
+
+	// 锁外派发健康转换事件。
+	for _, ev := range events {
+		if observer != nil {
+			observer(ev)
+		}
+	}
 	return results
 }
 
@@ -576,6 +687,9 @@ func (s *Selector) Unlock() {
 type State struct {
 	Lines   []Line
 	Results map[string]ProbeResult
+	// Health lineID -> 健康状态（healthy/degraded/unreachable）。
+	// 尚无探测记录的线路不出现（如刚 SetLines 未首轮探测）。
+	Health  map[string]HealthState
 	Current string
 	Locked  string
 }
@@ -585,12 +699,15 @@ func (s *Selector) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	results := make(map[string]ProbeResult, len(s.results))
+	health := make(map[string]HealthState, len(s.results))
 	for k, v := range s.results {
 		results[k] = v
+		health[k] = stateOf(v.ConsecutiveFailures, s.failureThreshold)
 	}
 	return State{
 		Lines:   append([]Line(nil), s.lines...),
 		Results: results,
+		Health:  health,
 		Current: s.current,
 		Locked:  s.lockedLine,
 	}
