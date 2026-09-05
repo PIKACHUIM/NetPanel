@@ -14,6 +14,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+
+	"github.com/netpanel/netpanel/pkg/crypto"
 )
 
 // secretMask 前端展示用的掩码。使用固定长度，避免泄露原文长度信息。
@@ -69,4 +71,23 @@ func (s *Secret) Scan(src any) error {
 		return fmt.Errorf("无法将 %T 扫描为 Secret", src)
 	}
 	return nil
+}
+
+// EncryptValue 加密 Secret 为 base64 密文字符串（未初始化密钥时原样返回）
+func (s Secret) EncryptValue() (string, error) {
+	if s == "" {
+		return "", nil
+	}
+	if !crypto.IsInitialized() {
+		return string(s), nil
+	}
+	return crypto.Encrypt(string(s))
+}
+
+// DecryptValue 解密密文字符串为 Secret（解密失败时返回原值，兼容旧明文数据）
+func (s Secret) DecryptValue() Secret {
+	if s == "" {
+		return ""
+	}
+	return Secret(crypto.DecryptIfExists(string(s)))
 }

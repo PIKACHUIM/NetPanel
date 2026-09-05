@@ -216,7 +216,7 @@ func buildClientConfig(cfg *model.FrpcConfig) (*v1.ClientCommonConfig, []v1.Prox
 	if cfg.Token != "" {
 		common.Auth = v1.AuthClientConfig{
 			Method: authMethod,
-			Token:  cfg.Token,
+			Token:  cfg.Token.String(),
 		}
 	} else if cfg.AuthMethod != "" {
 		common.Auth.Method = authMethod
@@ -656,7 +656,7 @@ func buildServerConfig(cfg *model.FrpsConfig) (*v1.ServerConfig, error) {
 	if cfg.Token != "" {
 		frpCfg.Auth = v1.AuthServerConfig{
 			Method: v1.AuthMethodToken,
-			Token:  cfg.Token,
+			Token:  cfg.Token.String(),
 		}
 	}
 
