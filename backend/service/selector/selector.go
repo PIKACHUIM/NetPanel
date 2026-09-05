@@ -424,6 +424,15 @@ func (s *Selector) ProbeLines(ctx context.Context, lines []Line) map[string]Prob
 		wg.Add(1)
 		go func(l Line) {
 			defer wg.Done()
+			// ctx 已取消时确定性返回「probe canceled」，而非与 sem 发送竞态：
+			select {
+			case <-ctx.Done():
+				mu.Lock()
+				results[l.ID] = ProbeResult{LineID: l.ID, Err: &ProbeError{Reason: "probe canceled"}}
+				mu.Unlock()
+				return
+			default:
+			}
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
