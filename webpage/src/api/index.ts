@@ -360,7 +360,11 @@ export const adminApi = {
   // 日志查看
   queryLogs: (params?: any) => request.get('/v1/admin/logs', { params }),
   getLogServices: () => request.get('/v1/admin/logs/services'),
-  cleanupLogs: (days: number) => request.delete('/v1/admin/logs', { params: { days } }),
+  cleanupLogs: (days: number) => request.delete("/v1/admin/logs", { params: { days } }),
+  // 审计查询
+  queryAuditLogs: (params?: any) => request.get("/v1/admin/logs", { params }),
+  getAuditActors: () => request.get("/v1/admin/audit/actors"),
+  getAuditResourceTypes: () => request.get("/v1/admin/audit/resource-types"),
   // 用户管理
   listUsers: () => request.get('/v1/admin/users'),
   createUser: (data: any) => request.post('/v1/admin/users', data),

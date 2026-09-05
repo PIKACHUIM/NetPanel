@@ -217,6 +217,7 @@ const MainLayout: React.FC = () => {
             label: t('menu.admin'),
             children: [
                 {key: 'admin/logs', icon: <FileTextOutlined/>, label: t('menu.adminLogs')},
+                {key: 'admin/audit', icon: <CloudOutlined/>, label: t('menu.adminAudit') || '审计日志'},
                 {key: 'admin/users', icon: <TeamOutlined/>, label: t('menu.adminUsers')},
                 {key: 'admin/oauth-providers', icon: <KeyOutlined/>, label: t('menu.oauthProviders') || 'OAuth 登录'},
                 {key: 'settings', icon: <SettingOutlined/>, label: t('menu.settings')},

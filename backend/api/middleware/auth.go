@@ -174,3 +174,16 @@ func CORS() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// CurrentUserNameOrDefault 从上下文取当前用户名；缺失时回落到默认值。
+func CurrentUserNameOrDefault(c *gin.Context, fallback string) string {
+	v, exists := c.Get("username")
+	if !exists || v == nil {
+		return fallback
+	}
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return fallback
+	}
+	return s
+}

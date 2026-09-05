@@ -104,7 +104,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 
 	// 端口转发（路径与前端保持一致）
-	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr)
+	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr, opts.SyslogMgr)
 	auth.GET("/port-forward", pfHandler.List)
 	auth.POST("/port-forward", pfHandler.Create)
 	auth.PUT("/port-forward/:id", pfHandler.Update)
@@ -441,6 +441,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.GET("/admin/logs", syslogHandler.QueryLogs)
 	admin.GET("/admin/logs/services", syslogHandler.GetLogServices)
 	admin.DELETE("/admin/logs", syslogHandler.CleanupLogs)
+	admin.GET("/admin/audit/actors", syslogHandler.GetAuditActors)
+	admin.GET("/admin/audit/resource-types", syslogHandler.GetAuditResourceTypes)
 
 	// 用户管理
 	userHandler := handlers.NewUserHandler(opts.DB, opts.Log)
