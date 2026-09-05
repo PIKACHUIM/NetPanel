@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 )
 
@@ -1116,6 +1117,50 @@ type SystemLog struct {
 	LogTime time.Time `gorm:"index" json:"log_time"`
 }
 
+// ===== 角色常量 =====
+
+const (
+	RoleAdmin    = "admin"
+	RoleEditor   = "editor"
+	RoleViewer   = "viewer"
+)
+
+var validRoles = map[string]struct{}{
+	RoleAdmin: {},
+	RoleEditor: {},
+	RoleViewer: {},
+}
+
+// IsValidRole 校验单个角色值是否合法。
+func IsValidRole(role string) bool {
+	_, ok := validRoles[role]
+	return ok
+}
+
+// ParseRoles 解析逗号分隔的角色字符串，返回去重且顺序固定的合法子集。
+func ParseRoles(raw string) string {
+	seen := make(map[string]struct{}, 3)
+	var out []string
+	for _, r := range strings.Split(raw, ",") {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		if _, ok := validRoles[r]; !ok {
+			continue
+		}
+		if _, dup := seen[r]; dup {
+			continue
+		}
+		seen[r] = struct{}{}
+		out = append(out, r)
+	}
+	if len(out) == 0 {
+		return RoleViewer
+	}
+	return strings.Join(out, ",")
+}
+
 // ===== 用户管理 =====
 
 // User 用户表
@@ -1125,10 +1170,29 @@ type User struct {
 	Password      string `gorm:"size:255" json:"-"` // bcrypt hash，不序列化到 JSON（OAuth 用户可为空）
 	Email         string `gorm:"size:255" json:"email"`
 	Enable        bool   `gorm:"default:true" json:"enable"`
-	IsAdmin       bool   `gorm:"default:false" json:"is_admin"`
+	IsAdmin       bool   `gorm:"default:false" json:"is_admin"`             // 兼容旧字段；已迁移至 Roles
+	Roles         string `gorm:"size:20;not null;default:'viewer'" json:"roles"` // 逗号分隔角色列表，如 "admin,editor"
 	OAuthProvider string `gorm:"size:100" json:"oauth_provider"` // OAuth 来源标记（provider name），空表示本地用户
 	OAuthSub      string `gorm:"size:255" json:"oauth_sub"`      // OAuth 用户唯一标识（sub claim）
 	Remark        string `gorm:"size:500" json:"remark"`
+}
+
+// HasRole 返回用户是否拥有指定角色。
+func (u User) HasRole(role string) bool {
+	if role == "" || u.Roles == "" {
+		return false
+	}
+	for _, r := range strings.Split(u.Roles, ",") {
+		if strings.TrimSpace(r) == role {
+			return true
+		}
+	}
+	return false
+}
+
+// IsAdminLegacy 兼容旧语义：roles 中包含 admin 或旧字段 is_admin 保留为 true。
+func (u User) IsAdminLegacy() bool {
+	return u.IsAdmin || u.HasRole(RoleAdmin)
 }
 
 // ===== OAuth2/OIDC 第三方登录 =====

@@ -58,6 +58,7 @@ export function getAnimeThemeBg(theme: ThemeMode): string | null {
 interface AppState {
   token: string | null
   username: string | null
+  roles: string
   language: 'zh' | 'en'
   // 新主题系统：UI 模式 + 壁纸 独立选择
   uiMode: UIMode
@@ -67,6 +68,7 @@ interface AppState {
   collapsed: boolean
   setToken: (token: string | null) => void
   setUsername: (username: string | null) => void
+  setRoles: (roles: string) => void
   setLanguage: (lang: 'zh' | 'en') => void
   setUIMode: (mode: UIMode) => void
   setWallpaper: (wp: WallpaperKey) => void
@@ -80,6 +82,7 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       token: null,
       username: null,
+      roles: '',
       language: 'zh',
       uiMode: 'dark',
       wallpaper: 'none',
@@ -87,6 +90,7 @@ export const useAppStore = create<AppState>()(
       collapsed: false,
       setToken: (token) => set({ token }),
       setUsername: (username) => set({ username }),
+      setRoles: (roles) => set({ roles }),
       setLanguage: (language) => set({ language }),
       setUIMode: (uiMode) => set({ uiMode, theme: uiMode }),
       setWallpaper: (wallpaper) => set((state) => ({
@@ -107,7 +111,7 @@ export const useAppStore = create<AppState>()(
         }
       },
       setCollapsed: (collapsed) => set({ collapsed }),
-      logout: () => set({ token: null, username: null }),
+      logout: () => set({ token: null, username: null, roles: '' }),
     }),
     {
       name: 'netpanel-store',

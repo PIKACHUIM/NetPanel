@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -107,6 +108,7 @@ type userResponse struct {
 	Email     string    `json:"email"`
 	Enable    bool      `json:"enable"`
 	IsAdmin   bool      `json:"is_admin"`
+	Roles     string    `json:"roles"`
 	Remark    string    `json:"remark"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -118,7 +120,8 @@ func toUserResponse(u model.User) userResponse {
 		Username:  u.Username,
 		Email:     u.Email,
 		Enable:    u.Enable,
-		IsAdmin:   u.IsAdmin,
+		IsAdmin:   u.IsAdminLegacy(),
+		Roles:     u.Roles,
 		Remark:    u.Remark,
 		CreatedAt: u.CreatedAt,
 		UpdatedAt: u.UpdatedAt,
@@ -145,35 +148,37 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		Password string `json:"password" binding:"required,min=6"`
 		Email    string `json:"email"`
 		Enable   bool   `json:"enable"`
-		IsAdmin  bool   `json:"is_admin"`
+		Roles    string `json:"roles"`
 		Remark   string `json:"remark"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
 		return
 	}
-
-	// 检查用户名是否已存在
+	if req.Roles == "" {
+		req.Roles = model.RoleViewer
+	}
+	if !model.IsValidRole(req.Roles) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "角色不合法"})
+		return
+	}
 	var count int64
 	h.db.Model(&model.User{}).Where("username = ?", req.Username).Count(&count)
 	if count > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名已存在"})
 		return
 	}
-
-	// 加密密码
 	hashed, err := utils.HashPassword(req.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码加密失败"})
 		return
 	}
-
 	user := model.User{
 		Username: req.Username,
 		Password: hashed,
 		Email:    req.Email,
 		Enable:   req.Enable,
-		IsAdmin:  req.IsAdmin,
+		Roles:    req.Roles,
 		Remark:   req.Remark,
 	}
 	if err := h.db.Create(&user).Error; err != nil {
@@ -200,11 +205,18 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		Password string `json:"password"` // 为空则不修改
 		Email    string `json:"email"`
 		Enable   *bool  `json:"enable"`
-		IsAdmin  *bool  `json:"is_admin"`
+		Roles    string `json:"roles"`
 		Remark   string `json:"remark"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+	if req.Roles == "" {
+		req.Roles = model.RoleViewer
+	}
+	if !model.IsValidRole(req.Roles) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "角色不合法"})
 		return
 	}
 
@@ -240,16 +252,19 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	// 当前操作者不能取消自己的管理员权限（防止误操作后无人可管理）。
 	// 按用户 ID 比较：本接口支持改名，用户名已不是稳定标识。
-	if currentUserID != 0 && currentUserID == user.ID && req.IsAdmin != nil && !*req.IsAdmin {
+	if currentUserID != 0 && currentUserID == user.ID &&
+		strings.Contains(req.Roles, model.RoleAdmin) && !user.HasRole(model.RoleAdmin) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "不能取消自己的管理员权限"})
 		return
 	}
 
-	// 修改管理员权限需要管理员身份。
-	// 路由层 AdminOnly 已做拦截，此处为纵深防御（防止后续路由调整时失守）。
-	if req.IsAdmin != nil && !middleware.IsCurrentUserAdmin(c) {
-		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "只有管理员可以修改管理员权限"})
+	// 非管理员操作者不能修改角色
+	if !middleware.IsCurrentUserAdmin(c) && req.Roles != user.Roles {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "只有管理员可以修改角色"})
 		return
+	}
+	if req.Roles != user.Roles {
+		updates["roles"] = req.Roles
 	}
 	if req.Enable != nil {
 		// admin 用户不允许被禁用
@@ -258,9 +273,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 		updates["enable"] = *req.Enable
-	}
-	if req.IsAdmin != nil {
-		updates["is_admin"] = *req.IsAdmin
 	}
 	if req.Password != "" {
 		if len(req.Password) < 6 {
@@ -313,9 +325,9 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	}
 
 	// 最后一名启用管理员不允许删除
-	if user.IsAdmin && user.Enable {
+	if user.IsAdminLegacy() && user.Enable {
 		var adminCount int64
-		h.db.Model(&model.User{}).Where("is_admin = ? AND enable = ?", true, true).Count(&adminCount)
+		h.db.Model(&model.User{}).Where("roles LIKE ? AND enable = ?", "%admin%", true).Count(&adminCount)
 		if adminCount <= 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "系统必须保留至少一名启用的管理员，不能删除最后一名管理员"})
 			return
