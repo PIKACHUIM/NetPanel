@@ -1543,3 +1543,12 @@ type MonitorTunnelBinding struct {
 }
 
 // Secret 敏感字符串类型：自动 AES-256-GCM 加密存储
+
+// CACert CA 证书存储
+type CACert struct {
+	BaseModel
+	CACertPEM  string `gorm:"type:text;not null" json:"ca_cert_pem"`  // CA 证书 PEM
+	CAKeyPEM   string `gorm:"type:text;not null" json:"-"`            // CA 私钥 PEM（不序列化）
+	ExpiresAt  time.Time `json:"expires_at"`                          // 过期时间
+	Status     string  `gorm:"size:20;default:'active'" json:"status"` // active/expired/revoked
+}
