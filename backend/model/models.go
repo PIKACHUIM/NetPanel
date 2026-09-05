@@ -1110,10 +1110,17 @@ type CallbackTask struct {
 // SystemLog 系统日志记录
 type SystemLog struct {
 	ID      uint      `gorm:"primarykey" json:"id"`
-	Level   string    `gorm:"size:20;index" json:"level"`   // info/warn/error/debug
-	Service string    `gorm:"size:50;index" json:"service"` // system/frp/nps/easytier/ddns/caddy/portforward/stun/dnsmasq/storage/cron/waf/firewall/access/cert/callback
+	Level   string    `gorm:"size:20;index" json:"level"`   // info/warn/error/debug/audit
+	Service string    `gorm:"size:50;index" json:"service"` // system/frp/nps/easytier/ddns/caddy/portforward/stun/dnsmasq/storage/cron/waf/firewall/access/cert/callback/audit
 	Message string    `gorm:"type:text" json:"message"`
 	LogTime time.Time `gorm:"index" json:"log_time"`
+
+	// 审计扩展字段（Level=audit 时有效）
+	Actor       string `gorm:"size:100;index" json:"actor"`         // 操作者用户名
+	ActionType  string `gorm:"size:20;index" json:"action_type"`    // CREATE/UPDATE/DELETE/ENABLE/DISABLE
+	ResourceType string `gorm:"size:50;index" json:"resource_type"` // frp_proxy/caddy_site/easytier_client/...
+	ResourceID  uint   `gorm:"index" json:"resource_id"`           // 资源记录 ID
+	Diff        string `gorm:"type:text" json:"diff"`              // before/after JSON diff（脱敏后）
 }
 
 // ===== 用户管理 =====
