@@ -1846,12 +1846,17 @@ func (h *AccessHandler) List(c *gin.Context) {
 	var users []model.User
 	h.db.Select("id, username, email, enable, is_admin, remark").Order("id asc").Find(&users)
 
+	// 查询所有 OIDC Provider，供认证配置选择
+	var providers []model.OAuthProviderConfig
+	h.db.Select("id, name, type, icon").Where("enable = ?", true).Order("display_order ASC").Find(&providers)
+
 	c.JSON(http.StatusOK, gin.H{
 		"code":         200,
 		"data":         rules,
 		"ipdb_entries": ipdbEntries,
 		"caddy_sites":  caddySites,
 		"users":        users,
+		"providers":    providers,
 	})
 }
 
