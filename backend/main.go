@@ -326,7 +326,7 @@ func startServer() *http.Server {
 		DnsmasqMgr:     dnsmasqMgr,
 		WolMgr:         wolMgr,
 		CertMgr:        certMgr,
-		CallbackMgr:    callbackMgr,
+		CallbackMgr:     callbackMgr,
 		SyslogMgr:      syslogMgr,
 		AiMgr:          aiMgr,
 	})
