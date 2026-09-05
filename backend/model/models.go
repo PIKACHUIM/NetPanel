@@ -118,7 +118,7 @@ type FrpcConfig struct {
 	ServerPort int    `gorm:"default:7000" json:"server_port"`
 	// 认证方式：token/oidc，默认 token
 	AuthMethod string `gorm:"size:20;default:'token'" json:"auth_method"`
-	Token      string `gorm:"size:255" json:"token"`
+	Token      Secret `gorm:"size:255" json:"token"`
 	// 传输协议：tcp/kcp/quic/websocket/wss
 	TransportProtocol string `gorm:"size:20;default:'tcp'" json:"transport_protocol"`
 	// KCP 连接端口（使用 KCP 协议时指定，0 表示与 ServerPort 相同）
@@ -241,7 +241,7 @@ type FrpsConfig struct {
 	// 自定义 404 错误页面地址
 	Custom404Page string `gorm:"size:500" json:"custom_404_page"`
 	// 认证 Token
-	Token string `gorm:"size:255" json:"token"`
+	Token      Secret `gorm:"size:255" json:"token"`
 	// Dashboard（WebServer）配置
 	DashboardAddr     string `gorm:"size:100" json:"dashboard_addr"`
 	DashboardPort     int    `json:"dashboard_port"`
@@ -314,7 +314,7 @@ type NpsClientConfig struct {
 	ServerAddr string `gorm:"size:255;not null" json:"server_addr"`   // NPS 服务器地址
 	ServerPort int    `gorm:"default:8024" json:"server_port"`        // NPS 服务器桥接端口
 	ConnType   string `gorm:"size:20;default:'tcp'" json:"conn_type"` // 连接类型: tcp/tls/kcp/quic/ws/wss
-	AuthKey    string `gorm:"size:255" json:"auth_key"`               // 连接认证密钥
+	AuthKey    Secret `gorm:"size:255" json:"auth_key"`               // 连接认证密钥
 	VkeyOrID   string `gorm:"size:255" json:"vkey_or_id"`             // 客户端唯一标识/vkey
 	LogLevel   string `gorm:"size:20;default:'info'" json:"log_level"`
 	Status     string `gorm:"size:20;default:'stopped'" json:"status"`
@@ -348,7 +348,7 @@ type EasytierClient struct {
 	Enable          bool   `gorm:"default:false" json:"enable"`
 	ServerAddr      string `gorm:"size:500" json:"server_addr"` // 支持多个，逗号分隔，格式：tcp://ip:port
 	NetworkName     string `gorm:"size:255" json:"network_name"`
-	NetworkPassword string `gorm:"size:255" json:"network_password"`
+	NetworkPassword Secret `gorm:"size:255" json:"network_password"`
 	VirtualIP       string `gorm:"size:50" json:"virtual_ip"`     // 留空自动分配，格式：10.0.0.1/24
 	IPv6            string `gorm:"size:100" json:"ipv6"`          // --ipv6：IPv6 地址，可与 IPv4 同时使用
 	Hostname        string `gorm:"size:255" json:"hostname"`      // --hostname：自定义节点主机名
@@ -405,7 +405,7 @@ type EasytierClient struct {
 	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"` // --disable-encryption：禁用加密（不推荐）
 	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`     // --encryption-algorithm：加密算法
 	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`       // --private-mode：私有模式（仅允许已知节点）
-	PrivateKey          string `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
+	PrivateKey          Secret `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
 	PublicKey           string `gorm:"size:500" json:"public_key"`              // 节点公钥（由私钥派生，仅展示用）
 	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码）
 
@@ -479,7 +479,7 @@ type EasytierServer struct {
 	// 监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
 	ListenPorts     string `gorm:"size:500" json:"listen_ports"`
 	NetworkName     string `gorm:"size:255" json:"network_name"`
-	NetworkPassword string `gorm:"size:255" json:"network_password"`
+	NetworkPassword Secret `gorm:"size:255" json:"network_password"`
 	Hostname        string `gorm:"size:255" json:"hostname"`      // --hostname：自定义节点主机名
 	InstanceName    string `gorm:"size:255" json:"instance_name"` // --instance-name：实例名称，同机多节点时区分
 
@@ -506,7 +506,7 @@ type EasytierServer struct {
 	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"` // --disable-encryption
 	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`     // --encryption-algorithm：加密算法
 	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`       // --private-mode：私有模式
-	PrivateKey          string `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
+	PrivateKey          Secret `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
 	PublicKey           string `gorm:"size:500" json:"public_key"`              // 节点公钥（由私钥派生，仅展示用）
 	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码）
 
@@ -637,7 +637,7 @@ type DDNSTask struct {
 	Provider        string     `gorm:"size:50;not null" json:"provider"`        // alidns/cloudflare/dnspod/...
 	DomainAccountID uint       `json:"domain_account_id"`                       // 关联域名账号（可选）
 	AccessID        string     `gorm:"size:255" json:"access_id"`
-	AccessSecret    string     `gorm:"size:500" json:"access_secret"`
+	AccessSecret    Secret `gorm:"size:500" json:"access_secret"`
 	Domains         string     `gorm:"type:text" json:"domains"`                 // JSON 数组
 	IPGetType       string     `gorm:"size:20;default:'url'" json:"ip_get_type"` // url/interface/custom
 	IPGetURLs       string     `gorm:"type:text" json:"ip_get_urls"`             // JSON 数组
@@ -746,7 +746,7 @@ type DomainAccount struct {
 	// 认证方式：api_key（API密钥，需要ID+Secret）/ api_token（API令牌，只需Token）
 	AuthType     string `gorm:"size:20;default:'api_key'" json:"auth_type"`
 	AccessID     string `gorm:"size:255" json:"access_id"`
-	AccessSecret string `gorm:"size:500" json:"access_secret"`
+	AccessSecret Secret `gorm:"size:500" json:"access_secret"`
 	// 是否使用代理服务器
 	UseProxy bool   `gorm:"default:false" json:"use_proxy"`
 	Remark   string `gorm:"size:500" json:"remark"`
@@ -1535,3 +1535,5 @@ type MonitorTunnelBinding struct {
 	TunnelStatus string `gorm:"size:20;default:'unknown'" json:"tunnel_status"` // 隧道状态：connected/disconnected/unknown
 	Remark       string `gorm:"size:500" json:"remark"`
 }
+
+// Secret 敏感字符串类型：自动 AES-256-GCM 加密存储
