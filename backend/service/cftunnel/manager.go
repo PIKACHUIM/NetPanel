@@ -24,6 +24,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/service/cert/ca"
 )
 
 const (
@@ -96,6 +97,7 @@ type Manager struct {
 	db       *gorm.DB
 	log      *logrus.Logger
 	dataDir  string
+	caSigner *ca.Signer
 	tunnels  sync.Map // map[uint]*processEntry
 	stopping bool
 	mu       sync.Mutex
@@ -575,4 +577,9 @@ func (m *Manager) resolveCredentialsFile(raw string) (string, error) {
 		return "", fmt.Errorf("凭据文件不存在或不是文件: %s", abs)
 	}
 	return abs, nil
+}
+
+// CASigner 返回 CA 签发器（用于 enrollment）
+func (m *Manager) CASigner() *ca.Signer {
+	return m.caSigner
 }
