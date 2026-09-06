@@ -123,6 +123,12 @@ cd netpanel-linux-amd64
 .\netpanel.exe
 ```
 
+> 🇨🇳 **国内下载慢？** 安装脚本支持自动回退到国内镜像，也可手动指定：
+> ```bash
+> # 使用 ghproxy 加速
+> NETPANEL_MIRROR=ghproxy curl -fsSL https://raw.githubusercontent.com/.../install.sh | sudo bash
+> ```
+
 默认监听 `8080` 端口，打开浏览器访问 `http://localhost:8080` 即可。
 
 **常用参数：**
@@ -138,28 +144,59 @@ cd netpanel-linux-amd64
 
 ### 方式二：Docker 部署
 
-```bash
-# 使用 docker-compose
-docker-compose up -d
+提供两种配置，按需选择：
 
-# 或直接运行
+```bash
+# 🟢 最小化部署（仅 Web 面板，无需额外权限）
+# 适用：端口转发、DDNS、反向代理等基础功能
+docker compose -f docker-compose.minimal.yml up -d
+
+# 🔵 完整部署（含 TUN/组网能力）
+# 适用：需要 EasyTier/WireGuard/Mesh 等网络功能
+docker compose -f docker-compose.full.yml up -d
+```
+
+<details>
+<summary>手动运行 docker run</summary>
+
+```bash
+# 最小化
 docker run -d \
   --name netpanel \
   -p 8080:8080 \
   -v ./data:/app/data \
   --restart unless-stopped \
-  netpanel:latest
+  ghcr.io/netpanel/netpanel:latest
+
+# 完整（含 TUN）
+docker run -d \
+  --name netpanel \
+  -p 8080:8080 \
+  -v ./data:/app/data \
+  --cap-add NET_ADMIN --cap-add SYS_MODULE \
+  --device /dev/net/tun:/dev/net/tun \
+  --sysctl net.ipv4.ip_forward=1 \
+  --sysctl net.ipv6.conf.all.forwarding=1 \
+  --restart unless-stopped \
+  ghcr.io/netpanel/netpanel:latest
 ```
+
+</details>
 
 ### 方式三：安装为系统服务
 
 ```bash
-# Linux（使用安装脚本）
-curl -fsSL https://raw.githubusercontent.com/your-username/netpanel/main/scripts/install.sh | bash
+# Linux（使用安装脚本，自动注册 systemd 服务）
+curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.sh | sudo bash
 
-# Windows（使用 PowerShell 脚本）
+# Windows（使用 PowerShell 脚本，需管理员权限）
 .\scripts\install.ps1
 ```
+
+> 🇨🇳 **国内下载慢？** 安装脚本自动回退到 ghproxy 镜像，也可手动指定：
+> ```bash
+> NETPANEL_MIRROR=ghproxy curl -fsSL .../install.sh | sudo bash
+> ```
 
 ### 方式四：从源码构建
 

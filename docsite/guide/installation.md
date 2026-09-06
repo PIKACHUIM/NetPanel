@@ -14,7 +14,7 @@
 
 ## 方式一：直接下载运行（推荐）
 
-从 [GitHub Releases](https://github.com/netpanel/netpanel/releases) 页面下载对应平台的压缩包。
+从 [GitHub Releases](https://github.com/PIKACHUIM/NetPanel/releases) 页面下载对应平台的压缩包。
 
 ### 下载包说明
 
@@ -31,7 +31,7 @@
 
 ```bash
 # 下载（以 Linux amd64 为例）
-wget https://github.com/netpanel/netpanel/releases/latest/download/netpanel-linux-amd64.tar.gz
+wget https://github.com/PIKACHUIM/NetPanel/releases/latest/download/netpanel-linux-amd64.tar.gz
 
 # 解压
 tar -xzf netpanel-linux-amd64.tar.gz
@@ -58,10 +58,10 @@ cd netpanel-linux-amd64
 
 ```bash
 # 使用 curl（推荐）
-curl -fsSL https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.sh | sudo bash
 
 # 或使用 wget
-wget -qO- https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.sh | sudo bash
 ```
 
 ::: tip 需要 root 权限
@@ -76,10 +76,22 @@ bash install.sh [选项]
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--version <ver>` | `latest` | 指定版本，如 `v0.1.0` |
+| `--version <ver>` | `latest` | 指定版本，如 `v1.0.0` |
 | `--port <port>` | `8080` | 监听端口 |
 | `--dir <path>` | `/opt/netpanel` | 安装目录 |
 | `--no-service` | — | 不注册 systemd 服务 |
+
+### 国内镜像加速
+
+安装脚本自动检测网络并回退到国内镜像（ghproxy / fastgit），也可手动指定：
+
+```bash
+# 强制使用 ghproxy 加速
+NETPANEL_MIRROR=ghproxy curl -fsSL https://raw.githubusercontent.com/.../install.sh | sudo bash
+
+# 仅直连 GitHub（不使用镜像）
+NETPANEL_MIRROR=direct curl -fsSL .../install.sh | sudo bash
+```
 
 ### 服务管理
 
@@ -110,29 +122,66 @@ journalctl -u netpanel -f
 
 ```powershell
 # 以管理员身份运行 PowerShell，执行：
-irm https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.ps1 | iex
 ```
 
 或下载脚本后本地运行：
 
 ```powershell
 # 下载脚本
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.ps1" -OutFile "install.ps1"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.ps1" -OutFile "install.ps1"
 
 # 运行（以管理员身份）
 .\install.ps1 -Port 8080
+```
+
+### 国内镜像加速
+
+```powershell
+# 指定镜像源
+$env:NETPANEL_MIRROR = "ghproxy"
+.\install.ps1
 ```
 
 ---
 
 ## 方式四：Docker 部署
 
-### 使用 docker run
+### 最小化部署（推荐新手）
+
+仅需 Web 面板和基础功能（端口转发、DDNS、反向代理等），无需额外权限：
+
+```bash
+# 使用 docker-compose（推荐）
+curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/docker-compose.minimal.yml -o docker-compose.yml
+docker compose up -d
+```
+
+或手动运行：
 
 ```bash
 docker run -d \
   --name netpanel \
+  -p 8080:8080 \
+  -v ./data:/app/data \
   --restart unless-stopped \
+  ghcr.io/netpanel/netpanel:latest
+```
+
+### 完整部署（含组网能力）
+
+需要 EasyTier 异地组网、WireGuard VPN、Mesh 节点等 TUN 网络功能：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/docker-compose.full.yml -o docker-compose.yml
+docker compose up -d
+```
+
+或手动运行：
+
+```bash
+docker run -d \
+  --name netpanel \
   -p 8080:8080 \
   -v ./data:/app/data \
   --cap-add NET_ADMIN \
@@ -144,25 +193,9 @@ docker run -d \
   ghcr.io/netpanel/netpanel:latest
 ```
 
-### 使用 docker-compose（推荐）
-
-创建 `docker-compose.yml` 文件：
-
-```yaml
-services:
-  netpanel:
-    image: ghcr.io/netpanel/netpanel:latest
-    container_name: netpanel
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - TZ=Asia/Shanghai
-    # EasyTier / TUN 设备需要特权模式或 NET_ADMIN 能力
-    cap_add:
-      - NET_ADMIN
+::: warning 关于 Docker 网络功能
+EasyTier 异地组网和部分网络功能需要 `NET_ADMIN` 权限和 TUN 设备支持。如果不使用这些功能，可以使用最小化部署，无需额外权限。
+:::
       - SYS_MODULE
     devices:
       - /dev/net/tun:/dev/net/tun
@@ -189,7 +222,7 @@ EasyTier 异地组网和部分网络功能需要 `NET_ADMIN` 权限和 TUN 设�
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/netpanel/netpanel.git
+git clone https://github.com/PIKACHUIM/NetPanel.git
 cd netpanel
 
 # 2. 构建前端

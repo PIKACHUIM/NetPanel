@@ -32,10 +32,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ─── 配置 ─────────────────────────────────────────────────────────────────────
-$Repo        = "YOUR_ORG/netpanel"
+$Repo        = "PIKACHUIM/NetPanel"
 $ServiceName = "NetPanel"
 $BinaryName  = "netpanel.exe"
 $LogDir      = "$DataDir\logs"
+
+# ─── 镜像源配置 ───────────────────────────────────────────────────────────────
+# 通过环境变量 NETPANEL_MIRROR 指定镜像源（默认 auto：先直连再回退镜像）
+$Mirror = $env:NETPANEL_MIRROR
+if (-not $Mirror) { $Mirror = "auto" }
+$MirrorUrls = @("https://ghproxy.com", "https://hub.fastgit.xyz")
 
 # ─── 颜色输出 ─────────────────────────────────────────────────────────────────
 function Write-Info    { param($msg) Write-Host "[INFO]  $msg" -ForegroundColor Cyan }
@@ -71,34 +77,59 @@ function Get-LatestVersion {
 }
 
 # ─── 下载二进制 ───────────────────────────────────────────────────────────────
+function Try-Download {
+    param([string]$Url, [string]$Output)
+    try {
+        $wc = New-Object System.Net.WebClient
+        $wc.DownloadFile($Url, $Output)
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Download-Binary {
     param([string]$Ver, [string]$Arch)
 
-    $url     = "https://github.com/$Repo/releases/download/$Ver/netpanel-windows-$Arch.exe"
-    $tmpFile = Join-Path $env:TEMP "netpanel-install.exe"
+    $githubBase = "https://github.com/$Repo/releases/download/$Ver"
+    $tmpFile    = Join-Path $env:TEMP "netpanel-install.exe"
 
     Write-Info "下载 NetPanel $Ver (windows/$Arch)..."
-    Write-Info "URL: $url"
 
-    try {
-        $wc = New-Object System.Net.WebClient
-        $wc.DownloadFile($url, $tmpFile)
-    } catch {
-        # 尝试 zip 格式
-        $zipUrl  = "https://github.com/$Repo/releases/download/$Ver/netpanel-windows-$Arch.zip"
-        $zipFile = Join-Path $env:TEMP "netpanel-install.zip"
-        Write-Warn "直接下载失败，尝试 zip 格式: $zipUrl"
-        try {
-            $wc.DownloadFile($zipUrl, $zipFile)
-            Expand-Archive -Path $zipFile -DestinationPath $env:TEMP -Force
-            $tmpFile = Join-Path $env:TEMP "netpanel.exe"
-            Remove-Item $zipFile -Force -ErrorAction SilentlyContinue
-        } catch {
-            Write-Fail "下载失败: $_"
+    # 构建下载源列表
+    $prefixes = @()
+    if ($Mirror -eq "ghproxy") {
+        $prefixes = @("https://ghproxy.com/")
+    } elseif ($Mirror -eq "fastgit") {
+        $prefixes = @("https://hub.fastgit.xyz/")
+    } elseif ($Mirror -ne "direct") {
+        $prefixes = @("", "https://ghproxy.com/", "https://hub.fastgit.xyz/")
+    }
+
+    foreach ($prefix in $prefixes) {
+        $url = "${prefix}${githubBase}/netpanel-windows-${Arch}.exe"
+        if ($prefix) { Write-Info "尝试镜像源: $url" }
+        if (Try-Download $url $tmpFile) {
+            return $tmpFile
         }
     }
 
-    return $tmpFile
+    # 尝试 zip 格式
+    foreach ($prefix in $prefixes) {
+        $zipUrl = "${prefix}${githubBase}/netpanel-windows-${Arch}.zip"
+        if ($prefix) { Write-Info "尝试镜像源: $zipUrl" }
+        $zipFile = Join-Path $env:TEMP "netpanel-install.zip"
+        if (Try-Download $zipUrl $zipFile) {
+            try {
+                Expand-Archive -Path $zipFile -DestinationPath $env:TEMP -Force
+                $tmpFile = Join-Path $env:TEMP "netpanel.exe"
+                Remove-Item $zipFile -Force -ErrorAction SilentlyContinue
+                return $tmpFile
+            } catch { }
+        }
+    }
+
+    Write-Fail "下载失败，请检查网络连接。可尝试设置镜像源:`n  `$env:NETPANEL_MIRROR='ghproxy'; .\install.ps1"
 }
 
 # ─── 安装二进制 ───────────────────────────────────────────────────────────────
