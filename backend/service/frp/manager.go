@@ -159,6 +159,92 @@ func (m *Manager) GetClientStatus(id uint) string {
 	return "stopped"
 }
 
+// ClientDetail 客户端详细诊断信息
+type ClientDetail struct {
+	ID         uint     `json:"id"`
+	Name       string   `json:"name"`
+	Status     string   `json:"status"`
+	LastError  string   `json:"last_error"`
+	ServerAddr string   `json:"server_addr"`
+	ServerPort int      `json:"server_port"`
+	Proxies    []ProxyInfo `json:"proxies"`
+	RecentLogs []string `json:"recent_logs"`
+}
+
+// ProxyInfo 代理信息
+type ProxyInfo struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Enable    bool   `json:"enable"`
+	LocalAddr string `json:"local_addr"`
+	RemoteAddr string `json:"remote_addr"`
+	Status    string `json:"status"`
+}
+
+// GetClientDetail 获取客户端完整诊断信息（用于 AI 诊断）
+func (m *Manager) GetClientDetail(id uint) (*ClientDetail, error) {
+	var cfg model.FrpcConfig
+	if err := m.db.Where("id = ?", id).Preload("Proxies").First(&cfg).Error; err != nil {
+		return nil, err
+	}
+
+	detail := &ClientDetail{
+		ID:         cfg.ID,
+		Name:       cfg.Name,
+		Status:     m.GetClientStatus(id),
+		LastError:  cfg.LastError,
+		ServerAddr: cfg.ServerAddr,
+		ServerPort: cfg.ServerPort,
+		Proxies:    make([]ProxyInfo, 0, len(cfg.Proxies)),
+	}
+
+	for _, p := range cfg.Proxies {
+		proxyAddr := ""
+		if p.Type == "tcp" || p.Type == "udp" {
+			proxyAddr = fmt.Sprintf(":%d", p.RemotePort)
+		} else if p.Type == "http" || p.Type == "https" {
+			proxyAddr = cfg.ServerAddr
+			// HTTP/HTTPS 端口从服务端配置获取，这里简化处理
+		}
+		detail.Proxies = append(detail.Proxies, ProxyInfo{
+			Name:       p.Name,
+			Type:       p.Type,
+			Enable:     p.Enable,
+			LocalAddr:  fmt.Sprintf("%s:%d", p.LocalIP, p.LocalPort),
+			RemoteAddr: proxyAddr,
+			Status:     "unknown",
+		})
+	}
+
+	// 从系统日志表获取最近日志
+	var logs []model.SystemLog
+	m.db.Where("service = 'frp' AND message LIKE ?", "%"+cfg.Name+"%").
+		Order("log_time DESC").Limit(50).Find(&logs)
+	for _, l := range logs {
+		detail.RecentLogs = append(detail.RecentLogs, fmt.Sprintf("[%s] %s", l.Level, l.Message))
+	}
+
+	return detail, nil
+}
+
+// TailLogs 获取指定客户端最近日志（从系统日志表查询）
+func (m *Manager) TailLogs(id uint, tail int) []string {
+	var cfg model.FrpcConfig
+	if err := m.db.Where("id = ?", id).First(&cfg).Error; err != nil {
+		return []string{"错误：找不到该客户端"}
+	}
+
+	var logs []model.SystemLog
+	m.db.Where("service = 'frp' AND message LIKE ?", "%"+cfg.Name+"%").
+		Order("log_time DESC").Limit(tail).Find(&logs)
+
+	result := make([]string, 0, len(logs))
+	for _, l := range logs {
+		result = append(result, fmt.Sprintf("[%s] %s", l.LogTime.Format("15:04:05"), l.Message))
+	}
+	return result
+}
+
 // runClient 在 goroutine 中运行 FRP 客户端
 func (m *Manager) runClient(ctx context.Context, id uint, name string, svc *client.Service) {
 	defer func() {

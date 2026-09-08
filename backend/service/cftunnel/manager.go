@@ -330,6 +330,34 @@ func (m *Manager) GetLogs(id uint) []string {
 	return nil
 }
 
+// GetTunnelDetail 获取 Cloudflare Tunnel 诊断信息
+func (m *Manager) GetTunnelDetail(id uint) (map[string]interface{}, error) {
+	var cfg model.CftunnelConfig
+	if err := m.db.Where("id = ?", id).First(&cfg).Error; err != nil {
+		return nil, err
+	}
+
+	logs := m.GetLogs(id)
+
+	status, err := m.GetStatus(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"id":          cfg.ID,
+		"name":        cfg.Name,
+		"status":      status,
+		"last_error":  cfg.LastError,
+		"mode":        cfg.Mode,
+		"local_url":   cfg.LocalURL,
+		"tunnel_name": cfg.TunnelName,
+		"quick_url":   cfg.QuickURL,
+		"protocol":    cfg.Protocol,
+		"recent_logs": logs,
+	}, nil
+}
+
 // buildArgs 根据模式构建 cloudflared 命令行参数与额外环境变量。
 //
 //	quick:  cloudflared tunnel --url <local_url> --no-autoupdate

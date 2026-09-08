@@ -337,6 +337,41 @@ func (s *Server) toolsList() []map[string]interface{} {
 			}, nil),
 		},
 		{
+			"name":        "frp_client_detail",
+			"description": "获取FRP客户端详细诊断信息（状态、代理列表、错误日志）",
+			"inputSchema": schema(map[string]interface{}{
+				"id": intg("FRP客户端ID"),
+			}, []string{"id"}),
+		},
+		{
+			"name":        "nps_client_detail",
+			"description": "获取NPS客户端详细诊断信息",
+			"inputSchema": schema(map[string]interface{}{
+				"id": intg("NPS客户端ID"),
+			}, []string{"id"}),
+		},
+		{
+			"name":        "easytier_client_detail",
+			"description": "获取EasyTier客户端详细诊断信息（含peer列表）",
+			"inputSchema": schema(map[string]interface{}{
+				"id": intg("EasyTier客户端ID"),
+			}, []string{"id"}),
+		},
+		{
+			"name":        "wireguard_interface_detail",
+			"description": "获取WireGuard接口详细诊断信息（含peer列表）",
+			"inputSchema": schema(map[string]interface{}{
+				"id": intg("WireGuard接口ID"),
+			}, []string{"id"}),
+		},
+		{
+			"name":        "cftunnel_detail",
+			"description": "获取Cloudflare Tunnel详细诊断信息",
+			"inputSchema": schema(map[string]interface{}{
+				"id": intg("Cloudflare Tunnel ID"),
+			}, []string{"id"}),
+		},
+		{
 			"name":        "tunservice_diag",
 			"description": "异常诊断：列出全部穿透服务的状态与最近错误，并附带选线快照与待重绑清单",
 			"inputSchema": schema(nil, nil),
@@ -457,6 +492,21 @@ func (s *Server) handleToolCall(raw json.RawMessage) map[string]interface{} {
 	case "tunservice_diag":
 		return s.handleTunserviceDiag()
 
+	case "frp_client_detail":
+		return s.handleFRPClientDetail(params.Arguments)
+
+	case "nps_client_detail":
+		return s.handleNPSClientDetail(params.Arguments)
+
+	case "easytier_client_detail":
+		return s.handleEasyTierClientDetail(params.Arguments)
+
+	case "wireguard_interface_detail":
+		return s.handleWireGuardDetail(params.Arguments)
+
+	case "cftunnel_detail":
+		return s.handleCFTunnelDetail(params.Arguments)
+
 	default:
 		return s.textError(fmt.Sprintf("未知工具: %s", params.Name))
 	}
@@ -553,6 +603,86 @@ func (s *Server) handleTunserviceDiag() map[string]interface{} {
 		"rebind_mode":      s.lineregMgr.RebindMode(),
 		"pending_rebinds":  s.lineregMgr.PendingRebinds(),
 	})
+}
+
+// handleFRPClientDetail 获取FRP客户端详细诊断信息
+func (s *Server) handleFRPClientDetail(args map[string]interface{}) map[string]interface{} {
+	if s.frpMgr == nil {
+		return s.textError("FRP管理器未初始化")
+	}
+	id, err := s.argUint(args, "id")
+	if err != nil {
+		return s.textError(err.Error())
+	}
+	detail, err := s.frpMgr.GetClientDetail(id)
+	if err != nil {
+		return s.textError("获取FRP客户端详情失败: " + err.Error())
+	}
+	return s.textResult(detail)
+}
+
+// handleNPSClientDetail 获取NPS客户端详细诊断信息
+func (s *Server) handleNPSClientDetail(args map[string]interface{}) map[string]interface{} {
+	if s.npsMgr == nil {
+		return s.textError("NPS管理器未初始化")
+	}
+	id, err := s.argUint(args, "id")
+	if err != nil {
+		return s.textError(err.Error())
+	}
+	detail, err := s.npsMgr.GetClientDetail(id)
+	if err != nil {
+		return s.textError("获取NPS客户端详情失败: " + err.Error())
+	}
+	return s.textResult(detail)
+}
+
+// handleEasyTierClientDetail 获取EasyTier客户端详细诊断信息
+func (s *Server) handleEasyTierClientDetail(args map[string]interface{}) map[string]interface{} {
+	if s.easytierMgr == nil {
+		return s.textError("EasyTier管理器未初始化")
+	}
+	id, err := s.argUint(args, "id")
+	if err != nil {
+		return s.textError(err.Error())
+	}
+	detail, err := s.easytierMgr.GetClientDetail(id)
+	if err != nil {
+		return s.textError("获取EasyTier客户端详情失败: " + err.Error())
+	}
+	return s.textResult(detail)
+}
+
+// handleWireGuardDetail 获取WireGuard接口详细诊断信息
+func (s *Server) handleWireGuardDetail(args map[string]interface{}) map[string]interface{} {
+	if s.wireguardMgr == nil {
+		return s.textError("WireGuard管理器未初始化")
+	}
+	id, err := s.argUint(args, "id")
+	if err != nil {
+		return s.textError(err.Error())
+	}
+	detail, err := s.wireguardMgr.GetInterfaceDetail(id)
+	if err != nil {
+		return s.textError("获取WireGuard详情失败: " + err.Error())
+	}
+	return s.textResult(detail)
+}
+
+// handleCFTunnelDetail 获取Cloudflare Tunnel详细诊断信息
+func (s *Server) handleCFTunnelDetail(args map[string]interface{}) map[string]interface{} {
+	if s.cftunnelMgr == nil {
+		return s.textError("Cloudflare Tunnel管理器未初始化")
+	}
+	id, err := s.argUint(args, "id")
+	if err != nil {
+		return s.textError(err.Error())
+	}
+	detail, err := s.cftunnelMgr.GetTunnelDetail(id)
+	if err != nil {
+		return s.textError("获取Cloudflare Tunnel详情失败: " + err.Error())
+	}
+	return s.textResult(detail)
 }
 
 // cfgInt 从 SystemConfig 读取整数配置；缺失或非法时返回 def。
