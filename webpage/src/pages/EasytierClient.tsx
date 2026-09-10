@@ -15,7 +15,12 @@ import { useTranslation } from 'react-i18next'
 import { easytierClientApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
+import { SimpleList, AddrList } from '../components/FormListFields'
 import { useTableStyle } from '../hooks/useTableStyle'
+import {
+  genRpcPort, parseAddrStr, serializeAddr, parseAddrList,
+  parseListenPorts, parseSimpleList, parsePortForwards, randomStr,
+} from '../utils/networkParse'
 
 const { Text } = Typography
 
@@ -36,106 +41,6 @@ const PROTOCOL_OPTIONS = [
   { label: 'WG', value: 'wg' },
   { label: 'QUIC', value: 'quic' },
 ]
-
-// ---- 数据解析工具 ----
-// 随机生成 RPC 门户端口（15000~25000，避免与常用端口冲突）
-const genRpcPort = () => String(Math.floor(Math.random() * 10000) + 15000)
-const parseAddrStr = (s: string): { proto: string; host: string; port: string } => {
-  s = s.trim()
-  const m = s.match(/^(\w+):\/\/(.+):(\d+)$/)
-  if (m) return { proto: m[1], host: m[2], port: m[3] }
-  const parts = s.split(':')
-  if (parts.length === 3) return { proto: parts[0], host: parts[1], port: parts[2] }
-  if (parts.length === 2) return { proto: 'tcp', host: parts[0], port: parts[1] }
-  return { proto: 'tcp', host: s, port: '' }
-}
-const serializeAddr = (item: { proto: string; host: string; port: string }): string => {
-  if (!item?.host) return ''
-  return `${item.proto || 'tcp'}://${item.host}:${item.port || ''}`
-}
-const parseAddrList = (str: string) => {
-  if (!str) return [{ proto: 'tcp', host: '', port: '' }]
-  return str.split(',').map(s => parseAddrStr(s)).filter(i => i.host)
-}
-const parseListenPorts = (s: string) => {
-  if (!s) return []
-  return s.split(',').map(p => {
-    p = p.trim()
-    if (p.includes(':')) { const [proto, port] = p.split(':'); return { proto, port } }
-    return { proto: 'tcp', port: p }
-  }).filter(Boolean)
-}
-const parseSimpleList = (str: string): Array<{ value: string }> => {
-  if (!str) return []
-  return str.split(',').map(s => s.trim()).filter(Boolean).map(s => ({ value: s }))
-}
-const parsePortForwards = (str: string) => {
-  if (!str) return []
-  return str.split('\n').map(s => s.trim()).filter(Boolean).map(s => {
-    const p = s.split(':')
-    if (p.length >= 5) return { proto: p[0], listen_ip: p[1], listen_port: p[2], target_ip: p[3], target_port: p[4] }
-    return { proto: 'tcp', listen_ip: '0.0.0.0', listen_port: '', target_ip: '', target_port: '' }
-  })
-}
-
-// ---- 通用子组件 ----
-const SimpleList = ({ fieldName, placeholder, addText }: { fieldName: string; placeholder: string; addText: string }) => (
-  <Form.List name={fieldName}>
-    {(fields, { add, remove }) => (
-      <>
-        {fields.map(({ key, name, ...rest }) => (
-          <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-            <Col flex="auto">
-              <Form.Item {...rest} name={[name, 'value']} style={{ marginBottom: 0 }} rules={[{ required: true, message: '请填写' }]}>
-                <Input placeholder={placeholder} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col flex="none" style={{ display: 'flex', alignItems: 'center' }}>
-              <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 16 }} />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" onClick={() => add({ value: '' })} icon={<PlusOutlined />} block>{addText}</Button>
-      </>
-    )}
-  </Form.List>
-)
-
-const AddrList = ({ fieldName, addText, defaultPort }: { fieldName: string; addText: string; defaultPort?: string }) => (
-  <Form.List name={fieldName}>
-    {(fields, { add, remove }) => (
-      <>
-        {fields.map(({ key, name, ...rest }) => (
-          <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-            <Col span={5}>
-              <Form.Item {...rest} name={[name, 'proto']} style={{ marginBottom: 0 }}>
-                <Select options={PROTOCOL_OPTIONS} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={13}>
-              <Form.Item {...rest} name={[name, 'host']} style={{ marginBottom: 0 }} rules={[{ required: true, message: '请填写地址' }]}>
-                <Input placeholder="IP 或域名" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={5}>
-              <Form.Item {...rest} name={[name, 'port']} style={{ marginBottom: 0 }} rules={[{ required: true, message: '端口' }]}>
-                <Input placeholder="端口" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={1} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 16 }} />
-            </Col>
-          </Row>
-        ))}
-        <Button type="dashed" onClick={() => add({ proto: 'tcp', host: '', port: defaultPort || '' })} icon={<PlusOutlined />} block>{addText}</Button>
-      </>
-    )}
-  </Form.List>
-)
-
-// ---- 随机字符串工具 ----
-const randomStr = (len: number, chars = 'abcdefghijklmnopqrstuvwxyz0123456789') =>
-  Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 
 // ---- 主组件 ----
 const EasytierClient: React.FC = () => {
