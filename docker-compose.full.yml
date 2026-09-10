@@ -1,10 +1,10 @@
-# NetPanel Docker Compose（默认完整版）
+# NetPanel 完整部署（含 TUN/组网能力）
+# 适用场景：需要 EasyTier 异地组网、WireGuard VPN、Mesh 节点等网络功能
 #
-# 🟢 只需 Web 面板和基础功能？用精简版，零额外权限：
-#    docker compose -f docker-compose.minimal.yml up -d
+# 启动方式：
+#   docker compose -f docker-compose.full.yml up -d
 #
-# 🔵 需要 TUN/组网（EasyTier/WireGuard/Mesh）？用完整版：
-#    docker compose -f docker-compose.full.yml up -d
+# 仅需 Web 面板和基础功能？改用 docker-compose.minimal.yml（无需 TUN 和特权）
 
 services:
   netpanel:
@@ -17,7 +17,7 @@ services:
       - ./data:/app/data
     environment:
       - TZ=Asia/Shanghai
-    # EasyTier / TUN 设备需要特权模式或 NET_ADMIN 能力
+    # TUN 设备和组网功能需要以下权限
     cap_add:
       - NET_ADMIN
       - SYS_MODULE

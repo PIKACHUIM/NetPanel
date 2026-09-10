@@ -106,6 +106,6 @@ features:
 - **前端**：React 18，TypeScript，Ant Design 5，Vite，react-i18next
 - **集成**：FRP、Caddy、Coraza WAF、DDNS-Go、lego (ACME)、pion/stun、EasyTier
 
-> ⚠️ **注意**：项目目前仍在积极开发阶段，部分功能尚未完全实现。欢迎提交 [Issue](https://github.com/netpanel/netpanel/issues) 或 [PR](https://github.com/netpanel/netpanel/pulls)。
+> ⚠️ **注意**：项目目前仍在积极开发阶段，部分功能尚未完全实现。欢迎提交 [Issue](https://github.com/PIKACHUIM/NetPanel/issues) 或 [PR](https://github.com/PIKACHUIM/NetPanel/pulls)。
 
 </div>

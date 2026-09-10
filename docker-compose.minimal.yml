@@ -1,0 +1,19 @@
+# NetPanel 最小化部署（仅 Web 面板 + 基础功能）
+# 适用场景：只需管理面板、端口转发、DDNS、反向代理等，不需要 TUN/组网
+#
+# 启动方式：
+#   docker compose -f docker-compose.minimal.yml up -d
+#
+# 如果后续需要 EasyTier/WireGuard 等组网功能，改用 docker-compose.full.yml
+
+services:
+  netpanel:
+    image: ghcr.io/netpanel/netpanel:latest
+    container_name: netpanel
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
