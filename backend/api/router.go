@@ -79,6 +79,10 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	apiV1.GET("/init/status", initHandler.Status)
 	apiV1.POST("/init/setup", initHandler.Setup)
 
+	// 首次向导：网络环境探测
+	initNetHandler := handlers.NewInitNetworkHandler(opts.Log)
+	apiV1.GET("/init/network-info", initNetHandler.NetworkInfo)
+
 	// OAuth2/OIDC 公开路由
 	oauthHandler := handlers.NewOAuthHandler(opts.DB, opts.Log)
 	apiV1.GET("/auth/oauth/providers", oauthHandler.ListPublicProviders)
