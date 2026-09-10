@@ -13,7 +13,7 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 # ─── 默认配置 ─────────────────────────────────────────────────────────────────
-REPO="${NETPANEL_REPO:-YOUR_ORG/netpanel}"
+REPO="${NETPANEL_REPO:-PIKACHUIM/NetPanel}"
 VERSION="${NETPANEL_VERSION:-latest}"
 INSTALL_DIR="${NETPANEL_DIR:-/opt/netpanel}"
 DATA_DIR="${NETPANEL_DATA:-/var/lib/netpanel}"
@@ -22,6 +22,16 @@ PORT="${NETPANEL_PORT:-8080}"
 REGISTER_SERVICE=true
 SERVICE_NAME="netpanel"
 BINARY_NAME="netpanel"
+
+# ─── 镜像源配置 ───────────────────────────────────────────────────────────────
+# 优先使用 GitHub 直连，失败后自动回退到国内镜像
+# 可通过 NETPANEL_MIRROR 环境变量强制指定镜像源
+#   NETPANEL_MIRROR=ghproxy   → 使用 ghproxy 加速
+#   NETPANEL_MIRROR=fastgit  → 使用 fastgit 加速
+#   NETPANEL_MIRROR=direct   → 仅使用 GitHub 直连（不回退）
+MIRROR="${NETPANEL_MIRROR:-auto}"
+MIRROR_URLS_GHPROXY="https://ghproxy.com"
+MIRROR_URLS_FASTGIT="https://hub.fastgit.xyz"
 
 # ─── 解析参数 ─────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -123,9 +133,15 @@ get_latest_version() {
   echo "$ver"
 }
 
+# ─── 下载辅助：通过镜像源下载 ────────────────────────────────────────────────
+try_download() {
+  local url="$1" output="$2"
+  curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 8 "$url" -o "$output" 2>/dev/null
+}
+
 # ─── 下载二进制 ───────────────────────────────────────────────────────────────
 download_binary() {
-  local arch os_type download_url tmp_file tmp_dir
+  local arch os_type tmp_file tmp_dir
   arch=$(detect_arch)
   os_type=$(detect_os)
 
@@ -145,32 +161,54 @@ download_binary() {
   tmp_dir=$(mktemp -d)
   tmp_file="${tmp_dir}/${BINARY_NAME}"
 
-  # 尝试直接下载二进制
-  local base_url="https://github.com/${REPO}/releases/download/${VERSION}"
-  local bin_url="${base_url}/netpanel-linux-${pkg_arch}"
+  local github_base="https://github.com/${REPO}/releases/download/${VERSION}"
+  local bin_name="netpanel-linux-${pkg_arch}"
+  local tgz_name="netpanel-linux-${pkg_arch}.tar.gz"
 
   info "下载 NetPanel ${VERSION} (linux/${arch})..."
 
-  if curl -fsSL --retry 3 --retry-delay 2 --progress-bar "$bin_url" -o "$tmp_file" 2>/dev/null; then
-    chmod +x "$tmp_file"
-    echo "$tmp_file"
-    return
+  # 构建下载源列表（按优先级）
+  local -a mirror_prefixes=()
+  if [[ "$MIRROR" == "ghproxy" ]]; then
+    mirror_prefixes=("${MIRROR_URLS_GHPROXY}/")
+  elif [[ "$MIRROR" == "fastgit" ]]; then
+    mirror_prefixes=("${MIRROR_URLS_FASTGIT}/")
+  elif [[ "$MIRROR" != "direct" ]]; then
+    # auto: 先直连，再依次尝试镜像
+    mirror_prefixes=("" "${MIRROR_URLS_GHPROXY}/" "${MIRROR_URLS_FASTGIT}/")
   fi
+
+  # 尝试下载裸二进制
+  for prefix in "${mirror_prefixes[@]}"; do
+    local url="${prefix}${github_base}/${bin_name}"
+    if [[ -n "$prefix" ]]; then
+      info "尝试镜像源: ${url}"
+    fi
+    if try_download "$url" "$tmp_file"; then
+      chmod +x "$tmp_file"
+      echo "$tmp_file"
+      return
+    fi
+  done
 
   # 尝试 tar.gz 格式
-  local tgz_url="${base_url}/netpanel-linux-${pkg_arch}.tar.gz"
-  info "尝试 tar.gz 格式: $tgz_url"
-  if curl -fsSL --retry 3 --retry-delay 2 --progress-bar "$tgz_url" -o "${tmp_dir}/netpanel.tar.gz"; then
-    tar -xzf "${tmp_dir}/netpanel.tar.gz" -C "$tmp_dir" \
-      --wildcards "*/netpanel" --strip-components=1 2>/dev/null \
-      || tar -xzf "${tmp_dir}/netpanel.tar.gz" -C "$tmp_dir" netpanel 2>/dev/null \
-      || error "解压失败: ${tgz_url}"
-    chmod +x "$tmp_file"
-    echo "$tmp_file"
-    return
-  fi
+  for prefix in "${mirror_prefixes[@]}"; do
+    local url="${prefix}${github_base}/${tgz_name}"
+    if [[ -n "$prefix" ]]; then
+      info "尝试镜像源: ${url}"
+    fi
+    if try_download "$url" "${tmp_dir}/netpanel.tar.gz"; then
+      tar -xzf "${tmp_dir}/netpanel.tar.gz" -C "$tmp_dir" \
+        --wildcards "*/netpanel" --strip-components=1 2>/dev/null \
+        || tar -xzf "${tmp_dir}/netpanel.tar.gz" -C "$tmp_dir" netpanel 2>/dev/null \
+        || error "解压失败: ${url}"
+      chmod +x "$tmp_file"
+      echo "$tmp_file"
+      return
+    fi
+  done
 
-  error "下载失败，请检查版本号和网络连接。尝试的地址:\n  ${bin_url}\n  ${tgz_url}"
+  error "下载失败，请检查版本号和网络连接。可尝试设置镜像源:\n  NETPANEL_MIRROR=ghproxy curl -fsSL ... | sudo bash"
 }
 
 # ─── 安装二进制 ───────────────────────────────────────────────────────────────
