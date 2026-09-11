@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next'
 import { easytierClientApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
-import { SimpleList, AddrList } from '../components/FormListFields'
+import { SimpleList, AddrList, ProtoPortList } from '../components/FormListFields'
 import { useTableStyle } from '../hooks/useTableStyle'
 import {
   genRpcPort, parseAddrStr, serializeAddr, parseAddrList,
@@ -466,30 +466,7 @@ const EasytierClient: React.FC = () => {
         label="监听端口"
         extra={<span style={{ fontSize: 11 }}>本节点对外监听，让其他节点主动连接到本节点</span>}
       >
-        <Form.List name="listen_ports_list">
-          {(fields, { add, remove }) => (
-            <>
-              {fields.map(({ key, name, ...rest }) => (
-                <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                  <Col span={7}>
-                    <Form.Item {...rest} name={[name, 'proto']} style={{ marginBottom: 0 }}>
-                      <Select options={PROTOCOL_OPTIONS} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={15}>
-                    <Form.Item {...rest} name={[name, 'port']} style={{ marginBottom: 0 }} rules={[{ required: true, message: '请填写端口' }]}>
-                      <Input placeholder="11010" style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={2} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 16 }} />
-                  </Col>
-                </Row>
-              ))}
-              <Button type="dashed" onClick={() => add({ proto: 'tcp', port: '' })} icon={<PlusOutlined />} block>添加监听端口</Button>
-            </>
-          )}
-        </Form.List>
+        <ProtoPortList fieldName="listen_ports_list" addText="添加监听端口" />
       </Form.Item>
 
       <Form.Item
