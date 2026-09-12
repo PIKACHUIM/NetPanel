@@ -169,6 +169,13 @@ const en = {
     currentIP: 'Current Public IP',
     currentPort: 'Current Port',
     natType: 'NAT Type',
+    natCheckTitle: 'NAT Type Detection',
+    natCheckDesc: 'Detect the current network NAT type via STUN and assess P2P hole-punching feasibility',
+    natCheckRun: 'Detect Now',
+    p2pScore: 'P2P Feasibility',
+    p2pGood: 'Good',
+    p2pFair: 'Fair',
+    p2pPoor: 'Poor',
     callbackTask: 'Callback Task',
   },
   frp: {
