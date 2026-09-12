@@ -227,6 +227,9 @@ func startServer() *http.Server {
 	accessMgr := access.NewManager(db, logAccess)
 	dnsmasqMgr := dnsmasq.NewManager(db, logDnsmasq)
 	callbackMgr := callback.NewManager(db, logCallback)
+	// 注入 STUN 回调通知器：STUN 探测到公网地址变化时触发其绑定的回调任务
+	// （更新 CF 回源 / 阿里 ESA / 腾讯 EO / WebHook）
+	stunMgr.SetCallbackNotifier(callbackMgr)
 	firewallMgr := firewall.NewManager(db, logFirewall)
 	wireguardMgr := wireguard.NewManager(db, logWireguard, *dataDir)
 	meshNodeMgr := meshnode.NewManager(db, logMeshNode)
