@@ -365,8 +365,14 @@ func startServer() *http.Server {
 		log.Warnf("注册Prometheus指标失败: %v", err)
 	}
 
-	// 挂载Prometheus metrics端点（无需认证，供Grafana采集）
-	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(metrics.GetRegistry(), promhttp.HandlerOpts{})))
+	// 挂载Prometheus metrics端点：配置 NETPANEL_METRICS_TOKEN 后需 Bearer 认证，未配置时建议通过防火墙限制外部访问
+	metricsHandler := metrics.TokenAuth(promhttp.HandlerFor(metrics.GetRegistry(), promhttp.HandlerOpts{}))
+	router.GET("/metrics", gin.WrapH(metricsHandler))
+	if metrics.HasToken() {
+		log.Infof("[系统核心] /metrics 已启用 Bearer Token 鉴权（NETPANEL_METRICS_TOKEN）")
+	} else {
+		log.Warnf("[系统核心] /metrics 未配置鉴权（NETPANEL_METRICS_TOKEN 未设置），任何能访问面板的客户端均可读取指标")
+	}
 
 	// 挂载前端静态文件（SPA 模式：所有非 /api 路径均返回 index.html）
 	listenPort := findAvailablePort(*port, log)
