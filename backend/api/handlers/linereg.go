@@ -201,3 +201,20 @@ func (h *LineregHandler) ApplyRebinds(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已重绑", "applied": applied})
 }
+
+// LineHistory 返回指定线路的探测历史（延迟趋势），供前端趋势图使用。
+// 路径参数 line_id，可选查询参数 limit（默认 100，上限 500）。
+func (h *LineregHandler) LineHistory(c *gin.Context) {
+	lineID := c.Param("line_id")
+	if lineID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "line_id 不能为空"})
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	history, err := h.mgr.History(lineID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": history})
+}

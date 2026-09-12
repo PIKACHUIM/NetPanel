@@ -239,6 +239,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
 	admin.PUT("/linereg/config", lineHandler.UpdateConfig)
 	admin.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
+	// 线路探测历史（延迟趋势图）
+	auth.GET("/linereg/line/:line_id/history", lineHandler.LineHistory)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)

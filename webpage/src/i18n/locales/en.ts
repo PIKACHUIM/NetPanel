@@ -1623,6 +1623,8 @@ const en = {
     latency: 'Latency',
     trend: 'Latency Trend',
     noHistory: 'No history records',
+    lineTrendTitle: 'Line Latency Trend',
+    lineTrendLoadFailed: 'Failed to load history',
     probeConfig: 'Line Policy',
     probeInterval: 'Probe Interval (s)',
     failureThreshold: 'Failure Threshold',
