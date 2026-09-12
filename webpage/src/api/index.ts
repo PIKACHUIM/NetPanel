@@ -21,6 +21,7 @@ export const stunApi = {
   start: (id: number) => request.post(`/v1/stun/${id}/start`),
   stop: (id: number) => request.post(`/v1/stun/${id}/stop`),
   getStatus: (id: number) => request.get(`/v1/stun/${id}/status`),
+  detectNat: (server?: string) => request.get('/v1/stun/nat-check', {params: server ? {server} : {}}),
 }
 
 // ===== FRP 客户端 =====
