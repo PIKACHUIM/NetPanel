@@ -17,6 +17,9 @@ type Manager struct {
 
 	// 运行中的定时任务 entryID 映射
 	cronEntries sync.Map // map[uint]cron.EntryID
+
+	// configurator AI 配置执行器（可选，用于注入环境上下文）
+	configurator *Configurator
 }
 
 // NewManager 创建 AI 管理器
@@ -26,6 +29,11 @@ func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
 		log:  log,
 		cron: cron.New(cron.WithSeconds()),
 	}
+}
+
+// SetConfigurator 设置配置执行器（用于注入环境上下文）
+func (m *Manager) SetConfigurator(cfg *Configurator) {
+	m.configurator = cfg
 }
 
 // Start 启动 AI 服务（加载已启用的定时任务）

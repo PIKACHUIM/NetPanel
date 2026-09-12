@@ -251,13 +251,19 @@ func startServer() *http.Server {
 	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
 	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,
 		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr)
+
+	// AI 配置执行器：注入到 ai handler
+	configurator := ai.NewConfigurator(db, log, tunserviceMgr, lineregMgr,
+		frpMgr, npsMgr, easytierMgr, wireguardMgr, caddyMgr)
+	// 将 configurator 注入 AI 管理器，用于 system prompt 注入环境摘要
+	aiMgr.SetConfigurator(configurator)
 	// 端口层切换落地：选线变化时自动重绑未绑定 Caddy/DNS 的 TCP/UDP 穿透服务
 	lineregMgr.SetPortRebinder(tunserviceMgr.RebindPort)
 
 	// MCP 服务端（本地回环，供 AI 助手配置管理与异常诊断）
 	mcpSrv := mcp.NewServer(db, log, tunserviceMgr, lineregMgr,
 		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr, portforwardMgr,
-		":18090", cfg.MCPToken)
+		":18090", cfg.MCPToken, configurator)
 	if err := mcpSrv.Start(); err != nil {
 		log.Errorf("MCP 服务启动失败: %v", err)
 	}
@@ -331,6 +337,7 @@ func startServer() *http.Server {
 		CallbackMgr:    callbackMgr,
 		SyslogMgr:      syslogMgr,
 		AiMgr:          aiMgr,
+			Configurator:   configurator,
 	})
 
 	// 挂载前端静态文件（SPA 模式：所有非 /api 路径均返回 index.html）

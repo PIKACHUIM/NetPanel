@@ -17,14 +17,15 @@ import (
 
 // AiHandler AI 模块处理器
 type AiHandler struct {
-	db    *gorm.DB
-	log   *logrus.Logger
-	aiMgr *ai.Manager
+	db           *gorm.DB
+	log          *logrus.Logger
+	aiMgr        *ai.Manager
+	configurator *ai.Configurator
 }
 
 // NewAiHandler 创建 AI 处理器
-func NewAiHandler(db *gorm.DB, log *logrus.Logger, aiMgr *ai.Manager) *AiHandler {
-	return &AiHandler{db: db, log: log, aiMgr: aiMgr}
+func NewAiHandler(db *gorm.DB, log *logrus.Logger, aiMgr *ai.Manager, configurator *ai.Configurator) *AiHandler {
+	return &AiHandler{db: db, log: log, aiMgr: aiMgr, configurator: configurator}
 }
 
 // ===== Provider（API 来源）=====
@@ -517,4 +518,37 @@ func (h *AiHandler) TogglePlugin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok"})
+}
+
+// ===== AI 配置执行 =====
+
+// GetContextSnapshot 返回当前穿透环境摘要（供 AI system prompt 使用）
+func (h *AiHandler) GetContextSnapshot(c *gin.Context) {
+	if h.configurator == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "配置执行器未初始化"})
+		return
+	}
+	snapshot := h.configurator.ContextSnapshot()
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": snapshot})
+}
+
+// ExecuteConfigInstruction 执行 AI 生成的配置指令
+func (h *AiHandler) ExecuteConfigInstruction(c *gin.Context) {
+	if h.configurator == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": "配置执行器未初始化"})
+		return
+	}
+	var body struct {
+		Instruction string `json:"instruction"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Instruction == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "instruction 不能为空"})
+		return
+	}
+	result, err := h.configurator.ExecuteInstruction(body.Instruction)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
 }

@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/frp"
@@ -48,6 +49,7 @@ type Server struct {
 	addr           string
 	token          string // 访问令牌（Authorization: Bearer）
 	httpSrv        *http.Server
+	configurator   *ai.Configurator // AI 配置执行器
 }
 
 // NewServer 创建 MCP 服务端。addr 为监听地址（如 ":18090"），
@@ -66,6 +68,7 @@ func NewServer(
 	portforwardMgr *portforward.Manager,
 	addr string,
 	token string,
+	configurator *ai.Configurator,
 ) *Server {
 	return &Server{
 		db:             db,
@@ -80,6 +83,7 @@ func NewServer(
 		portforwardMgr: portforwardMgr,
 		addr:           addr,
 		token:          token,
+		configurator:   configurator,
 	}
 }
 
@@ -341,6 +345,13 @@ func (s *Server) toolsList() []map[string]interface{} {
 			"description": "异常诊断：列出全部穿透服务的状态与最近错误，并附带选线快照与待重绑清单",
 			"inputSchema": schema(nil, nil),
 		},
+		{
+			"name":        "auto_config",
+			"description": "AI 一键配置：接收自然语言描述，自动生成配置指令并执行（如\"创建一条 frp 隧道到 192.168.1.100:8080\"）",
+			"inputSchema": schema(map[string]interface{}{
+				"description": str("自然语言描述的配置需求"),
+			}, []string{"description"}),
+		},
 	}
 }
 
@@ -457,6 +468,9 @@ func (s *Server) handleToolCall(raw json.RawMessage) map[string]interface{} {
 	case "tunservice_diag":
 		return s.handleTunserviceDiag()
 
+	case "auto_config":
+		return s.handleAutoConfig(params.Arguments)
+
 	default:
 		return s.textError(fmt.Sprintf("未知工具: %s", params.Name))
 	}
@@ -553,6 +567,23 @@ func (s *Server) handleTunserviceDiag() map[string]interface{} {
 		"rebind_mode":      s.lineregMgr.RebindMode(),
 		"pending_rebinds":  s.lineregMgr.PendingRebinds(),
 	})
+}
+
+// handleAutoConfig AI 一键配置：接收自然语言描述，调用 configurator 执行配置。
+func (s *Server) handleAutoConfig(args map[string]interface{}) map[string]interface{} {
+	if s.configurator == nil {
+		return s.textError("配置执行器未初始化")
+	}
+	description, ok := args["description"].(string)
+	if !ok || description == "" {
+		return s.textError("description 参数不能为空")
+	}
+	// 将自然语言描述包装为结构化指令（此处简化为直接传递，实际可由 AI 生成 JSON）
+	result, err := s.configurator.ExecuteInstruction(fmt.Sprintf(`{"action":"describe","description":"%s"}`, description))
+	if err != nil {
+		return s.textError(fmt.Sprintf("执行配置失败: %v", err))
+	}
+	return s.textResult(map[string]interface{}{"result": result, "description": description})
 }
 
 // cfgInt 从 SystemConfig 读取整数配置；缺失或非法时返回 def。

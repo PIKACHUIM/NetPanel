@@ -57,6 +57,7 @@ type RouterOptions struct {
 	MeshNodeMgr    *meshnode.Manager
 	TunserviceMgr  *tunservice.Manager
 	AiMgr          *ai.Manager
+	Configurator   *ai.Configurator
 	LineregMgr     *linereg.Manager
 }
 
@@ -473,7 +474,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.Any("/mesh/proxy/:nodeId/*path", meshHandler.ProxyToNode)
 
 	// ── AI 管理 ────────────────────────────────────────────────────────────────
-	aiHandler := handlers.NewAiHandler(opts.DB, opts.Log, opts.AiMgr)
+	aiHandler := handlers.NewAiHandler(opts.DB, opts.Log, opts.AiMgr, opts.Configurator)
 	// API 来源
 	auth.GET("/ai/providers", aiHandler.ListProviders)
 	auth.POST("/ai/providers", aiHandler.CreateProvider)
@@ -496,6 +497,9 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/ai/assistants", aiHandler.CreateAssistant)
 	auth.PUT("/ai/assistants/:id", aiHandler.UpdateAssistant)
 	auth.DELETE("/ai/assistants/:id", aiHandler.DeleteAssistant)
+	// AI 配置执行
+	auth.GET("/ai/config/snapshot", aiHandler.GetContextSnapshot)
+	auth.POST("/ai/config/execute", aiHandler.ExecuteConfigInstruction)
 	// AI 定时任务
 	auth.GET("/ai/cron-tasks", aiHandler.ListCronTasks)
 	auth.POST("/ai/cron-tasks", aiHandler.CreateCronTask)

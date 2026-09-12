@@ -61,7 +61,7 @@ func (m *Manager) AddMessage(msg *model.AiMessage) error {
 	return nil
 }
 
-// BuildChatMessages 构建完整的对话消息列表（包含系统提示和历史消息）
+// BuildChatMessages 构建完整的对话消息列表（包含系统提示、环境摘要和历史消息）
 func (m *Manager) BuildChatMessages(conversationID uint, assistantID uint, userInput string) ([]ChatMessage, error) {
 	var messages []ChatMessage
 
@@ -69,9 +69,17 @@ func (m *Manager) BuildChatMessages(conversationID uint, assistantID uint, userI
 	if assistantID > 0 {
 		var assistant model.AiAssistant
 		if err := m.db.First(&assistant, assistantID).Error; err == nil && assistant.SystemPrompt != "" {
+			systemPrompt := assistant.SystemPrompt
+			// 注入当前环境摘要
+			if m.configurator != nil {
+				contextSnapshot := m.configurator.ContextSnapshot()
+				if contextSnapshot != "" {
+					systemPrompt += "\n\n## 当前网络穿透环境\n" + contextSnapshot
+				}
+			}
 			messages = append(messages, ChatMessage{
 				Role:    "system",
-				Content: assistant.SystemPrompt,
+				Content: systemPrompt,
 			})
 		}
 	}
