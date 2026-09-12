@@ -145,7 +145,7 @@ const FrpClient: React.FC = () => {
             tls_enable: true,
             pool_count: 5,
             tcp_mux: true,
-            login_fail_exit: true,
+            login_fail_exit: false,
             heartbeat_interval: 30,
             heartbeat_timeout: 90,
             dial_server_timeout: 10,
@@ -629,7 +629,7 @@ const FrpClient: React.FC = () => {
                         name="login_fail_exit"
                         label="登录失败退出"
                         valuePropName="checked"
-                        extra={<span style={{fontSize: 11}}>首次登录失败是否退出，默认是</span>}
+                        extra={<span style={{fontSize: 11}}>首次登录失败是否退出进程，建议关闭以保持隧道自动重连</span>}
                     >
                         <Switch/>
                     </Form.Item>
