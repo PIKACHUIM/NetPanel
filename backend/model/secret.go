@@ -14,6 +14,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"reflect"
 )
 
 // secretMask 前端展示用的掩码。使用固定长度，避免泄露原文长度信息。
@@ -69,4 +70,58 @@ func (s *Secret) Scan(src any) error {
 		return fmt.Errorf("无法将 %T 扫描为 Secret", src)
 	}
 	return nil
+}
+
+// PreserveSecrets 把 old 中非空的 Secret 字段回填到 cur 对应的空字段。
+//
+// 背景：handler 的 Update 普遍直接 db.Save(请求体)，而 Secret 字段经 GET
+// 回显为掩码，前端原样提交时 UnmarshalJSON 会把掩码转为空串——若不回填，
+// 每次保存都会把数据库里的真实凭据清空。在 Save 之前调用本函数执行
+// "空值 = 不修改"契约。
+//
+// 仅处理直接字段（含匿名嵌入结构体一层）；切片/Map 内的 Secret 子记录
+// 需 handler 自行处理。
+func PreserveSecrets(cur, old any) {
+	cv := reflect.ValueOf(cur)
+	ov := reflect.ValueOf(old)
+	if cv.Kind() == reflect.Ptr {
+		cv = cv.Elem()
+	}
+	if ov.Kind() == reflect.Ptr {
+		ov = ov.Elem()
+	}
+	if cv.Kind() != reflect.Struct || ov.Kind() != reflect.Struct {
+		return
+	}
+	secretType := reflect.TypeOf(Secret(""))
+	ct, ot := cv.Type(), ov.Type()
+	for i := 0; i < ct.NumField(); i++ {
+		f := ct.Field(i)
+		// 嵌入/具名结构体字段：递归处理（跳过 Secret 本身与未导出字段）
+		if f.Type.Kind() == reflect.Struct && f.Type != secretType && f.IsExported() {
+			PreserveSecrets(cv.Field(i).Addr().Interface(), ov.Field(i).Addr().Interface())
+			continue
+		}
+		if f.Type != secretType || !f.IsExported() {
+			continue
+		}
+		// old 侧找不到同名字段时跳过
+		j, ok := fieldIndexByName(ot, f.Name)
+		if !ok {
+			continue
+		}
+		if cv.Field(i).String() == "" && ov.Field(j).String() != "" {
+			cv.Field(i).Set(ov.Field(j))
+		}
+	}
+}
+
+// fieldIndexByName 按名查找字段索引（含一层匿名嵌入提升字段）。
+func fieldIndexByName(t reflect.Type, name string) (int, bool) {
+	for i := 0; i < t.NumField(); i++ {
+		if t.Field(i).Name == name {
+			return i, true
+		}
+	}
+	return 0, false
 }

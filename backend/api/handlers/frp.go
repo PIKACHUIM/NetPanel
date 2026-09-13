@@ -104,6 +104,11 @@ func (h *FrpcHandler) Update(c *gin.Context) {
 	}
 	h.mgr.StopClient(uint(id))
 	req.ID = uint(id)
+	// Secret 空值（掩码回显提交）= 不修改，回填数据库现值
+	var existing model.FrpcConfig
+	if err := h.db.First(&existing, id).Error; err == nil {
+		model.PreserveSecrets(&req, &existing)
+	}
 	h.db.Save(&req)
 	logger.WriteLog("info", "frp", fmt.Sprintf("修改FRP客户端 [%d] %s", id, req.Name))
 	if req.Enable {
@@ -328,6 +333,10 @@ func (h *FrpsHandler) Update(c *gin.Context) {
 	}
 	h.mgr.StopServer(uint(id))
 	req.ID = uint(id)
+	var existing model.FrpsConfig
+	if err := h.db.First(&existing, id).Error; err == nil {
+		model.PreserveSecrets(&req, &existing)
+	}
 	h.db.Save(&req)
 	logger.WriteLog("info", "frp", fmt.Sprintf("修改FRP服务端 [%d] %s", id, req.Name))
 	if req.Enable {

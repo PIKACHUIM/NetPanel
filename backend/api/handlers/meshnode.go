@@ -78,6 +78,8 @@ func (h *MeshNodeHandler) UpdateNode(c *gin.Context) {
 	req.Latency = existing.Latency
 	req.LastHeartbeat = existing.LastHeartbeat
 	req.PeerLatencies = existing.PeerLatencies
+	// Secret 空值（掩码回显提交）= 不修改，回填数据库现值
+	model.PreserveSecrets(&req, &existing)
 
 	if err := h.db.Save(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -173,9 +175,9 @@ func (h *MeshNodeHandler) ListEvents(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"list":  events,
-			"total": total,
-			"page":  page,
+			"list":      events,
+			"total":     total,
+			"page":      page,
 			"page_size": pageSize,
 		},
 	})

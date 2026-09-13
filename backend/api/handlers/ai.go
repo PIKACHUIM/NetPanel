@@ -59,6 +59,11 @@ func (h *AiHandler) UpdateProvider(c *gin.Context) {
 		return
 	}
 	p.ID = uint(id)
+	// Secret 空值（掩码回显提交）= 不修改，回填数据库现值
+	var existing model.AiProvider
+	if err := h.db.First(&existing, id).Error; err == nil {
+		model.PreserveSecrets(&p, &existing)
+	}
 	if err := h.aiMgr.UpdateProvider(&p); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return

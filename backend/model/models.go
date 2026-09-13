@@ -118,7 +118,7 @@ type FrpcConfig struct {
 	ServerPort int    `gorm:"default:7000" json:"server_port"`
 	// 认证方式：token/oidc，默认 token
 	AuthMethod string `gorm:"size:20;default:'token'" json:"auth_method"`
-	Token      string `gorm:"size:255" json:"token"`
+	Token      Secret `gorm:"size:255" json:"token"` // 响应中脱敏
 	// 传输协议：tcp/kcp/quic/websocket/wss
 	TransportProtocol string `gorm:"size:20;default:'tcp'" json:"transport_protocol"`
 	// KCP 连接端口（使用 KCP 协议时指定，0 表示与 ServerPort 相同）
@@ -241,7 +241,7 @@ type FrpsConfig struct {
 	// 自定义 404 错误页面地址
 	Custom404Page string `gorm:"size:500" json:"custom_404_page"`
 	// 认证 Token
-	Token string `gorm:"size:255" json:"token"`
+	Token Secret `gorm:"size:255" json:"token"` // 响应中脱敏
 	// Dashboard（WebServer）配置
 	DashboardAddr     string `gorm:"size:100" json:"dashboard_addr"`
 	DashboardPort     int    `json:"dashboard_port"`
@@ -296,8 +296,8 @@ type NpsServerConfig struct {
 	WebPort     int    `gorm:"default:8080" json:"web_port"`    // Web 管理端口
 	WebUsername string `gorm:"size:100;default:'admin'" json:"web_username"`
 	// 移除弱默认值 '123456'：默认口令会随新建配置自动生效，等同于公开后门
-	WebPassword Secret `gorm:"size:255" json:"web_password"`             // 响应中脱敏
-	AuthKey     Secret `gorm:"size:255" json:"auth_key"`                // 连接认证密钥（响应中脱敏）
+	WebPassword Secret `gorm:"size:255" json:"web_password"` // 响应中脱敏
+	AuthKey     Secret `gorm:"size:255" json:"auth_key"`     // 连接认证密钥（响应中脱敏）
 	LogLevel    string `gorm:"size:20;default:'info'" json:"log_level"`
 	Status      string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError   string `gorm:"type:text" json:"last_error"`
@@ -348,11 +348,11 @@ type EasytierClient struct {
 	Enable          bool   `gorm:"default:false" json:"enable"`
 	ServerAddr      string `gorm:"size:500" json:"server_addr"` // 支持多个，逗号分隔，格式：tcp://ip:port
 	NetworkName     string `gorm:"size:255" json:"network_name"`
-	NetworkPassword string `gorm:"size:255" json:"network_password"`
-	VirtualIP       string `gorm:"size:50" json:"virtual_ip"`     // 留空自动分配，格式：10.0.0.1/24
-	IPv6            string `gorm:"size:100" json:"ipv6"`          // --ipv6：IPv6 地址，可与 IPv4 同时使用
-	Hostname        string `gorm:"size:255" json:"hostname"`      // --hostname：自定义节点主机名
-	InstanceName    string `gorm:"size:255" json:"instance_name"` // --instance-name：实例名称，同机多节点时区分
+	NetworkPassword Secret `gorm:"size:255" json:"network_password"` // 响应中脱敏
+	VirtualIP       string `gorm:"size:50" json:"virtual_ip"`        // 留空自动分配，格式：10.0.0.1/24
+	IPv6            string `gorm:"size:100" json:"ipv6"`             // --ipv6：IPv6 地址，可与 IPv4 同时使用
+	Hostname        string `gorm:"size:255" json:"hostname"`         // --hostname：自定义节点主机名
+	InstanceName    string `gorm:"size:255" json:"instance_name"`    // --instance-name：实例名称，同机多节点时区分
 	// 本地监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
 	ListenPorts string `gorm:"size:500" json:"listen_ports"`
 	NoListener  bool   `gorm:"default:false" json:"no_listener"` // --no-listener：不监听任何端口，只连接对等节点
@@ -405,9 +405,9 @@ type EasytierClient struct {
 	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"` // --disable-encryption：禁用加密（不推荐）
 	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`     // --encryption-algorithm：加密算法
 	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`       // --private-mode：私有模式（仅允许已知节点）
-	PrivateKey          string `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
+	PrivateKey          Secret `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码），响应中脱敏
 	PublicKey           string `gorm:"size:500" json:"public_key"`              // 节点公钥（由私钥派生，仅展示用）
-	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码）
+	PreSharedKey        Secret `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码），响应中脱敏
 
 	// ===== 中继选项 =====
 	RelayNetworkWhitelist        string `gorm:"size:500" json:"relay_network_whitelist"`               // --relay-network-whitelist：允许中继的网络白名单
@@ -472,16 +472,16 @@ type EasytierServer struct {
 	// ConfigServerAddr config-server 地址，仅 config-server 模式下使用，格式：tcp://host:port
 	ConfigServerAddr string `gorm:"size:500" json:"config_server_addr"`
 	// ConfigServerToken config-server 认证 token（用户名），拼接到 URL 末尾，格式：tcp://host:port/<token>
-	ConfigServerToken string `gorm:"size:255" json:"config_server_token"`
-	MachineID         string `gorm:"size:255" json:"machine_id"` // --machine-id：Web 配置服务器用于识别机器的唯一 ID
+	ConfigServerToken Secret `gorm:"size:255" json:"config_server_token"` // 响应中脱敏
+	MachineID         string `gorm:"size:255" json:"machine_id"`          // --machine-id：Web 配置服务器用于识别机器的唯一 ID
 
 	ListenAddr string `gorm:"size:100;default:'0.0.0.0'" json:"listen_addr"`
 	// 监听端口，支持多个，逗号分隔，格式：tcp:11010,udp:11011 或 12345（基准端口）
 	ListenPorts     string `gorm:"size:500" json:"listen_ports"`
 	NetworkName     string `gorm:"size:255" json:"network_name"`
-	NetworkPassword string `gorm:"size:255" json:"network_password"`
-	Hostname        string `gorm:"size:255" json:"hostname"`      // --hostname：自定义节点主机名
-	InstanceName    string `gorm:"size:255" json:"instance_name"` // --instance-name：实例名称，同机多节点时区分
+	NetworkPassword Secret `gorm:"size:255" json:"network_password"` // 响应中脱敏
+	Hostname        string `gorm:"size:255" json:"hostname"`         // --hostname：自定义节点主机名
+	InstanceName    string `gorm:"size:255" json:"instance_name"`    // --instance-name：实例名称，同机多节点时区分
 
 	// ===== RPC 设置 =====
 	RpcPortal          string `gorm:"size:100" json:"rpc_portal"`           // --rpc-portal：RPC 管理门户地址
@@ -506,9 +506,9 @@ type EasytierServer struct {
 	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"` // --disable-encryption
 	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`     // --encryption-algorithm：加密算法
 	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`       // --private-mode：私有模式
-	PrivateKey          string `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码）
+	PrivateKey          Secret `gorm:"size:500" json:"private_key"`             // --private-key：节点私钥（Base64 编码），响应中脱敏
 	PublicKey           string `gorm:"size:500" json:"public_key"`              // 节点公钥（由私钥派生，仅展示用）
-	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码）
+	PreSharedKey        Secret `gorm:"size:500" json:"pre_shared_key"`          // --pre-shared-key：预共享密钥（Base64 编码），响应中脱敏
 
 	// ===== 中继选项 =====
 	RelayNetworkWhitelist        string `gorm:"size:500" json:"relay_network_whitelist"`               // --relay-network-whitelist
@@ -637,7 +637,7 @@ type DDNSTask struct {
 	Provider        string     `gorm:"size:50;not null" json:"provider"`        // alidns/cloudflare/dnspod/...
 	DomainAccountID uint       `json:"domain_account_id"`                       // 关联域名账号（可选）
 	AccessID        string     `gorm:"size:255" json:"access_id"`
-	AccessSecret    string     `gorm:"size:500" json:"access_secret"`
+	AccessSecret    Secret     `gorm:"size:500" json:"access_secret"`            // 响应中脱敏
 	Domains         string     `gorm:"type:text" json:"domains"`                 // JSON 数组
 	IPGetType       string     `gorm:"size:20;default:'url'" json:"ip_get_type"` // url/interface/custom
 	IPGetURLs       string     `gorm:"type:text" json:"ip_get_urls"`             // JSON 数组
@@ -746,7 +746,7 @@ type DomainAccount struct {
 	// 认证方式：api_key（API密钥，需要ID+Secret）/ api_token（API令牌，只需Token）
 	AuthType     string `gorm:"size:20;default:'api_key'" json:"auth_type"`
 	AccessID     string `gorm:"size:255" json:"access_id"`
-	AccessSecret string `gorm:"size:500" json:"access_secret"`
+	AccessSecret Secret `gorm:"size:500" json:"access_secret"` // 响应中脱敏
 	// 是否使用代理服务器
 	UseProxy bool   `gorm:"default:false" json:"use_proxy"`
 	Remark   string `gorm:"size:500" json:"remark"`
@@ -935,7 +935,7 @@ type StorageConfig struct {
 	ListenPort int    `json:"listen_port"`
 	RootPath   string `gorm:"size:500;not null" json:"root_path"`
 	Username   string `gorm:"size:100" json:"username"`
-	Password   string `gorm:"size:255" json:"password"`
+	Password   Secret `gorm:"size:255" json:"password"` // 响应中脱敏
 	ReadOnly   bool   `gorm:"default:false" json:"read_only"`
 	Status     string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError  string `gorm:"type:text" json:"last_error"`
@@ -1227,8 +1227,8 @@ type AiProvider struct {
 	BaseModel
 	Name     string `gorm:"size:100;not null" json:"name"`
 	BaseURL  string `gorm:"size:500;not null" json:"base_url"` // e.g. https://api.openai.com
-	ApiKey   Secret `gorm:"size:500" json:"api_key"` // 响应中脱敏
-	Models   string `gorm:"type:text" json:"models"`    // JSON array: ["gpt-4","gpt-3.5-turbo"]
+	ApiKey   Secret `gorm:"size:500" json:"api_key"`           // 响应中脱敏
+	Models   string `gorm:"type:text" json:"models"`           // JSON array: ["gpt-4","gpt-3.5-turbo"]
 	IsActive bool   `gorm:"default:true" json:"is_active"`
 	Remark   string `gorm:"size:500" json:"remark"`
 }
@@ -1287,15 +1287,15 @@ type AiCronTask struct {
 // AiCronLog AI 定时任务执行日志
 type AiCronLog struct {
 	BaseModel
-	TaskID          uint   `gorm:"index;not null" json:"task_id"`
-	Prompt          string `gorm:"type:text" json:"prompt"`
-	Result          string `gorm:"type:text" json:"result"`
-	ModelName       string `gorm:"size:100" json:"model_name"`
-	TokensPrompt    int    `gorm:"default:0" json:"tokens_prompt"`
-	TokensComplete  int    `gorm:"default:0" json:"tokens_completion"`
-	DurationMs      int64  `gorm:"default:0" json:"duration_ms"` // 执行耗时（毫秒）
-	Success         bool   `gorm:"default:true" json:"success"`
-	ErrorMsg        string `gorm:"type:text" json:"error_msg"`
+	TaskID         uint   `gorm:"index;not null" json:"task_id"`
+	Prompt         string `gorm:"type:text" json:"prompt"`
+	Result         string `gorm:"type:text" json:"result"`
+	ModelName      string `gorm:"size:100" json:"model_name"`
+	TokensPrompt   int    `gorm:"default:0" json:"tokens_prompt"`
+	TokensComplete int    `gorm:"default:0" json:"tokens_completion"`
+	DurationMs     int64  `gorm:"default:0" json:"duration_ms"` // 执行耗时（毫秒）
+	Success        bool   `gorm:"default:true" json:"success"`
+	ErrorMsg       string `gorm:"type:text" json:"error_msg"`
 }
 
 // AiPlugin AI 插件（MCP 工具 + SKILL 技能包）
@@ -1322,11 +1322,11 @@ type AiPlugin struct {
 // MonitorServer 监控服务器
 type MonitorServer struct {
 	BaseModel
-	Name        string `gorm:"size:100;not null" json:"name"`          // 服务器名称
-	DisplayName string `gorm:"size:100" json:"display_name"`           // 显示名称
-	Enable      bool   `gorm:"default:true" json:"enable"`             // 是否启用监控
-	GroupName   string `gorm:"size:100" json:"group_name"`             // 分组名称
-	Tags        string `gorm:"size:500" json:"tags"`                   // 标签，逗号分隔
+	Name        string `gorm:"size:100;not null" json:"name"` // 服务器名称
+	DisplayName string `gorm:"size:100" json:"display_name"`  // 显示名称
+	Enable      bool   `gorm:"default:true" json:"enable"`    // 是否启用监控
+	GroupName   string `gorm:"size:100" json:"group_name"`    // 分组名称
+	Tags        string `gorm:"size:500" json:"tags"`          // 标签，逗号分隔
 	// 地理位置
 	Country   string  `gorm:"size:100" json:"country"`    // 国家
 	Province  string  `gorm:"size:100" json:"province"`   // 省份
@@ -1344,26 +1344,26 @@ type MonitorServer struct {
 	SSHPassword Secret `gorm:"size:255" json:"ssh_password"` // SSH 密码（响应中脱敏）
 	SSHKeyFile  string `gorm:"size:500" json:"ssh_key_file"` // SSH 私钥文件路径
 	// HTTP 探测模式配置
-	HTTPProbeURL     string `gorm:"size:500" json:"http_probe_url"`     // HTTP 探测地址
+	HTTPProbeURL     string `gorm:"size:500" json:"http_probe_url"`       // HTTP 探测地址
 	HTTPProbeTimeout int    `gorm:"default:10" json:"http_probe_timeout"` // HTTP 超时（秒）
 	// 关联配置
-	MeshNodeID       uint `gorm:"default:0;index" json:"mesh_node_id"`        // 关联的组网节点 ID
-	DDNSTaskID       uint `gorm:"default:0;index" json:"ddns_task_id"`        // 关联的 DDNS 任务 ID
-	TunnelType       string `gorm:"size:20" json:"tunnel_type"`                // 关联的隧道类型：frp/nps/easytier/cftunnel
-	TunnelID         uint   `gorm:"default:0" json:"tunnel_id"`                // 关联的隧道配置 ID
+	MeshNodeID uint   `gorm:"default:0;index" json:"mesh_node_id"` // 关联的组网节点 ID
+	DDNSTaskID uint   `gorm:"default:0;index" json:"ddns_task_id"` // 关联的 DDNS 任务 ID
+	TunnelType string `gorm:"size:20" json:"tunnel_type"`          // 关联的隧道类型：frp/nps/easytier/cftunnel
+	TunnelID   uint   `gorm:"default:0" json:"tunnel_id"`          // 关联的隧道配置 ID
 	// 状态信息
-	IsOnline       bool       `gorm:"default:false" json:"is_online"`     // 在线状态
-	LastHeartbeat  *time.Time `json:"last_heartbeat"`                     // 最后心跳时间
-	OS             string     `gorm:"size:100" json:"os"`                 // 操作系统
-	Arch           string     `gorm:"size:50" json:"arch"`                // 架构
-	KernelVersion  string     `gorm:"size:100" json:"kernel_version"`     // 内核版本
-	Hostname       string     `gorm:"size:255" json:"hostname"`           // 主机名
-	BootTime       int64      `gorm:"default:0" json:"boot_time"`         // 系统启动时间（Unix 时间戳）
+	IsOnline      bool       `gorm:"default:false" json:"is_online"` // 在线状态
+	LastHeartbeat *time.Time `json:"last_heartbeat"`                 // 最后心跳时间
+	OS            string     `gorm:"size:100" json:"os"`             // 操作系统
+	Arch          string     `gorm:"size:50" json:"arch"`            // 架构
+	KernelVersion string     `gorm:"size:100" json:"kernel_version"` // 内核版本
+	Hostname      string     `gorm:"size:255" json:"hostname"`       // 主机名
+	BootTime      int64      `gorm:"default:0" json:"boot_time"`     // 系统启动时间（Unix 时间戳）
 	// 统计信息
-	Uptime        int64  `gorm:"default:0" json:"uptime"`         // 运行时长（秒）
+	Uptime           int64  `gorm:"default:0" json:"uptime"`             // 运行时长（秒）
 	TotalTrafficUp   int64  `gorm:"default:0" json:"total_traffic_up"`   // 总上行流量（字节）
 	TotalTrafficDown int64  `gorm:"default:0" json:"total_traffic_down"` // 总下行流量（字节）
-	Remark        string `gorm:"size:500" json:"remark"`
+	Remark           string `gorm:"size:500" json:"remark"`
 }
 
 // MonitorMetric 监控指标数据
@@ -1372,19 +1372,19 @@ type MonitorMetric struct {
 	ServerID  uint      `gorm:"not null;index:idx_server_time" json:"server_id"` // 服务器 ID
 	Timestamp time.Time `gorm:"index:idx_server_time" json:"timestamp"`          // 时间戳
 	// CPU 指标
-	CPUUsage    float64 `gorm:"default:0" json:"cpu_usage"`     // CPU 使用率（%）
-	CPUCores    int     `gorm:"default:0" json:"cpu_cores"`     // CPU 核心数
-	LoadAvg1    float64 `gorm:"default:0" json:"load_avg_1"`    // 1分钟负载
-	LoadAvg5    float64 `gorm:"default:0" json:"load_avg_5"`    // 5分钟负载
-	LoadAvg15   float64 `gorm:"default:0" json:"load_avg_15"`   // 15分钟负载
+	CPUUsage  float64 `gorm:"default:0" json:"cpu_usage"`   // CPU 使用率（%）
+	CPUCores  int     `gorm:"default:0" json:"cpu_cores"`   // CPU 核心数
+	LoadAvg1  float64 `gorm:"default:0" json:"load_avg_1"`  // 1分钟负载
+	LoadAvg5  float64 `gorm:"default:0" json:"load_avg_5"`  // 5分钟负载
+	LoadAvg15 float64 `gorm:"default:0" json:"load_avg_15"` // 15分钟负载
 	// 内存指标（字节）
-	MemTotal     uint64  `gorm:"default:0" json:"mem_total"`      // 内存总量
-	MemUsed      uint64  `gorm:"default:0" json:"mem_used"`       // 已用内存
-	MemAvailable uint64  `gorm:"default:0" json:"mem_available"`  // 可用内存
-	MemUsage     float64 `gorm:"default:0" json:"mem_usage"`      // 内存使用率（%）
-	SwapTotal    uint64  `gorm:"default:0" json:"swap_total"`     // 交换区总量
-	SwapUsed     uint64  `gorm:"default:0" json:"swap_used"`      // 交换区已用
-	SwapUsage    float64 `gorm:"default:0" json:"swap_usage"`     // 交换区使用率（%）
+	MemTotal     uint64  `gorm:"default:0" json:"mem_total"`     // 内存总量
+	MemUsed      uint64  `gorm:"default:0" json:"mem_used"`      // 已用内存
+	MemAvailable uint64  `gorm:"default:0" json:"mem_available"` // 可用内存
+	MemUsage     float64 `gorm:"default:0" json:"mem_usage"`     // 内存使用率（%）
+	SwapTotal    uint64  `gorm:"default:0" json:"swap_total"`    // 交换区总量
+	SwapUsed     uint64  `gorm:"default:0" json:"swap_used"`     // 交换区已用
+	SwapUsage    float64 `gorm:"default:0" json:"swap_usage"`    // 交换区使用率（%）
 	// 硬盘指标（字节）
 	DiskTotal uint64  `gorm:"default:0" json:"disk_total"` // 硬盘总量（所有分区总和）
 	DiskUsed  uint64  `gorm:"default:0" json:"disk_used"`  // 硬盘已用
@@ -1392,8 +1392,8 @@ type MonitorMetric struct {
 	DiskRead  uint64  `gorm:"default:0" json:"disk_read"`  // 硬盘读取速度（字节/秒）
 	DiskWrite uint64  `gorm:"default:0" json:"disk_write"` // 硬盘写入速度（字节/秒）
 	// 网络指标（字节/秒）
-	NetSent uint64 `gorm:"default:0" json:"net_sent"` // 网络上行速度
-	NetRecv uint64 `gorm:"default:0" json:"net_recv"` // 网络下行速度
+	NetSent        uint64 `gorm:"default:0" json:"net_sent"`        // 网络上行速度
+	NetRecv        uint64 `gorm:"default:0" json:"net_recv"`        // 网络下行速度
 	NetConnections int    `gorm:"default:0" json:"net_connections"` // 网络连接数
 	// 进程指标
 	ProcessCount int `gorm:"default:0" json:"process_count"` // 进程数
@@ -1405,52 +1405,52 @@ type MonitorMetric struct {
 // MonitorProbe 服务探测配置
 type MonitorProbe struct {
 	BaseModel
-	Name         string `gorm:"size:100;not null" json:"name"`             // 探测名称
-	Enable       bool   `gorm:"default:true" json:"enable"`                // 是否启用
-	ProbeType    string `gorm:"size:20;default:'tcp'" json:"probe_type"`   // tcp/udp/http/https/icmp
-	TargetAddr   string `gorm:"size:255;not null" json:"target_addr"`      // 目标地址（IP 或域名）
-	TargetPort   int    `gorm:"default:0" json:"target_port"`              // 目标端口（TCP/UDP）
-	HTTPPath     string `gorm:"size:500" json:"http_path"`                 // HTTP 路径（HTTP/HTTPS）
-	HTTPMethod   string `gorm:"size:10;default:'GET'" json:"http_method"`  // HTTP 方法
-	HTTPHeaders  string `gorm:"type:text" json:"http_headers"`             // HTTP 请求头（JSON）
-	Timeout      int    `gorm:"default:10" json:"timeout"`                 // 超时时间（秒）
-	Interval     int    `gorm:"default:60" json:"interval"`                // 探测间隔（秒）
+	Name        string `gorm:"size:100;not null" json:"name"`            // 探测名称
+	Enable      bool   `gorm:"default:true" json:"enable"`               // 是否启用
+	ProbeType   string `gorm:"size:20;default:'tcp'" json:"probe_type"`  // tcp/udp/http/https/icmp
+	TargetAddr  string `gorm:"size:255;not null" json:"target_addr"`     // 目标地址（IP 或域名）
+	TargetPort  int    `gorm:"default:0" json:"target_port"`             // 目标端口（TCP/UDP）
+	HTTPPath    string `gorm:"size:500" json:"http_path"`                // HTTP 路径（HTTP/HTTPS）
+	HTTPMethod  string `gorm:"size:10;default:'GET'" json:"http_method"` // HTTP 方法
+	HTTPHeaders string `gorm:"type:text" json:"http_headers"`            // HTTP 请求头（JSON）
+	Timeout     int    `gorm:"default:10" json:"timeout"`                // 超时时间（秒）
+	Interval    int    `gorm:"default:60" json:"interval"`               // 探测间隔（秒）
 	// 执行此探测的服务器 ID 列表（JSON 数组）
 	ServerIDs string `gorm:"type:text" json:"server_ids"`
 	// 告警配置
-	FailThreshold    int `gorm:"default:3" json:"fail_threshold"`    // 失败次数阈值
-	RecoverThreshold int `gorm:"default:2" json:"recover_threshold"` // 恢复次数阈值
+	FailThreshold    int    `gorm:"default:3" json:"fail_threshold"`    // 失败次数阈值
+	RecoverThreshold int    `gorm:"default:2" json:"recover_threshold"` // 恢复次数阈值
 	Remark           string `gorm:"size:500" json:"remark"`
 }
 
 // MonitorProbeResult 探测结果
 type MonitorProbeResult struct {
-	ID          uint      `gorm:"primarykey" json:"id"`
-	ProbeID     uint      `gorm:"not null;index:idx_probe_server_time" json:"probe_id"`     // 探测 ID
-	ServerID    uint      `gorm:"not null;index:idx_probe_server_time" json:"server_id"`    // 执行探测的服务器 ID
-	Timestamp   time.Time `gorm:"index:idx_probe_server_time" json:"timestamp"`             // 探测时间
-	Success     bool      `gorm:"default:false" json:"success"`                             // 探测是否成功
-	ResponseTime int64     `gorm:"default:0" json:"response_time"`                           // 响应时间（毫秒）
-	StatusCode  int       `gorm:"default:0" json:"status_code"`                             // HTTP 状态码
-	ErrorMsg    string    `gorm:"type:text" json:"error_msg"`                               // 错误信息
+	ID           uint      `gorm:"primarykey" json:"id"`
+	ProbeID      uint      `gorm:"not null;index:idx_probe_server_time" json:"probe_id"`  // 探测 ID
+	ServerID     uint      `gorm:"not null;index:idx_probe_server_time" json:"server_id"` // 执行探测的服务器 ID
+	Timestamp    time.Time `gorm:"index:idx_probe_server_time" json:"timestamp"`          // 探测时间
+	Success      bool      `gorm:"default:false" json:"success"`                          // 探测是否成功
+	ResponseTime int64     `gorm:"default:0" json:"response_time"`                        // 响应时间（毫秒）
+	StatusCode   int       `gorm:"default:0" json:"status_code"`                          // HTTP 状态码
+	ErrorMsg     string    `gorm:"type:text" json:"error_msg"`                            // 错误信息
 }
 
 // MonitorTask 监控任务
 type MonitorTask struct {
 	BaseModel
-	Name       string `gorm:"size:100;not null" json:"name"`            // 任务名称
-	Enable     bool   `gorm:"default:true" json:"enable"`               // 是否启用
-	TaskType   string `gorm:"size:20;default:'cron'" json:"task_type"`  // cron/trigger/manual
-	CronExpr   string `gorm:"size:100" json:"cron_expr"`                // Cron 表达式（cron 任务）
+	Name         string `gorm:"size:100;not null" json:"name"`           // 任务名称
+	Enable       bool   `gorm:"default:true" json:"enable"`              // 是否启用
+	TaskType     string `gorm:"size:20;default:'cron'" json:"task_type"` // cron/trigger/manual
+	CronExpr     string `gorm:"size:100" json:"cron_expr"`               // Cron 表达式（cron 任务）
 	TriggerEvent string `gorm:"size:50" json:"trigger_event"`            // 触发事件（trigger 任务）：server_offline/server_online/alert_trigger
 	// 执行内容
 	Command string `gorm:"type:text" json:"command"` // 执行的命令或脚本
 	// 目标服务器 ID 列表（JSON 数组）
 	ServerIDs string `gorm:"type:text;not null" json:"server_ids"`
 	// 执行配置
-	Timeout       int  `gorm:"default:300" json:"timeout"`         // 超时时间（秒）
-	FailRetry     int  `gorm:"default:0" json:"fail_retry"`        // 失败重试次数
-	Concurrent    bool `gorm:"default:false" json:"concurrent"`    // 是否并发执行
+	Timeout    int  `gorm:"default:300" json:"timeout"`      // 超时时间（秒）
+	FailRetry  int  `gorm:"default:0" json:"fail_retry"`     // 失败重试次数
+	Concurrent bool `gorm:"default:false" json:"concurrent"` // 是否并发执行
 	// 执行状态
 	LastRunTime   *time.Time `json:"last_run_time"`
 	LastRunResult string     `gorm:"type:text" json:"last_run_result"`
@@ -1460,22 +1460,22 @@ type MonitorTask struct {
 // MonitorTaskLog 任务执行日志
 type MonitorTaskLog struct {
 	BaseModel
-	TaskID    uint       `gorm:"not null;index" json:"task_id"`    // 任务 ID
-	ServerID  uint       `gorm:"not null;index" json:"server_id"`  // 服务器 ID
-	StartTime time.Time  `json:"start_time"`                       // 开始时间
-	EndTime   *time.Time `json:"end_time"`                         // 结束时间
+	TaskID    uint       `gorm:"not null;index" json:"task_id"`           // 任务 ID
+	ServerID  uint       `gorm:"not null;index" json:"server_id"`         // 服务器 ID
+	StartTime time.Time  `json:"start_time"`                              // 开始时间
+	EndTime   *time.Time `json:"end_time"`                                // 结束时间
 	Status    string     `gorm:"size:20;default:'running'" json:"status"` // running/success/failed/timeout
-	ExitCode  int        `gorm:"default:0" json:"exit_code"`       // 退出码
-	Stdout    string     `gorm:"type:text" json:"stdout"`          // 标准输出
-	Stderr    string     `gorm:"type:text" json:"stderr"`          // 标准错误输出
+	ExitCode  int        `gorm:"default:0" json:"exit_code"`              // 退出码
+	Stdout    string     `gorm:"type:text" json:"stdout"`                 // 标准输出
+	Stderr    string     `gorm:"type:text" json:"stderr"`                 // 标准错误输出
 }
 
 // MonitorAlert 告警规则
 type MonitorAlert struct {
 	BaseModel
-	Name       string `gorm:"size:100;not null" json:"name"`            // 规则名称
-	Enable     bool   `gorm:"default:true" json:"enable"`               // 是否启用
-	AlertType  string `gorm:"size:20;not null" json:"alert_type"`       // cpu/memory/disk/network/process/offline/probe
+	Name      string `gorm:"size:100;not null" json:"name"`      // 规则名称
+	Enable    bool   `gorm:"default:true" json:"enable"`         // 是否启用
+	AlertType string `gorm:"size:20;not null" json:"alert_type"` // cpu/memory/disk/network/process/offline/probe
 	// 监控对象（服务器 ID 列表或分组名，JSON）
 	TargetServers string `gorm:"type:text" json:"target_servers"` // JSON：["server:1","server:2"] 或 ["group:default"]
 	// 阈值配置（JSON）
@@ -1495,43 +1495,43 @@ type MonitorAlert struct {
 // MonitorAlertRecord 告警历史记录
 type MonitorAlertRecord struct {
 	BaseModel
-	AlertID      uint       `gorm:"not null;index" json:"alert_id"`       // 告警规则 ID
-	ServerID     uint       `gorm:"not null;index" json:"server_id"`      // 服务器 ID
-	TriggerTime  time.Time  `gorm:"index" json:"trigger_time"`            // 触发时间
-	RecoverTime  *time.Time `json:"recover_time"`                         // 恢复时间
-	Severity     string     `gorm:"size:20" json:"severity"`              // 告警级别
-	AlertContent string     `gorm:"type:text" json:"alert_content"`       // 告警内容
-	NotifySent   bool       `gorm:"default:false" json:"notify_sent"`     // 是否已发送通知
-	NotifyResult string     `gorm:"type:text" json:"notify_result"`       // 通知结果
+	AlertID      uint       `gorm:"not null;index" json:"alert_id"`   // 告警规则 ID
+	ServerID     uint       `gorm:"not null;index" json:"server_id"`  // 服务器 ID
+	TriggerTime  time.Time  `gorm:"index" json:"trigger_time"`        // 触发时间
+	RecoverTime  *time.Time `json:"recover_time"`                     // 恢复时间
+	Severity     string     `gorm:"size:20" json:"severity"`          // 告警级别
+	AlertContent string     `gorm:"type:text" json:"alert_content"`   // 告警内容
+	NotifySent   bool       `gorm:"default:false" json:"notify_sent"` // 是否已发送通知
+	NotifyResult string     `gorm:"type:text" json:"notify_result"`   // 通知结果
 }
 
 // MonitorNotificationChannel 监控通知渠道
 type MonitorNotificationChannel struct {
 	BaseModel
-	Name              string `gorm:"size:100;not null" json:"name"`              // 渠道名称
-	Type              string `gorm:"size:30;not null" json:"type"`               // webhook/email/wechat_work/dingtalk/telegram/discord/qq_bot/wxpusher
-	Config            string `gorm:"type:text" json:"config"`                    // JSON 配置
-	Enabled           bool   `gorm:"default:true" json:"enabled"`                // 是否启用
-	CallbackAccountID uint   `gorm:"default:0" json:"callback_account_id"`       // 关联的回调账号 ID（可选，用于复用已有配置）
+	Name              string `gorm:"size:100;not null" json:"name"`        // 渠道名称
+	Type              string `gorm:"size:30;not null" json:"type"`         // webhook/email/wechat_work/dingtalk/telegram/discord/qq_bot/wxpusher
+	Config            string `gorm:"type:text" json:"config"`              // JSON 配置
+	Enabled           bool   `gorm:"default:true" json:"enabled"`          // 是否启用
+	CallbackAccountID uint   `gorm:"default:0" json:"callback_account_id"` // 关联的回调账号 ID（可选，用于复用已有配置）
 }
 
 // MonitorDDNSBinding 监控 DDNS 绑定
 type MonitorDDNSBinding struct {
 	BaseModel
-	ServerID   uint   `gorm:"not null;uniqueIndex:idx_server_ddns" json:"server_id"` // 服务器 ID
-	DDNSTaskID uint   `gorm:"not null;uniqueIndex:idx_server_ddns" json:"ddns_task_id"` // DDNS 任务 ID
-	IPType     string `gorm:"size:10;default:'IPv4'" json:"ip_type"`                 // IPv4/IPv6
-	AutoUpdate bool   `gorm:"default:true" json:"auto_update"`                       // 是否自动更新
-	LastTriggerTime *time.Time `json:"last_trigger_time"`                           // 最后触发时间
+	ServerID        uint       `gorm:"not null;uniqueIndex:idx_server_ddns" json:"server_id"`    // 服务器 ID
+	DDNSTaskID      uint       `gorm:"not null;uniqueIndex:idx_server_ddns" json:"ddns_task_id"` // DDNS 任务 ID
+	IPType          string     `gorm:"size:10;default:'IPv4'" json:"ip_type"`                    // IPv4/IPv6
+	AutoUpdate      bool       `gorm:"default:true" json:"auto_update"`                          // 是否自动更新
+	LastTriggerTime *time.Time `json:"last_trigger_time"`                                        // 最后触发时间
 }
 
 // MonitorTunnelBinding 监控隧道绑定
 type MonitorTunnelBinding struct {
 	BaseModel
-	ServerID     uint   `gorm:"not null;index" json:"server_id"`               // 服务器 ID
-	TunnelType   string `gorm:"size:20;not null" json:"tunnel_type"`           // frp/nps/easytier/cftunnel/wireguard
-	TunnelID     uint   `gorm:"not null" json:"tunnel_id"`                     // 隧道配置 ID
-	AutoConfig   bool   `gorm:"default:false" json:"auto_config"`              // 是否自动配置
+	ServerID     uint   `gorm:"not null;index" json:"server_id"`                // 服务器 ID
+	TunnelType   string `gorm:"size:20;not null" json:"tunnel_type"`            // frp/nps/easytier/cftunnel/wireguard
+	TunnelID     uint   `gorm:"not null" json:"tunnel_id"`                      // 隧道配置 ID
+	AutoConfig   bool   `gorm:"default:false" json:"auto_config"`               // 是否自动配置
 	TunnelStatus string `gorm:"size:20;default:'unknown'" json:"tunnel_status"` // 隧道状态：connected/disconnected/unknown
 	Remark       string `gorm:"size:500" json:"remark"`
 }

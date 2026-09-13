@@ -58,6 +58,10 @@ func (h *EasytierHandler) Update(c *gin.Context) {
 	}
 	h.mgr.StopClient(uint(id))
 	req.ID = uint(id)
+	var existing model.EasytierClient
+	if err := h.db.First(&existing, id).Error; err == nil {
+		model.PreserveSecrets(&req, &existing)
+	}
 	h.db.Save(&req)
 	if req.Enable {
 		h.mgr.StartClient(uint(id))
@@ -160,6 +164,10 @@ func (h *EasytierServerHandler) Update(c *gin.Context) {
 	}
 	h.mgr.StopServer(uint(id))
 	req.ID = uint(id)
+	var existing model.EasytierServer
+	if err := h.db.First(&existing, id).Error; err == nil {
+		model.PreserveSecrets(&req, &existing)
+	}
 	h.db.Save(&req)
 	if req.Enable {
 		h.mgr.StartServer(uint(id))
