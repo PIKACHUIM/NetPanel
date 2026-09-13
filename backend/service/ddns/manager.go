@@ -264,10 +264,10 @@ func (m *Manager) resolveCredentials(task *model.DDNSTask) (accessID, accessSecr
 		if task.Provider == "" {
 			task.Provider = account.Provider
 		}
-		return account.AccessID, account.AccessSecret, nil
+		return account.AccessID, account.AccessSecret.String(), nil
 	}
 	// 使用任务自身凭证
-	return task.AccessID, task.AccessSecret, nil
+	return task.AccessID, task.AccessSecret.String(), nil
 }
 
 // getIP 根据配置获取当前 IP 地址
