@@ -18,7 +18,7 @@ import (
 type TerminalServer struct {
 	db      *gorm.DB
 	manager *Manager
-	
+
 	// WebSocket 连接池
 	sessions sync.Map // key: session_id, value: *TerminalSession
 }
@@ -29,7 +29,7 @@ type TerminalSession struct {
 	ServerID  uint
 	UserID    uint
 	Conn      *websocket.Conn
-	
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.Mutex
@@ -50,12 +50,12 @@ func (t *TerminalServer) CreateSession(serverID, userID uint, conn *websocket.Co
 	if err := t.db.First(&server, serverID).Error; err != nil {
 		return nil, fmt.Errorf("服务器不存在: %w", err)
 	}
-	
+
 	// 生成会话 ID
 	sessionID := fmt.Sprintf("%d-%d-%d", serverID, userID, time.Now().Unix())
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	session := &TerminalSession{
 		SessionID: sessionID,
 		ServerID:  serverID,
@@ -64,11 +64,11 @@ func (t *TerminalServer) CreateSession(serverID, userID uint, conn *websocket.Co
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-	
+
 	t.sessions.Store(sessionID, session)
-	
+
 	log.Printf("[Terminal] 创建会话: %s, 服务器: %d, 用户: %d\n", sessionID, serverID, userID)
-	
+
 	return session, nil
 }
 
@@ -79,7 +79,7 @@ func (t *TerminalServer) CloseSession(sessionID string) {
 		session.cancel()
 		session.Conn.Close()
 		t.sessions.Delete(sessionID)
-		
+
 		log.Printf("[Terminal] 关闭会话: %s\n", sessionID)
 	}
 }
@@ -90,25 +90,25 @@ func (t *TerminalServer) SendToSession(sessionID string, data []byte) error {
 	if !ok {
 		return fmt.Errorf("会话不存在: %s", sessionID)
 	}
-	
+
 	session := val.(*TerminalSession)
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	
+
 	return session.Conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
 // HandleSession 处理终端会话
 func (t *TerminalServer) HandleSession(session *TerminalSession) {
 	defer t.CloseSession(session.SessionID)
-	
+
 	// 获取服务器信息
 	var server model.MonitorServer
 	if err := t.db.First(&server, session.ServerID).Error; err != nil {
 		log.Printf("[Terminal] 获取服务器信息失败: %v\n", err)
 		return
 	}
-	
+
 	// 根据接入类型处理
 	switch server.AccessType {
 	case "ssh":
@@ -129,7 +129,7 @@ func (t *TerminalServer) handleSSHSession(session *TerminalSession, server model
 		t.SendToSession(session.SessionID, []byte(fmt.Sprintf("SSH 连接失败: %v\r\n", err)))
 		return
 	}
-	
+
 	// 创建 SSH 会话
 	sshSession, err := client.NewSession()
 	if err != nil {
@@ -137,30 +137,30 @@ func (t *TerminalServer) handleSSHSession(session *TerminalSession, server model
 		return
 	}
 	defer sshSession.Close()
-	
+
 	// 设置终端模式
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
-	
+
 	if err := sshSession.RequestPty("xterm-256color", 40, 80, modes); err != nil {
 		log.Printf("[Terminal] 请求 PTY 失败: %v\n", err)
 		return
 	}
-	
+
 	// 连接输入输出
 	sshStdin, _ := sshSession.StdinPipe()
 	sshStdout, _ := sshSession.StdoutPipe()
 	sshStderr, _ := sshSession.StderrPipe()
-	
+
 	// 启动 shell
 	if err := sshSession.Shell(); err != nil {
 		log.Printf("[Terminal] 启动 Shell 失败: %v\n", err)
 		return
 	}
-	
+
 	// WebSocket -> SSH
 	go func() {
 		for {
@@ -171,7 +171,7 @@ func (t *TerminalServer) handleSSHSession(session *TerminalSession, server model
 			sshStdin.Write(data)
 		}
 	}()
-	
+
 	// SSH -> WebSocket
 	go func() {
 		buf := make([]byte, 4096)
@@ -183,7 +183,7 @@ func (t *TerminalServer) handleSSHSession(session *TerminalSession, server model
 			t.SendToSession(session.SessionID, buf[:n])
 		}
 	}()
-	
+
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -194,7 +194,7 @@ func (t *TerminalServer) handleSSHSession(session *TerminalSession, server model
 			t.SendToSession(session.SessionID, buf[:n])
 		}
 	}()
-	
+
 	// 等待会话结束
 	sshSession.Wait()
 }

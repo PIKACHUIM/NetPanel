@@ -167,7 +167,7 @@ func GetDownloadInfo() map[string]interface{} {
 		"version":   cloudflaredVersion,
 		"os":        runtime.GOOS,
 		"arch":      runtime.GOARCH,
-		"error":     func() string {
+		"error": func() string {
 			if err != nil {
 				return err.Error()
 			}

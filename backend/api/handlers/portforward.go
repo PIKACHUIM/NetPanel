@@ -55,7 +55,7 @@ func (h *PortForwardHandler) Create(c *gin.Context) {
 			h.log.Warnf("端口转发 [%d] 自动启动失败: %v", rule.ID, err)
 		}
 	}
-logger.WriteLog("info", "portforward", fmt.Sprintf("创建端口转发规则 [%d] %s:%d -> %s:%d", rule.ID, rule.ListenIP, rule.ListenPort, rule.TargetAddress, rule.TargetPort))
+	logger.WriteLog("info", "portforward", fmt.Sprintf("创建端口转发规则 [%d] %s:%d -> %s:%d", rule.ID, rule.ListenIP, rule.ListenPort, rule.TargetAddress, rule.TargetPort))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
 }
 
