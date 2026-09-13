@@ -663,6 +663,24 @@ func (m *Manager) pruneHistory(lineID string) {
 	m.db.Where("line_id = ?", lineID).Order("id asc").Limit(int(excess)).Delete(&model.ProbeHistory{})
 }
 
+// History 返回指定线路的探测历史（延迟趋势），按时间正序排列，供前端趋势图使用。
+// limit <= 0 或 > 500 时默认取 100 条；lineID 不存在则返回空 map。
+func (m *Manager) History(lineID string, limit int) ([]model.ProbeHistory, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	var history []model.ProbeHistory
+	if err := m.db.Where("line_id = ?", lineID).
+		Order("id desc").Limit(limit).Find(&history).Error; err != nil {
+		return nil, err
+	}
+	// 时间正序（趋势图从左到右）
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
+	return history, nil
+}
+
 // BuildLines 从数据库汇总各工具「启用且入口可用」的线路。
 //
 // 各工具入口来源：

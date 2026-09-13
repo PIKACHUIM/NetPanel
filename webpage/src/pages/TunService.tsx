@@ -28,6 +28,7 @@ import {
     ThunderboltOutlined,
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
+import ReactECharts from 'echarts-for-react'
 import {lineregApi, tunserviceApi} from '../api'
 import StatusTag from '../components/StatusTag'
 
@@ -56,6 +57,11 @@ const TunService: React.FC = () => {
     const [detailOpen, setDetailOpen] = useState(false)
     const [detail, setDetail] = useState<any>(null)
     const [history, setHistory] = useState<Record<string, any[]>>({})
+    // 线路趋势图弹窗状态
+    const [lineTrendOpen, setLineTrendOpen] = useState(false)
+    const [lineTrendLineId, setLineTrendLineId] = useState<string>('')
+    const [lineTrendData, setLineTrendData] = useState<any[]>([])
+    const [lineTrendLoading, setLineTrendLoading] = useState(false)
     const [form] = Form.useForm()
     const [probeOpen, setProbeOpen] = useState(false)
     const [probeLoading, setProbeLoading] = useState(false)
@@ -236,6 +242,86 @@ const TunService: React.FC = () => {
             setHistory(historyRes?.data || {})
         } catch (e: any) {
             message.error(e?.response?.data?.message || t('common.failed'))
+        }
+    }
+
+    // 加载单线路探测历史（用于 ECharts 趋势图弹窗）
+    const loadLineTrend = async (lineId: string) => {
+        setLineTrendOpen(true)
+        setLineTrendLineId(lineId)
+        setLineTrendData([])
+        setLineTrendLoading(true)
+        try {
+            const res = await lineregApi.getLineHistory(lineId, 100)
+            setLineTrendData(res?.data || [])
+        } catch (e: any) {
+            message.error(e?.response?.data?.message || t('tunservice.lineTrendLoadFailed'))
+        } finally {
+            setLineTrendLoading(false)
+        }
+    }
+
+    // 构建 ECharts option（延迟趋势 + 可用性标记）
+    const buildTrendOption = (data: any[]) => {
+        if (!data || data.length === 0) {
+            return {
+                title: {text: t('tunservice.noHistory'), left: 'center', top: 'center', textStyle: {color: '#999'}},
+                xAxis: {type: 'category', show: false},
+                yAxis: {type: 'value', show: false},
+                series: [],
+            }
+        }
+        // 取 http_latency（有值优先）或 tcp_latency，转 ms
+        const latencies = data.map(p => {
+            const v = (p.http_latency || 0) > 0 ? p.http_latency : p.tcp_latency
+            return v > 0 ? v / 1e6 : null
+        })
+        const times = data.map(p => {
+            const d = new Date(p.created_at || p.id * 1000)
+            return d.toLocaleTimeString()
+        })
+        const maxLat = Math.max(...latencies.filter(v => v !== null) as number[], 1)
+        // 失败点：Y 轴顶端（maxLat * 1.2），成功点按实际延迟
+        const failData = data
+            .map((p, i) => (p.available === false ? {value: maxLat * 1.2, time: times[i]} : null))
+            .filter(Boolean) as any[]
+        const successData = data
+            .map((p, i) => (p.available !== false && latencies[i] !== null ? {value: latencies[i], time: times[i]} : null))
+            .filter(Boolean) as any[]
+        return {
+            tooltip: {trigger: 'axis'},
+            legend: {data: ['延迟 (ms)', '失败点'], bottom: 0},
+            grid: {left: 50, right: 20, top: 20, bottom: 40},
+            xAxis: {type: 'category', data: times, axisLabel: {rotate: 45, fontSize: 10}},
+            yAxis: {
+                type: 'value',
+                name: 'ms',
+                max: maxLat * 1.3,
+                axisLabel: {fontSize: 10},
+                splitLine: {lineStyle: {color: '#eee'}},
+            },
+            series: [
+                {
+                    name: '延迟 (ms)',
+                    type: 'line',
+                    smooth: true,
+                    data: successData.map((d: any) => d.value),
+                    itemStyle: {color: '#1677ff'},
+                    areaStyle: {
+                        color: {
+                            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                            colorStops: [{offset: 0, color: 'rgba(22,119,255,0.25)'}, {offset: 1, color: 'rgba(22,119,255,0.03)'}],
+                        },
+                    },
+                },
+                {
+                    name: '失败点',
+                    type: 'scatter',
+                    data: failData.map((d: any) => [d.time, d.value]),
+                    itemStyle: {color: '#ff4d4f'},
+                    symbolSize: 8,
+                },
+            ],
         }
     }
 
@@ -549,7 +635,16 @@ const TunService: React.FC = () => {
                                     {
                                         title: t('tunservice.trend'),
                                         key: 'trend',
-                                        render: (_: any, row: any) => <Sparkline points={history[row.id] || []}/>,
+                                        render: (_: any, row: any) => (
+                                            <Button
+                                                type="link"
+                                                size="small"
+                                                onClick={() => loadLineTrend(row.id)}
+                                                icon={<ReloadOutlined style={{fontSize: 11}}/>}
+                                            >
+                                                <Sparkline points={history[row.id] || []}/>
+                                            </Button>
+                                        ),
                                     },
                                     {
                                         title: t('common.status'),
@@ -563,6 +658,30 @@ const TunService: React.FC = () => {
                     </Space>
                 )}
             </Drawer>
+
+            {/* 线路延迟趋势图弹窗 */}
+            <Modal
+                title={`${t('tunservice.lineTrendTitle')} · ${lineTrendLineId}`}
+                open={lineTrendOpen}
+                onCancel={() => setLineTrendOpen(false)}
+                footer={[
+                    <Button key="close" type="primary" onClick={() => setLineTrendOpen(false)}>
+                        {t('common.close')}
+                    </Button>,
+                ]}
+                width={720}
+                destroyOnClose
+            >
+                {lineTrendLoading ? (
+                    <div style={{textAlign: 'center', padding: 40}}>{t('common.loading')}</div>
+                ) : (
+                    <ReactECharts
+                        option={buildTrendOption(lineTrendData)}
+                        style={{height: 280, width: '100%'}}
+                        notMerge={true}
+                    />
+                )}
+            </Modal>
         </div>
     )
 }

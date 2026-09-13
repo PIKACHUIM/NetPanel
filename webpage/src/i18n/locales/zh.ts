@@ -1662,6 +1662,8 @@ const zh = {
     latency: '延迟',
     trend: '延迟趋势',
     noHistory: '暂无历史记录',
+    lineTrendTitle: '线路延迟趋势',
+    lineTrendLoadFailed: '历史加载失败',
     probeConfig: '线路策略',
     probeInterval: '探测间隔(秒)',
     failureThreshold: '失败阈值(次)',
