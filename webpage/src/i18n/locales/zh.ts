@@ -1600,8 +1600,8 @@ const zh = {
     regenerateKeyTip: '注意：重新生成密钥后，所有对等节点需要更新公钥',
     // 高级设置
     hookScripts: '钩子脚本',
-    preUpTip: '接口启动前执行的命令',
-    postUpTip: '接口启动后执行的命令，常用于配置 iptables 规则',
+    preUpTip: '接口启动前以面板权限执行的 shell 命令，等于授予宿主机执行能力，仅在完全理解后果时填写',
+    postUpTip: '接口启动后以面板权限执行的 shell 命令（常用于 iptables），等于授予宿主机执行能力，仅在完全理解后果时填写',
     preDownTip: '接口停止前执行的命令',
     postDownTip: '接口停止后执行的命令，常用于清理 iptables 规则',
     // 对等节点

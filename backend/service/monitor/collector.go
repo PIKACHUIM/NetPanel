@@ -70,17 +70,17 @@ func (c *Collector) CollectMetricsViaSSH(server model.MonitorServer) (*model.Mon
 	if err != nil {
 		return nil, fmt.Errorf("SSH 连接失败: %w", err)
 	}
-	
+
 	metric := &model.MonitorMetric{
 		ServerID:  server.ID,
 		Timestamp: time.Now(),
 	}
-	
+
 	// 采集 CPU 信息
 	if cpuUsage, err := c.getCPUUsageSSH(client); err == nil {
 		metric.CPUUsage = cpuUsage
 	}
-	
+
 	// 采集内存信息
 	if memInfo, err := c.getMemoryInfoSSH(client); err == nil {
 		metric.MemTotal = memInfo.Total
@@ -88,25 +88,25 @@ func (c *Collector) CollectMetricsViaSSH(server model.MonitorServer) (*model.Mon
 		metric.MemAvailable = memInfo.Available
 		metric.MemUsage = memInfo.Usage
 	}
-	
+
 	// 采集硬盘信息
 	if diskInfo, err := c.getDiskInfoSSH(client); err == nil {
 		metric.DiskTotal = diskInfo.Total
 		metric.DiskUsed = diskInfo.Used
 		metric.DiskUsage = diskInfo.Usage
 	}
-	
+
 	// 采集网络信息
 	if netInfo, err := c.getNetworkInfoSSH(client); err == nil {
 		metric.NetSent = netInfo.Sent
 		metric.NetRecv = netInfo.Recv
 	}
-	
+
 	// 采集进程信息
 	if processCount, err := c.getProcessCountSSH(client); err == nil {
 		metric.ProcessCount = processCount
 	}
-	
+
 	return metric, nil
 }
 
@@ -250,22 +250,22 @@ func (c *Collector) executeCommandViaSSH(server model.MonitorServer, command str
 	if err != nil {
 		return "", err
 	}
-	
+
 	session, err := client.NewSession()
 	if err != nil {
 		return "", err
 	}
 	defer session.Close()
-	
+
 	var stdout bytes.Buffer
 	session.Stdout = &stdout
-	
+
 	// 设置超时
 	done := make(chan error, 1)
 	go func() {
 		done <- session.Run(command)
 	}()
-	
+
 	select {
 	case err := <-done:
 		if err != nil {
@@ -285,13 +285,13 @@ func (c *Collector) getCPUUsageSSH(client *ssh.Client) (float64, error) {
 		return 0, err
 	}
 	defer session.Close()
-	
+
 	// 使用 top 命令获取 CPU 使用率
 	output, err := session.CombinedOutput("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1")
 	if err != nil {
 		return 0, err
 	}
-	
+
 	var usage float64
 	fmt.Sscanf(string(output), "%f", &usage)
 	return usage, nil
@@ -312,24 +312,24 @@ func (c *Collector) getMemoryInfoSSH(client *ssh.Client) (*MemoryInfo, error) {
 		return nil, err
 	}
 	defer session.Close()
-	
+
 	output, err := session.CombinedOutput("free -b | grep Mem")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var info MemoryInfo
 	fields := strings.Fields(string(output))
 	if len(fields) >= 7 {
 		fmt.Sscanf(fields[1], "%d", &info.Total)
 		fmt.Sscanf(fields[2], "%d", &info.Used)
 		fmt.Sscanf(fields[6], "%d", &info.Available)
-		
+
 		if info.Total > 0 {
 			info.Usage = float64(info.Used) / float64(info.Total) * 100
 		}
 	}
-	
+
 	return &info, nil
 }
 
@@ -347,23 +347,23 @@ func (c *Collector) getDiskInfoSSH(client *ssh.Client) (*DiskInfo, error) {
 		return nil, err
 	}
 	defer session.Close()
-	
+
 	output, err := session.CombinedOutput("df -B1 / | tail -1")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var info DiskInfo
 	fields := strings.Fields(string(output))
 	if len(fields) >= 5 {
 		fmt.Sscanf(fields[1], "%d", &info.Total)
 		fmt.Sscanf(fields[2], "%d", &info.Used)
-		
+
 		if info.Total > 0 {
 			info.Usage = float64(info.Used) / float64(info.Total) * 100
 		}
 	}
-	
+
 	return &info, nil
 }
 
@@ -380,20 +380,20 @@ func (c *Collector) getNetworkInfoSSH(client *ssh.Client) (*NetworkInfo, error) 
 		return nil, err
 	}
 	defer session.Close()
-	
+
 	// 简化版：读取第一个非 lo 网卡的流量
 	output, err := session.CombinedOutput("cat /proc/net/dev | grep -v 'lo:' | grep ':' | head -1")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var info NetworkInfo
 	fields := strings.Fields(string(output))
 	if len(fields) >= 10 {
 		fmt.Sscanf(fields[1], "%d", &info.Recv)
 		fmt.Sscanf(fields[9], "%d", &info.Sent)
 	}
-	
+
 	return &info, nil
 }
 
@@ -404,12 +404,12 @@ func (c *Collector) getProcessCountSSH(client *ssh.Client) (int, error) {
 		return 0, err
 	}
 	defer session.Close()
-	
+
 	output, err := session.CombinedOutput("ps aux | wc -l")
 	if err != nil {
 		return 0, err
 	}
-	
+
 	var count int
 	fmt.Sscanf(string(output), "%d", &count)
 	return count - 1, nil // 减去标题行
@@ -420,19 +420,19 @@ func (c *Collector) ProbeHTTP(probeURL string, timeout int) (bool, int64, int, e
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	}
-	
+
 	start := time.Now()
 	resp, err := client.Get(probeURL)
 	responseTime := time.Since(start).Milliseconds()
-	
+
 	if err != nil {
 		return false, responseTime, 0, err
 	}
 	defer resp.Body.Close()
-	
+
 	// 读取响应体（但不使用）
 	io.Copy(io.Discard, resp.Body)
-	
+
 	success := resp.StatusCode >= 200 && resp.StatusCode < 400
 	return success, responseTime, resp.StatusCode, nil
 }
@@ -440,15 +440,15 @@ func (c *Collector) ProbeHTTP(probeURL string, timeout int) (bool, int64, int, e
 // ProbeTCP TCP 探测
 func (c *Collector) ProbeTCP(addr string, port int, timeout int) (bool, int64, error) {
 	target := net.JoinHostPort(addr, strconv.Itoa(port))
-	
+
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", target, time.Duration(timeout)*time.Second)
 	responseTime := time.Since(start).Milliseconds()
-	
+
 	if err != nil {
 		return false, responseTime, err
 	}
-	
+
 	conn.Close()
 	return true, responseTime, nil
 }
@@ -456,15 +456,15 @@ func (c *Collector) ProbeTCP(addr string, port int, timeout int) (bool, int64, e
 // ProbeUDP UDP 探测
 func (c *Collector) ProbeUDP(addr string, port int, timeout int) (bool, int64, error) {
 	target := net.JoinHostPort(addr, strconv.Itoa(port))
-	
+
 	start := time.Now()
 	conn, err := net.DialTimeout("udp", target, time.Duration(timeout)*time.Second)
 	responseTime := time.Since(start).Milliseconds()
-	
+
 	if err != nil {
 		return false, responseTime, err
 	}
-	
+
 	// UDP 是无连接的，这里只是测试能否创建连接
 	conn.Close()
 	return true, responseTime, nil
@@ -477,14 +477,14 @@ func (c *Collector) ProbeICMP(addr string, timeout int) (bool, int64, error) {
 	if err != nil {
 		return false, 0, fmt.Errorf("解析目标地址失败: %w", err)
 	}
-	
+
 	// ICMP 原始套接字需要特权（Linux root / macOS 亦需权限）
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
 		return false, 0, fmt.Errorf("创建 ICMP 套接字失败（可能需要管理员/root 权限）: %w", err)
 	}
 	defer conn.Close()
-	
+
 	// 构造 Echo 请求
 	msg := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
@@ -495,22 +495,22 @@ func (c *Collector) ProbeICMP(addr string, timeout int) (bool, int64, error) {
 			Data: []byte("netpanel-monitor"),
 		},
 	}
-	
+
 	msgBytes, err := msg.Marshal(nil)
 	if err != nil {
 		return false, 0, err
 	}
-	
+
 	// 设置读取超时
 	if err := conn.SetDeadline(time.Now().Add(time.Duration(timeout) * time.Second)); err != nil {
 		return false, 0, err
 	}
-	
+
 	start := time.Now()
 	if _, err := conn.WriteTo(msgBytes, &net.IPAddr{IP: ip.IP}); err != nil {
 		return false, time.Since(start).Milliseconds(), err
 	}
-	
+
 	// 读取 Echo Reply
 	reply := make([]byte, 1500)
 	n, _, err := conn.ReadFrom(reply)
@@ -518,12 +518,12 @@ func (c *Collector) ProbeICMP(addr string, timeout int) (bool, int64, error) {
 	if err != nil {
 		return false, responseTime, err
 	}
-	
+
 	replyMsg, err := icmp.ParseMessage(1, reply[:n])
 	if err != nil {
 		return false, responseTime, err
 	}
-	
+
 	if replyMsg.Type == ipv4.ICMPTypeEchoReply {
 		return true, responseTime, nil
 	}

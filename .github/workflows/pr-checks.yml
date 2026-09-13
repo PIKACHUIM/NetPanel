@@ -80,5 +80,14 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未通过 gofmt 格式化:"
+            echo "$unformatted"
+            exit 1
+          fi
+
       - name: Test
-        run: go test ./... -count=1
+        run: go test -race ./... -count=1
