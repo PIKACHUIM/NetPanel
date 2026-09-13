@@ -7,8 +7,14 @@ import {
   ExclamationCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import ReactECharts from 'echarts-for-react/lib/core'
+// echarts 按需引入：全量包 1.15MB（gzip 375KB），按需后大幅缩减
+import * as echarts from 'echarts/core'
+import { ScatterChart, EffectScatterChart } from 'echarts/charts'
+import { GeoComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([ScatterChart, EffectScatterChart, GeoComponent, TooltipComponent, CanvasRenderer])
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
 
@@ -317,7 +323,7 @@ const MonitorDashboard: React.FC = () => {
         >
           <Spin spinning={loading || !mapReady}>
             {mapReady ? (
-              <ReactECharts option={getMapOption()} style={{ height: '500px' }} notMerge={true} lazyUpdate={true} />
+              <ReactECharts echarts={echarts} option={getMapOption()} style={{ height: '500px' }} notMerge={true} lazyUpdate={true} />
             ) : (
               <div style={{ height: '500px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 加载地图中...

@@ -3,7 +3,13 @@ import { Card, Table, Button, Modal, Form, Input, Select, Switch, Space, App, Ta
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from 'echarts-for-react/lib/core'
+import * as echarts from 'echarts/core'
+import { LineChart, ScatterChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const { Option } = Select
 
@@ -336,7 +342,7 @@ const MonitorProbes: React.FC = () => {
         footer={null}
         width={900}
       >
-        <ReactECharts option={getResultsChartOption()} style={{ height: '400px' }} />
+        <ReactECharts echarts={echarts} option={getResultsChartOption()} style={{ height: '400px' }} />
       </Modal>
     </div>
   )

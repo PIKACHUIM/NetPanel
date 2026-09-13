@@ -21,5 +21,15 @@ export default defineConfig({
   build: {
     outDir: '../backend/embed/dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        // vendor 拆分：antd/react/echarts 独立 chunk，业务代码更新时利用浏览器缓存
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-antd': ['antd', '@ant-design/icons'],
+        },
+      },
+    },
   },
 })
