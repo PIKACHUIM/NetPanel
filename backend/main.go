@@ -131,7 +131,9 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log := logger.Init()
+	// 注意：此处必须用 Get() 复用 startServer 初始化的全局 logger——
+	// 再调 Init() 会创建新 logger 覆盖全局实例，导致关闭阶段日志丢失 DBHook
+	log := logger.Get()
 	log.Info("正在关闭 NetPanel...")
 
 	// 停止所有子服务
@@ -241,8 +243,11 @@ func startServer() *http.Server {
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
 	_ = logMonitor // 暂时不使用，预留给未来的日志集成
 
-	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）
-	waf.SetDefault(waf.NewManager(db))
+	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）；
+	// 同时启动攻击日志保留清理（7 天）
+	wafMgr := waf.NewManager(db)
+	waf.SetDefault(wafMgr)
+	wafMgr.StartRetention()
 
 	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
 	lineregMgr := linereg.NewManager(db, log, 0)
@@ -386,7 +391,9 @@ func startServer() *http.Server {
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
-		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv)
+		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv,
+		syslogMgr, wafMgr)
+
 
 	return srv
 }
@@ -453,6 +460,9 @@ func registerStopHandlers(
 	aiMgr interface{ Stop() },
 	monitorMgr interface{ Stop() },
 	mcpSrv interface{ Stop() error },
+	// 以下为此前漏注册的服务：日志写入器（需排空队列）、WAF 数据保留策略
+	syslogMgr interface{ Stop() },
+	wafMgr interface{ StopRetention() },
 ) {
 	stopAllFn = func() {
 		log.Info("正在停止所有服务...")
@@ -474,7 +484,9 @@ func registerStopHandlers(
 		certMgr.StopAll()
 		aiMgr.Stop()
 		monitorMgr.Stop()
-		_ = mcpSrv.Stop()
+		mcpSrv.Stop()
+		syslogMgr.Stop() // 最后停：排空剩余日志队列
+		wafMgr.StopRetention()
 		log.Info("所有服务已停止")
 	}
 }

@@ -1,6 +1,7 @@
 package cert
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -70,20 +71,27 @@ type Manager struct {
 	log     *logrus.Logger
 	dataDir string
 	mu      sync.Mutex
-	// stopCh 用于终止后台续期与 ACME 流程轮询 goroutine
-	stopCh    chan struct{}
+	// ctx/stop 控制定时循环的生命周期（此前为裸 for-range，进程内无法优雅关闭）
+	ctx    context.Context
+	cancel context.CancelFunc
+	// startOnce/stopOnce 保证 StartAll/StopAll 幂等，可被 API 与开机恢复路径重复调用
 	startOnce sync.Once
 	stopOnce  sync.Once
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
-	return &Manager{db: db, log: log, dataDir: dataDir}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Manager{db: db, log: log, dataDir: dataDir, ctx: ctx, cancel: cancel}
+}
+
+// Stop 停止后台定时循环（优雅关闭时调用）
+func (m *Manager) Stop() {
+	m.cancel()
 }
 
 // StartAll 启动自动续期检查和 ACME 流程定时器（幂等）
 func (m *Manager) StartAll() {
 	m.startOnce.Do(func() {
-		m.stopCh = make(chan struct{})
 		go m.autoRenewLoop()
 		go m.acmeFlowLoop()
 	})
@@ -92,11 +100,7 @@ func (m *Manager) StartAll() {
 // StopAll 停止后台轮询，供进程优雅关闭时回收 goroutine。
 // 原实现没有停止入口，进程退出前两个 goroutine 会持续运行。
 func (m *Manager) StopAll() {
-	m.stopOnce.Do(func() {
-		if m.stopCh != nil {
-			close(m.stopCh)
-		}
-	})
+	m.stopOnce.Do(m.cancel)
 }
 
 // autoRenewLoop 每 12 小时检查一次证书到期情况
@@ -109,7 +113,7 @@ func (m *Manager) autoRenewLoop() {
 
 	for {
 		select {
-		case <-m.stopCh:
+		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
 			m.checkAndRenew()
@@ -127,7 +131,7 @@ func (m *Manager) acmeFlowLoop() {
 
 	for {
 		select {
-		case <-m.stopCh:
+		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
 			m.processAcmeFlowTasks()

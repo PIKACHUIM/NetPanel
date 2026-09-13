@@ -107,6 +107,10 @@ func (m *Manager) Start() error {
 	m.wg.Add(1)
 	go m.heartbeatChecker()
 
+	// 启动数据保留策略清理循环
+	m.wg.Add(1)
+	go m.retentionLoop()
+
 	// 启动子模块
 	m.ProbeEngine.Start()
 	m.TaskEngine.Start()
@@ -177,6 +181,52 @@ func (m *Manager) startGRPCServer() error {
 	}()
 
 	return nil
+}
+
+// retentionLoop 数据保留策略清理循环（每日）：防止高频写入的监控表
+// 无界膨胀（此前仅在删除父实体时顺带清理）。
+func (m *Manager) retentionLoop() {
+	defer m.wg.Done()
+
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	// 启动时先清一次
+	m.runRetention()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.runRetention()
+		}
+	}
+}
+
+// runRetention 执行一轮过期数据清理
+func (m *Manager) runRetention() {
+	rules := []struct {
+		model  any
+		column string
+		days   int
+		name   string
+	}{
+		{&model.MonitorMetric{}, "timestamp", 7, "监控指标"},
+		{&model.MonitorProbeResult{}, "timestamp", 30, "探测结果"},
+		{&model.MonitorTaskLog{}, "start_time", 30, "任务日志"},
+	}
+	for _, r := range rules {
+		cutoff := time.Now().AddDate(0, 0, -r.days)
+		res := m.DB.Where(r.column+" < ?", cutoff).Delete(r.model)
+		if res.Error != nil {
+			log.Printf("[Monitor] 清理过期%s失败: %v", r.name, res.Error)
+			continue
+		}
+		if res.RowsAffected > 0 {
+			log.Printf("[Monitor] 已清理 %d 条过期%s", res.RowsAffected, r.name)
+		}
+	}
 }
 
 // heartbeatChecker 心跳检测器
