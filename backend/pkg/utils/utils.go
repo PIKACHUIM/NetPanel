@@ -17,14 +17,11 @@ func HashPassword(password string) (string, error) {
 	return string(bytes), err
 }
 
-// CheckPassword 验证密码是否匹配哈希值（同时兼容明文密码）
+// CheckPassword 验证密码是否匹配 bcrypt 哈希值。
+// 旧版明文口令的兼容路径已移除（历史数据由 db 层的一次性迁移统一转为 bcrypt），
+// 明文比较等同于绕过哈希强度，也会让时序侧信道成为可能。
 func CheckPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	if err == nil {
-		return true
-	}
-	// 兼容旧版明文密码
-	return password == hash
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 // GenerateKey 生成随机 key

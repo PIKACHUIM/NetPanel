@@ -6,8 +6,8 @@ import (
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
-	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
@@ -15,16 +15,16 @@ import (
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/netpanel/netpanel/service/linereg"
+	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
-	"github.com/netpanel/netpanel/service/ai"
-	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -140,7 +140,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/port-forward/:id/start", pfHandler.Start)
 	admin.POST("/port-forward/:id/stop", pfHandler.Stop)
 
-	// STUN 穿透
+	// STUN 穿透（会驱动 UPnP/打洞等宿主机网络操作，写操作仅管理员）
 	stunHandler := handlers.NewStunHandler(opts.DB, opts.Log, opts.StunMgr)
 	auth.GET("/stun", stunHandler.List)
 	auth.GET("/stun/:id/status", stunHandler.GetStatus)
@@ -150,7 +150,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/stun/:id/start", stunHandler.Start)
 	admin.POST("/stun/:id/stop", stunHandler.Stop)
 
-	// FRP 客户端
+	// FRP 客户端（启动进程/连接远端，写操作仅管理员）
 	frpcHandler := handlers.NewFrpcHandler(opts.DB, opts.Log, opts.FrpMgr)
 	auth.GET("/frpc", frpcHandler.List)
 	auth.GET("/frpc/:id/proxies", frpcHandler.ListProxies)
@@ -197,7 +197,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.PUT("/nps/client/:id/tunnels/:tid", npsClientHandler.UpdateTunnel)
 	admin.DELETE("/nps/client/:id/tunnels/:tid", npsClientHandler.DeleteTunnel)
 
-	// EasyTier 客户端
+	// EasyTier 客户端（启动进程/可选 TUN 网卡，写操作仅管理员）
 	etHandler := handlers.NewEasytierHandler(opts.DB, opts.Log, opts.EasytierMgr)
 	auth.GET("/easytier/client", etHandler.List)
 	auth.GET("/easytier/client/:id/status", etHandler.GetStatus)
@@ -220,7 +220,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/easytier/server/:id/start", etsHandler.Start)
 	admin.POST("/easytier/server/:id/stop", etsHandler.Stop)
 
-	// 穿透服务（用户视角的统一内网穿透管理）
+	// 穿透服务（用户视角的统一内网穿透管理；启停会操作各线路客户端进程）
 	tsHandler := handlers.NewTunserviceHandler(opts.DB, opts.Log, opts.TunserviceMgr)
 	auth.GET("/tunservice", tsHandler.List)
 	auth.GET("/tunservice/:id", tsHandler.Get)
@@ -233,14 +233,14 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/tunservice/:id/stop", tsHandler.Stop)
 	admin.GET("/tunservice/:id/speedtest", tsHandler.Speedtest)
 
-	// 线路探测策略（参数化配置）
+	// 线路探测策略（参数化配置；重绑会启停客户端进程，仅管理员）
 	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
 	auth.GET("/linereg/config", lineHandler.GetConfig)
 	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
 	admin.PUT("/linereg/config", lineHandler.UpdateConfig)
 	admin.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 
-	// WireGuard
+	// WireGuard（PostUp/PreUp 等字段可在宿主机执行 shell，写操作仅管理员）
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)
 	auth.GET("/wireguard", wgHandler.List)
 	auth.GET("/wireguard/:id/status", wgHandler.GetStatus)
@@ -268,7 +268,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/ddns/:id/stop", ddnsHandler.Stop)
 	admin.POST("/ddns/:id/run", ddnsHandler.RunNow)
 
-	// Caddy 网站服务
+	// Caddy 网站服务（写操作改变宿主机反代/证书行为，仅管理员）
 	caddyHandler := handlers.NewCaddyHandler(opts.DB, opts.Log, opts.CaddyMgr)
 	// 站点配置可指定本机目录与任意上游地址，属于高危能力，写操作限管理员
 	auth.GET("/caddy", caddyHandler.List)
@@ -404,7 +404,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.PUT("/access/:id", accessHandler.Update)
 	admin.DELETE("/access/:id", accessHandler.Delete)
 
-	// 系统防火墙（iptables/nftables/ufw/firewalld/Windows）
+	// 系统防火墙（iptables/nftables/ufw/firewalld/Windows；直接操作宿主防火墙，写操作仅管理员）
 	firewallHandler := handlers.NewFirewallHandler(opts.DB, opts.Log, opts.FirewallMgr)
 	auth.GET("/security/firewall", firewallHandler.List)
 	auth.GET("/security/firewall/backend", firewallHandler.DetectBackend)
