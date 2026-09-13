@@ -290,26 +290,26 @@ func (m *Manager) GetInterfaceDetail(id uint) (map[string]interface{}, error) {
 	peerList := make([]map[string]interface{}, 0, len(peers))
 	for _, p := range peers {
 		peerList = append(peerList, map[string]interface{}{
-			"name":                   p.Name,
-			"public_key":             p.PublicKey,
-			"endpoint":               p.Endpoint,
-			"allowed_ips":            p.AllowedIPs,
-			"persistent_keepalive":   p.PersistentKeepalive,
-			"enable":                 p.Enable,
+			"name":                 p.Name,
+			"public_key":           p.PublicKey,
+			"endpoint":             p.Endpoint,
+			"allowed_ips":          p.AllowedIPs,
+			"persistent_keepalive": p.PersistentKeepalive,
+			"enable":               p.Enable,
 		})
 	}
 
 	return map[string]interface{}{
-		"id":             cfg.ID,
-		"name":           cfg.Name,
-		"status":         m.GetStatus(id),
-		"last_error":     cfg.LastError,
-		"listen_port":    cfg.ListenPort,
-		"address":        cfg.Address,
-		"private_key":    "***hidden***",
-		"public_key":     cfg.PublicKey,
-		"mtu":            cfg.MTU,
-		"peers":          peerList,
-		"recent_logs":    logLines,
+		"id":          cfg.ID,
+		"name":        cfg.Name,
+		"status":      m.GetStatus(id),
+		"last_error":  cfg.LastError,
+		"listen_port": cfg.ListenPort,
+		"address":     cfg.Address,
+		"private_key": "***hidden***",
+		"public_key":  cfg.PublicKey,
+		"mtu":         cfg.MTU,
+		"peers":       peerList,
+		"recent_logs": logLines,
 	}, nil
 }

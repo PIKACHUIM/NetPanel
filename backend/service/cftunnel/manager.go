@@ -84,10 +84,10 @@ func (r *ringBuffer) lines() []string {
 
 // Manager Cloudflare Tunnel 管理器
 type Manager struct {
-	db      *gorm.DB
-	log     *logrus.Logger
-	dataDir string
-	tunnels sync.Map // map[uint]*processEntry
+	db       *gorm.DB
+	log      *logrus.Logger
+	dataDir  string
+	tunnels  sync.Map // map[uint]*processEntry
 	stopping bool
 	mu       sync.Mutex
 }

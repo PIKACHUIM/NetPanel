@@ -66,7 +66,7 @@ func TestStart_正常启动(t *testing.T) {
 	m := newTestManager(t)
 
 	cfg := model.WafConfig{
-		Name: "test-waf",
+		Name:        "test-waf",
 		CustomRules: `SecRule REQUEST_URI "@contains /admin" "id:100002,phase:1,deny,status:403"`,
 	}
 	if err := m.db.Create(&cfg).Error; err != nil {

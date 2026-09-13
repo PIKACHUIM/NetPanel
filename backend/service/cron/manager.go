@@ -27,14 +27,14 @@ type SyncDNSRecordFunc func(ctx context.Context, domainInfoID uint) (int, error)
 
 // Manager 计划任务管理器
 type Manager struct {
-	db       *gorm.DB
-	log      *logrus.Logger
-	cron     *cron.Cron
-	entryIDs sync.Map // map[uint]cron.EntryID
-	mu       sync.Mutex
-	certMgr  *cert.Manager
-	ddnsMgr  *ddns.Manager
-	wolMgr   *wol.Manager
+	db                *gorm.DB
+	log               *logrus.Logger
+	cron              *cron.Cron
+	entryIDs          sync.Map // map[uint]cron.EntryID
+	mu                sync.Mutex
+	certMgr           *cert.Manager
+	ddnsMgr           *ddns.Manager
+	wolMgr            *wol.Manager
 	syncDNSRecordFunc SyncDNSRecordFunc // 由外部注入的 DNS 解析记录同步函数
 }
 

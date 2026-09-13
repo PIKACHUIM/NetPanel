@@ -21,9 +21,9 @@ type ProbeEngine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-// 探测任务：每个任务持有独立的 cancel，支持精确停止单个任务
-probeCancels map[uint]context.CancelFunc
-mu           sync.RWMutex
+	// 探测任务：每个任务持有独立的 cancel，支持精确停止单个任务
+	probeCancels map[uint]context.CancelFunc
+	mu           sync.RWMutex
 }
 
 // NewProbeEngine 创建探测引擎

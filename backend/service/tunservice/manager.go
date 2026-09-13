@@ -278,7 +278,7 @@ type SpeedtestLine struct {
 	Address string `json:"address"`
 	Layer   string `json:"layer"`
 	// Latency 有效延迟（ns）；探测失败为 0。
-	Latency int64  `json:"latency"`
+	Latency int64 `json:"latency"`
 	// Error 非空表示本次探测失败（超时/拒绝等）。
 	Error string `json:"error,omitempty"`
 }
