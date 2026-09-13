@@ -80,11 +80,15 @@ func (m *Manager) Start(id uint) error {
 	// 前置校验：网络存储以面板进程权限（通常 root/Administrator）读写目标目录，
 	// 因此必须确保根目录真实存在且为目录，并且配置了访问凭据。
 	// 校验放在 Start 这一唯一入口，保证 API 与开机恢复路径都受约束。
+	// ValidateConfig 为纵深防御：即使 handler 侧漏校验，启动前也会被拦下。
+	if err := ValidateConfig(&cfg); err != nil {
+		return m.failStart(id, err)
+	}
 	rootPath, err := ValidateRootPath(cfg.RootPath)
 	if err != nil {
 		return m.failStart(id, err)
 	}
-	if err := ValidateCredentials(cfg.Username, cfg.Password, cfg.Protocol); err != nil {
+	if err := ValidateCredentials(cfg.Username, cfg.Password.String(), cfg.Protocol); err != nil {
 		return m.failStart(id, err)
 	}
 	if err := ValidateListenAddr(cfg.ListenAddr); err != nil {
@@ -129,7 +133,7 @@ func (m *Manager) startWebDAV(id uint, cfg *model.StorageConfig) error {
 		// 基础认证。凭据已由 ValidateCredentials 保证非空；
 		// 比较使用常量时间函数，避免通过响应时间侧信道逐字节推断口令。
 		user, pass, ok := r.BasicAuth()
-		if !ok || !constantTimeEqual(user, cfg.Username) || !constantTimeEqual(pass, cfg.Password) {
+		if !ok || !constantTimeEqual(user, cfg.Username) || !constantTimeEqual(pass, cfg.Password.String()) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -174,7 +178,10 @@ func (m *Manager) startSFTP(id uint, cfg *model.StorageConfig) error {
 	// 登录（连口令都不校验），等于把共享目录以匿名 SFTP 暴露出去。
 	sshConfig := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			if constantTimeEqual(c.User(), cfg.Username) && constantTimeEqual(string(pass), cfg.Password) {
+			// 匿名放行已移除：SFTP 无文件系统沙箱，匿名等于向局域网开放
+			// 面板权限的整个磁盘；ValidateConfig 强制要求用户名密码。
+			// 比较使用常量时间函数，避免时间侧信道逐字节推断口令。
+			if constantTimeEqual(c.User(), cfg.Username) && constantTimeEqual(string(pass), cfg.Password.String()) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("用户名或密码错误")
@@ -427,7 +434,7 @@ func (m *Manager) startSMB(id uint, cfg *model.StorageConfig) error {
 		exec.Command("useradd", "-M", "-s", "/sbin/nologin", "--", cfg.Username).Run()
 		// 设置 Samba 密码
 		cmd := exec.Command("smbpasswd", "-a", "-s", "--", cfg.Username)
-		cmd.Stdin = strings.NewReader(cfg.Password + "\n" + cfg.Password + "\n")
+		cmd.Stdin = strings.NewReader(cfg.Password.String() + "\n" + cfg.Password.String() + "\n")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			m.log.Warnf("[SMB] 设置 Samba 用户密码失败: %v, output: %s", err, string(out))
 		}

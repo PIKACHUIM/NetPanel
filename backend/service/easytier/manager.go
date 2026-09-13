@@ -92,7 +92,7 @@ type processEntry struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 	done   chan struct{} // 进程退出后关闭，用于等待进程完全退出
-	logs   *ringBuffer  // 实时日志缓冲区
+	logs   *ringBuffer   // 实时日志缓冲区
 }
 
 // Manager EasyTier 管理器（命令行进程管理）
@@ -371,7 +371,7 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		args = append(args, "--network-name", cfg.NetworkName)
 	}
 	if cfg.NetworkPassword != "" {
-		args = append(args, "--network-secret", cfg.NetworkPassword)
+		args = append(args, "--network-secret", cfg.NetworkPassword.String())
 	}
 
 	// 虚拟 IP（DHCP 模式与手动指定互斥）
@@ -540,10 +540,10 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		args = append(args, "--private-mode")
 	}
 	if cfg.PrivateKey != "" {
-		args = append(args, "--private-key", cfg.PrivateKey)
+		args = append(args, "--private-key", cfg.PrivateKey.String())
 	}
 	if cfg.PreSharedKey != "" {
-		args = append(args, "--pre-shared-key", cfg.PreSharedKey)
+		args = append(args, "--pre-shared-key", cfg.PreSharedKey.String())
 	}
 
 	// ===== 中继选项 =====
@@ -811,9 +811,9 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 				continue
 			}
 			// 将 token 拼接到 URL 末尾（如果 URL 末尾没有 /token 路径）
-			if cfg.ConfigServerToken != "" {
+			if cfg.ConfigServerToken.String() != "" {
 				// 去掉末尾的 /，再拼接 /<token>
-				addr = strings.TrimRight(addr, "/") + "/" + cfg.ConfigServerToken
+				addr = strings.TrimRight(addr, "/") + "/" + cfg.ConfigServerToken.String()
 			}
 			args = append(args, "--config-server", addr)
 		}
@@ -919,10 +919,10 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 		args = append(args, "--private-mode")
 	}
 	if cfg.PrivateKey != "" {
-		args = append(args, "--private-key", cfg.PrivateKey)
+		args = append(args, "--private-key", cfg.PrivateKey.String())
 	}
 	if cfg.PreSharedKey != "" {
-		args = append(args, "--pre-shared-key", cfg.PreSharedKey)
+		args = append(args, "--pre-shared-key", cfg.PreSharedKey.String())
 	}
 
 	// ===== 中继选项 =====
@@ -1256,4 +1256,3 @@ func (m *Manager) fetchNodeInfo(rpcAddr string) (*NodeInfo, error) {
 
 	return info, nil
 }
-
