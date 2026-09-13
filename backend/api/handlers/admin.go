@@ -273,10 +273,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 		updates["password"] = hashed
-		// 同步更新 SystemConfig 中的 admin_password（兼容旧登录逻辑）
-		if user.Username == "admin" {
-			h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
-		}
 	}
 
 	if err := h.db.Model(&user).Updates(updates).Error; err != nil {

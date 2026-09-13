@@ -149,18 +149,30 @@ func allowedOrigins() []string {
 //
 // 原实现固定返回 Access-Control-Allow-Origin: *，与携带认证信息的接口组合后
 // 会放大 CSRF 与信息泄露风险。现改为按白名单回显 Origin，默认仅同源。
+//
+// 安全约定：白名单配 `*` 时仅放行"不携带凭据"的跨域请求——ACAO 回显具体
+// Origin 的同时再发 Allow-Credentials 等效于对任意站点开放带凭据跨域，
+// 属配置脚枪，已禁止。
 func CORS() gin.HandlerFunc {
 	origins := allowedOrigins()
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 		if origin != "" {
 			for _, allowed := range origins {
-				if allowed == origin || allowed == "*" {
+				if allowed != origin && allowed != "*" {
+					continue
+				}
+				if allowed == "*" {
+					// 通配符：不携带凭据的开放访问（浏览器本身也会拒绝
+					// `*` 与 credentials 组合，这里从源头不发凭据头）
+					c.Header("Access-Control-Allow-Origin", "*")
+					c.Header("Vary", "Origin")
+				} else {
 					c.Header("Access-Control-Allow-Origin", origin)
 					c.Header("Access-Control-Allow-Credentials", "true")
 					c.Header("Vary", "Origin")
-					break
 				}
+				break
 			}
 		}
 		c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH")

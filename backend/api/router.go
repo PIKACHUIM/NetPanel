@@ -6,8 +6,8 @@ import (
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
-	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
@@ -15,16 +15,16 @@ import (
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/netpanel/netpanel/service/linereg"
+	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
-	"github.com/netpanel/netpanel/service/ai"
-	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -94,95 +94,95 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin := apiV1.Group("")
 	admin.Use(middleware.JWTAuth(), middleware.AdminOnly())
 
-	// 系统信息
+	// 系统信息（写配置仅管理员：键白名单见 SystemHandler.UpdateConfig）
 	sysHandler := handlers.NewSystemHandler(opts.DB, opts.Log, opts.Config)
 	auth.GET("/system/info", sysHandler.GetInfo)
 	auth.GET("/system/stats", sysHandler.GetStats)
 	auth.GET("/system/config", sysHandler.GetConfig)
-	auth.PUT("/system/config", sysHandler.UpdateConfig)
+	admin.PUT("/system/config", sysHandler.UpdateConfig)
 	auth.GET("/system/interfaces", sysHandler.GetInterfaces)
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 
-	// 端口转发（路径与前端保持一致）
+	// 端口转发（路径与前端保持一致）。写操作会在宿主机监听端口，仅管理员。
 	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr)
 	auth.GET("/port-forward", pfHandler.List)
-	auth.POST("/port-forward", pfHandler.Create)
-	auth.PUT("/port-forward/:id", pfHandler.Update)
-	auth.DELETE("/port-forward/:id", pfHandler.Delete)
-	auth.POST("/port-forward/:id/start", pfHandler.Start)
-	auth.POST("/port-forward/:id/stop", pfHandler.Stop)
+	admin.POST("/port-forward", pfHandler.Create)
+	admin.PUT("/port-forward/:id", pfHandler.Update)
+	admin.DELETE("/port-forward/:id", pfHandler.Delete)
+	admin.POST("/port-forward/:id/start", pfHandler.Start)
+	admin.POST("/port-forward/:id/stop", pfHandler.Stop)
 	auth.GET("/port-forward/:id/logs", pfHandler.GetLogs)
 	auth.GET("/port-forward/certs", pfHandler.ListCerts)
 
-	// STUN 穿透
+	// STUN 穿透（会驱动 UPnP/打洞等宿主机网络操作，写操作仅管理员）
 	stunHandler := handlers.NewStunHandler(opts.DB, opts.Log, opts.StunMgr)
 	auth.GET("/stun", stunHandler.List)
-	auth.POST("/stun", stunHandler.Create)
-	auth.PUT("/stun/:id", stunHandler.Update)
-	auth.DELETE("/stun/:id", stunHandler.Delete)
-	auth.POST("/stun/:id/start", stunHandler.Start)
-	auth.POST("/stun/:id/stop", stunHandler.Stop)
+	admin.POST("/stun", stunHandler.Create)
+	admin.PUT("/stun/:id", stunHandler.Update)
+	admin.DELETE("/stun/:id", stunHandler.Delete)
+	admin.POST("/stun/:id/start", stunHandler.Start)
+	admin.POST("/stun/:id/stop", stunHandler.Stop)
 	auth.GET("/stun/:id/status", stunHandler.GetStatus)
 
-	// FRP 客户端
+	// FRP 客户端（启动进程/连接远端，写操作仅管理员）
 	frpcHandler := handlers.NewFrpcHandler(opts.DB, opts.Log, opts.FrpMgr)
 	auth.GET("/frpc", frpcHandler.List)
-	auth.POST("/frpc", frpcHandler.Create)
-	auth.PUT("/frpc/:id", frpcHandler.Update)
-	auth.DELETE("/frpc/:id", frpcHandler.Delete)
-	auth.POST("/frpc/:id/start", frpcHandler.Start)
-	auth.POST("/frpc/:id/stop", frpcHandler.Stop)
-	auth.POST("/frpc/:id/restart", frpcHandler.Restart)
+	admin.POST("/frpc", frpcHandler.Create)
+	admin.PUT("/frpc/:id", frpcHandler.Update)
+	admin.DELETE("/frpc/:id", frpcHandler.Delete)
+	admin.POST("/frpc/:id/start", frpcHandler.Start)
+	admin.POST("/frpc/:id/stop", frpcHandler.Stop)
+	admin.POST("/frpc/:id/restart", frpcHandler.Restart)
 	auth.GET("/frpc/speedtest", frpcHandler.SpeedTest)
 	// FRP 代理
 	auth.GET("/frpc/:id/proxies", frpcHandler.ListProxies)
-	auth.POST("/frpc/:id/proxies", frpcHandler.CreateProxy)
-	auth.PUT("/frpc/:id/proxies/:pid", frpcHandler.UpdateProxy)
-	auth.DELETE("/frpc/:id/proxies/:pid", frpcHandler.DeleteProxy)
+	admin.POST("/frpc/:id/proxies", frpcHandler.CreateProxy)
+	admin.PUT("/frpc/:id/proxies/:pid", frpcHandler.UpdateProxy)
+	admin.DELETE("/frpc/:id/proxies/:pid", frpcHandler.DeleteProxy)
 
 	// FRP 服务端
 	frpsHandler := handlers.NewFrpsHandler(opts.DB, opts.Log, opts.FrpMgr)
 	auth.GET("/frps", frpsHandler.List)
-	auth.POST("/frps", frpsHandler.Create)
-	auth.PUT("/frps/:id", frpsHandler.Update)
-	auth.DELETE("/frps/:id", frpsHandler.Delete)
-	auth.POST("/frps/:id/start", frpsHandler.Start)
-	auth.POST("/frps/:id/stop", frpsHandler.Stop)
+	admin.POST("/frps", frpsHandler.Create)
+	admin.PUT("/frps/:id", frpsHandler.Update)
+	admin.DELETE("/frps/:id", frpsHandler.Delete)
+	admin.POST("/frps/:id/start", frpsHandler.Start)
+	admin.POST("/frps/:id/stop", frpsHandler.Stop)
 
 	// NPS 服务端
 	npsServerHandler := handlers.NewNpsServerHandler(opts.DB, opts.Log, opts.NpsMgr)
 	auth.GET("/nps/server", npsServerHandler.List)
-	auth.POST("/nps/server", npsServerHandler.Create)
-	auth.PUT("/nps/server/:id", npsServerHandler.Update)
-	auth.DELETE("/nps/server/:id", npsServerHandler.Delete)
-	auth.POST("/nps/server/:id/start", npsServerHandler.Start)
-	auth.POST("/nps/server/:id/stop", npsServerHandler.Stop)
+	admin.POST("/nps/server", npsServerHandler.Create)
+	admin.PUT("/nps/server/:id", npsServerHandler.Update)
+	admin.DELETE("/nps/server/:id", npsServerHandler.Delete)
+	admin.POST("/nps/server/:id/start", npsServerHandler.Start)
+	admin.POST("/nps/server/:id/stop", npsServerHandler.Stop)
 
 	// NPS 客户端
 	npsClientHandler := handlers.NewNpsClientHandler(opts.DB, opts.Log, opts.NpsMgr)
 	auth.GET("/nps/client", npsClientHandler.List)
-	auth.POST("/nps/client", npsClientHandler.Create)
-	auth.PUT("/nps/client/:id", npsClientHandler.Update)
-	auth.DELETE("/nps/client/:id", npsClientHandler.Delete)
-	auth.POST("/nps/client/:id/start", npsClientHandler.Start)
-	auth.POST("/nps/client/:id/stop", npsClientHandler.Stop)
+	admin.POST("/nps/client", npsClientHandler.Create)
+	admin.PUT("/nps/client/:id", npsClientHandler.Update)
+	admin.DELETE("/nps/client/:id", npsClientHandler.Delete)
+	admin.POST("/nps/client/:id/start", npsClientHandler.Start)
+	admin.POST("/nps/client/:id/stop", npsClientHandler.Stop)
 	// NPS 隧道（子表，参考 nps 隧道类型）
 	auth.GET("/nps/client/:id/tunnels", npsClientHandler.ListTunnels)
-	auth.POST("/nps/client/:id/tunnels", npsClientHandler.CreateTunnel)
-	auth.PUT("/nps/client/:id/tunnels/:tid", npsClientHandler.UpdateTunnel)
-	auth.DELETE("/nps/client/:id/tunnels/:tid", npsClientHandler.DeleteTunnel)
+	admin.POST("/nps/client/:id/tunnels", npsClientHandler.CreateTunnel)
+	admin.PUT("/nps/client/:id/tunnels/:tid", npsClientHandler.UpdateTunnel)
+	admin.DELETE("/nps/client/:id/tunnels/:tid", npsClientHandler.DeleteTunnel)
 
 	// EasyTier 客户端
 	auth.GET("/frps/:id/dashboard", frpsHandler.GetDashboardURL)
 
-	// EasyTier 客户端
+	// EasyTier 客户端（启动进程/可选 TUN 网卡，写操作仅管理员）
 	etHandler := handlers.NewEasytierHandler(opts.DB, opts.Log, opts.EasytierMgr)
 	auth.GET("/easytier/client", etHandler.List)
-	auth.POST("/easytier/client", etHandler.Create)
-	auth.PUT("/easytier/client/:id", etHandler.Update)
-	auth.DELETE("/easytier/client/:id", etHandler.Delete)
-	auth.POST("/easytier/client/:id/start", etHandler.Start)
-	auth.POST("/easytier/client/:id/stop", etHandler.Stop)
+	admin.POST("/easytier/client", etHandler.Create)
+	admin.PUT("/easytier/client/:id", etHandler.Update)
+	admin.DELETE("/easytier/client/:id", etHandler.Delete)
+	admin.POST("/easytier/client/:id/start", etHandler.Start)
+	admin.POST("/easytier/client/:id/stop", etHandler.Stop)
 	auth.GET("/easytier/client/:id/status", etHandler.GetStatus)
 	auth.GET("/easytier/client/:id/logs", etHandler.GetLogs)
 	auth.GET("/easytier/client/:id/peers", etHandler.GetPeers)
@@ -190,49 +190,49 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// EasyTier 服务端
 	etsHandler := handlers.NewEasytierServerHandler(opts.DB, opts.Log, opts.EasytierMgr)
 	auth.GET("/easytier/server", etsHandler.List)
-	auth.POST("/easytier/server", etsHandler.Create)
-	auth.PUT("/easytier/server/:id", etsHandler.Update)
-	auth.DELETE("/easytier/server/:id", etsHandler.Delete)
-	auth.POST("/easytier/server/:id/start", etsHandler.Start)
-	auth.POST("/easytier/server/:id/stop", etsHandler.Stop)
+	admin.POST("/easytier/server", etsHandler.Create)
+	admin.PUT("/easytier/server/:id", etsHandler.Update)
+	admin.DELETE("/easytier/server/:id", etsHandler.Delete)
+	admin.POST("/easytier/server/:id/start", etsHandler.Start)
+	admin.POST("/easytier/server/:id/stop", etsHandler.Stop)
 	auth.GET("/easytier/server/:id/logs", etsHandler.GetLogs)
 	auth.GET("/easytier/server/:id/peers", etsHandler.GetPeers)
 
-	// 穿透服务（用户视角的统一内网穿透管理）
+	// 穿透服务（用户视角的统一内网穿透管理；启停会操作各线路客户端进程）
 	tsHandler := handlers.NewTunserviceHandler(opts.DB, opts.Log, opts.TunserviceMgr)
 	auth.GET("/tunservice", tsHandler.List)
 	auth.GET("/tunservice/:id", tsHandler.Get)
-	auth.POST("/tunservice", tsHandler.Create)
-	auth.PUT("/tunservice/:id", tsHandler.Update)
-	auth.DELETE("/tunservice/:id", tsHandler.Delete)
-	auth.POST("/tunservice/:id/start", tsHandler.Start)
-	auth.POST("/tunservice/:id/stop", tsHandler.Stop)
+	admin.POST("/tunservice", tsHandler.Create)
+	admin.PUT("/tunservice/:id", tsHandler.Update)
+	admin.DELETE("/tunservice/:id", tsHandler.Delete)
+	admin.POST("/tunservice/:id/start", tsHandler.Start)
+	admin.POST("/tunservice/:id/stop", tsHandler.Stop)
 	auth.GET("/tunservice/:id/candidates", tsHandler.Candidates)
 	auth.GET("/tunservice/:id/history", tsHandler.History)
 	auth.GET("/tunservice/:id/speedtest", tsHandler.Speedtest)
 
-	// 线路探测策略（参数化配置）
+	// 线路探测策略（参数化配置；重绑会启停客户端进程，仅管理员）
 	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
 	auth.GET("/linereg/config", lineHandler.GetConfig)
 	auth.PUT("/linereg/config", lineHandler.UpdateConfig)
 	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
-	auth.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
+	admin.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 
-	// WireGuard
+	// WireGuard（PostUp/PreUp 等字段可在宿主机执行 shell，写操作仅管理员）
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)
 	auth.GET("/wireguard", wgHandler.List)
-	auth.POST("/wireguard", wgHandler.Create)
-	auth.PUT("/wireguard/:id", wgHandler.Update)
-	auth.DELETE("/wireguard/:id", wgHandler.Delete)
-	auth.POST("/wireguard/:id/start", wgHandler.Start)
-	auth.POST("/wireguard/:id/stop", wgHandler.Stop)
+	admin.POST("/wireguard", wgHandler.Create)
+	admin.PUT("/wireguard/:id", wgHandler.Update)
+	admin.DELETE("/wireguard/:id", wgHandler.Delete)
+	admin.POST("/wireguard/:id/start", wgHandler.Start)
+	admin.POST("/wireguard/:id/stop", wgHandler.Stop)
 	auth.GET("/wireguard/:id/status", wgHandler.GetStatus)
-	auth.POST("/wireguard/generate-keypair", wgHandler.GenerateKeyPair)
+	admin.POST("/wireguard/generate-keypair", wgHandler.GenerateKeyPair)
 	// WireGuard 对等节点
 	auth.GET("/wireguard/:id/peers", wgHandler.ListPeers)
-	auth.POST("/wireguard/:id/peers", wgHandler.CreatePeer)
-	auth.PUT("/wireguard/:id/peers/:pid", wgHandler.UpdatePeer)
-	auth.DELETE("/wireguard/:id/peers/:pid", wgHandler.DeletePeer)
+	admin.POST("/wireguard/:id/peers", wgHandler.CreatePeer)
+	admin.PUT("/wireguard/:id/peers/:pid", wgHandler.UpdatePeer)
+	admin.DELETE("/wireguard/:id/peers/:pid", wgHandler.DeletePeer)
 	auth.GET("/wireguard/:id/peers/:pid/config", wgHandler.GetPeerConfig)
 	auth.GET("/wireguard/:id/peers/:pid/qrcode", wgHandler.GetPeerQRCode)
 
@@ -247,14 +247,14 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/ddns/:id/run", ddnsHandler.RunNow)
 	auth.GET("/ddns/:id/history", ddnsHandler.GetHistory)
 
-	// Caddy 网站服务
+	// Caddy 网站服务（写操作改变宿主机反代/证书行为，仅管理员）
 	caddyHandler := handlers.NewCaddyHandler(opts.DB, opts.Log, opts.CaddyMgr)
 	auth.GET("/caddy", caddyHandler.List)
-	auth.POST("/caddy", caddyHandler.Create)
-	auth.PUT("/caddy/:id", caddyHandler.Update)
-	auth.DELETE("/caddy/:id", caddyHandler.Delete)
-	auth.POST("/caddy/:id/start", caddyHandler.Start)
-	auth.POST("/caddy/:id/stop", caddyHandler.Stop)
+	admin.POST("/caddy", caddyHandler.Create)
+	admin.PUT("/caddy/:id", caddyHandler.Update)
+	admin.DELETE("/caddy/:id", caddyHandler.Delete)
+	admin.POST("/caddy/:id/start", caddyHandler.Start)
+	admin.POST("/caddy/:id/stop", caddyHandler.Stop)
 
 	// WOL 网络唤醒
 	wolHandler := handlers.NewWolHandler(opts.DB, opts.Log)
@@ -274,13 +274,13 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 
 	// 域名管理（域名列表，参考 dnsmgr domain 表）
 	diHandler := handlers.NewDomainInfoHandler(opts.DB, opts.Log)
-		auth.GET("/domain/domains", diHandler.List)
-		auth.GET("/domain/domains/fetch", diHandler.FetchFromProvider)
-		auth.POST("/domain/domains", diHandler.Create)
-		auth.PUT("/domain/domains/:id", diHandler.Update)
-		auth.DELETE("/domain/domains/:id", diHandler.Delete)
-		auth.POST("/domain/domains/:id/refresh", diHandler.Refresh)
-		auth.PUT("/domain/domains/:id/auto-sync", diHandler.UpdateAutoSync)
+	auth.GET("/domain/domains", diHandler.List)
+	auth.GET("/domain/domains/fetch", diHandler.FetchFromProvider)
+	auth.POST("/domain/domains", diHandler.Create)
+	auth.PUT("/domain/domains/:id", diHandler.Update)
+	auth.DELETE("/domain/domains/:id", diHandler.Delete)
+	auth.POST("/domain/domains/:id/refresh", diHandler.Refresh)
+	auth.PUT("/domain/domains/:id/auto-sync", diHandler.UpdateAutoSync)
 
 	// 证书账号（ACME CA 账号，参考 dnsmgr cert_account）
 	certAccountHandler := handlers.NewCertAccountHandler(opts.DB, opts.Log, opts.CertMgr)
@@ -302,8 +302,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/domain/certs/:id/step/create-order", certHandler.StepCreateOrder)
 	auth.POST("/domain/certs/:id/step/set-dns", certHandler.StepSetDNS)
 	auth.POST("/domain/certs/:id/step/validate", certHandler.StepValidate)
-		auth.POST("/domain/certs/:id/step/obtain", certHandler.StepObtain)
-		auth.POST("/domain/certs/:id/confirm-dns", certHandler.ConfirmDNS)
+	auth.POST("/domain/certs/:id/step/obtain", certHandler.StepObtain)
+	auth.POST("/domain/certs/:id/confirm-dns", certHandler.ConfirmDNS)
 
 	// 域名解析（子域名解析记录，按域名ID查询）
 	drHandler := handlers.NewDomainRecordHandler(opts.DB, opts.Log)
@@ -337,14 +337,14 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/cron/:id/disable", cronHandler.Disable)
 	admin.POST("/cron/:id/run", cronHandler.RunNow)
 
-	// 网络存储
+	// 网络存储（会创建系统用户/写 smb.conf/监听端口，写操作仅管理员）
 	storageHandler := handlers.NewStorageHandler(opts.DB, opts.Log, opts.StorageMgr)
 	auth.GET("/storage", storageHandler.List)
-	auth.POST("/storage", storageHandler.Create)
-	auth.PUT("/storage/:id", storageHandler.Update)
-	auth.DELETE("/storage/:id", storageHandler.Delete)
-	auth.POST("/storage/:id/start", storageHandler.Start)
-	auth.POST("/storage/:id/stop", storageHandler.Stop)
+	admin.POST("/storage", storageHandler.Create)
+	admin.PUT("/storage/:id", storageHandler.Update)
+	admin.DELETE("/storage/:id", storageHandler.Delete)
+	admin.POST("/storage/:id/start", storageHandler.Start)
+	admin.POST("/storage/:id/stop", storageHandler.Stop)
 
 	// IP 地址库
 	ipdbHandler := handlers.NewIPDBHandler(opts.DB, opts.Log)
@@ -362,20 +362,20 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/ipdb/subscriptions/:id", ipdbHandler.DeleteSubscription)
 	auth.POST("/ipdb/subscriptions/:id/refresh", ipdbHandler.RefreshSubscription)
 
-	// CF 隧道（Cloudflare Tunnel，cloudflared）
+	// CF 隧道（Cloudflare Tunnel，cloudflared；启动进程，写操作仅管理员）
 	cftunnelHandler := handlers.NewCfTunnelHandler(opts.DB, opts.Log, opts.CftunnelMgr)
 	auth.GET("/cftunnel", cftunnelHandler.List)
-	auth.POST("/cftunnel", cftunnelHandler.Create)
-	auth.PUT("/cftunnel/:id", cftunnelHandler.Update)
-	auth.DELETE("/cftunnel/:id", cftunnelHandler.Delete)
-	auth.POST("/cftunnel/:id/start", cftunnelHandler.Start)
-	auth.POST("/cftunnel/:id/stop", cftunnelHandler.Stop)
+	admin.POST("/cftunnel", cftunnelHandler.Create)
+	admin.PUT("/cftunnel/:id", cftunnelHandler.Update)
+	admin.DELETE("/cftunnel/:id", cftunnelHandler.Delete)
+	admin.POST("/cftunnel/:id/start", cftunnelHandler.Start)
+	admin.POST("/cftunnel/:id/stop", cftunnelHandler.Stop)
 	auth.GET("/cftunnel/:id/status", cftunnelHandler.GetStatus)
 	auth.GET("/cftunnel/:id/logs", cftunnelHandler.GetLogs)
-	// cloudflared 二进制管理（隧道启动强依赖该二进制）
+	// cloudflared 二进制管理（隧道启动强依赖该二进制；下载外部二进制仅管理员）
 	auth.GET("/cftunnel/binary", cftunnelHandler.GetBinaryPath)
 	auth.GET("/cftunnel/download/info", cftunnelHandler.GetDownloadInfo)
-	auth.POST("/cftunnel/download", cftunnelHandler.DownloadBinary)
+	admin.POST("/cftunnel/download", cftunnelHandler.DownloadBinary)
 
 	// 访问控制
 	accessHandler := handlers.NewAccessHandler(opts.DB, opts.Log, opts.AccessMgr, opts.CaddyMgr)
@@ -384,16 +384,16 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/access/:id", accessHandler.Update)
 	auth.DELETE("/access/:id", accessHandler.Delete)
 
-	// 系统防火墙（iptables/nftables/ufw/firewalld/Windows）
+	// 系统防火墙（iptables/nftables/ufw/firewalld/Windows；直接操作宿主防火墙，写操作仅管理员）
 	firewallHandler := handlers.NewFirewallHandler(opts.DB, opts.Log, opts.FirewallMgr)
 	auth.GET("/security/firewall", firewallHandler.List)
-	auth.POST("/security/firewall", firewallHandler.Create)
-	auth.PUT("/security/firewall/:id", firewallHandler.Update)
-	auth.DELETE("/security/firewall/:id", firewallHandler.Delete)
-	auth.POST("/security/firewall/:id/apply", firewallHandler.Apply)
-	auth.POST("/security/firewall/:id/remove", firewallHandler.Remove)
+	admin.POST("/security/firewall", firewallHandler.Create)
+	admin.PUT("/security/firewall/:id", firewallHandler.Update)
+	admin.DELETE("/security/firewall/:id", firewallHandler.Delete)
+	admin.POST("/security/firewall/:id/apply", firewallHandler.Apply)
+	admin.POST("/security/firewall/:id/remove", firewallHandler.Remove)
 	auth.GET("/security/firewall/backend", firewallHandler.DetectBackend)
-	auth.POST("/security/firewall/sync-system", firewallHandler.SyncSystem)
+	admin.POST("/security/firewall/sync-system", firewallHandler.SyncSystem)
 	auth.GET("/security/firewall/sync-status", firewallHandler.GetSyncStatus)
 
 	// WAF 防火墙（Coraza，参考 coraza WAF 和 lucky 安全模块）
@@ -469,8 +469,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/mesh/events", meshHandler.ListEvents)
 	auth.DELETE("/mesh/events", meshHandler.CleanEvents)
 	auth.POST("/mesh/ping", meshHandler.Ping)
-	// 代理请求到远程节点
-	auth.Any("/mesh/proxy/:nodeId/*path", meshHandler.ProxyToNode)
+	// 代理请求到远程节点（可触达任意已配置节点的全部接口，仅管理员）
+	admin.Any("/mesh/proxy/:nodeId/*path", meshHandler.ProxyToNode)
 
 	// ── AI 管理 ────────────────────────────────────────────────────────────────
 	aiHandler := handlers.NewAiHandler(opts.DB, opts.Log, opts.AiMgr)
@@ -561,9 +561,9 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/monitor/tunnels/:id", monitorHandler.UpdateTunnelBinding)
 	auth.DELETE("/monitor/tunnels/:id", monitorHandler.DeleteTunnelBinding)
 	auth.POST("/monitor/tunnels/:id/sync", monitorHandler.SyncTunnelStatus)
-// WebSocket 终端：浏览器 WebSocket 无法自定义请求头，token 经 query 传入，
-// 由 HandleTerminal 内部完成鉴权（校验 token + 管理员权限 + Origin）
-r.GET("/ws/terminal", monitorHandler.HandleTerminal)
+	// WebSocket 终端：浏览器 WebSocket 无法自定义请求头，token 经 query 传入，
+	// 由 HandleTerminal 内部完成鉴权（校验 token + 管理员权限 + Origin）
+	r.GET("/ws/terminal", monitorHandler.HandleTerminal)
 
 	return r
 }

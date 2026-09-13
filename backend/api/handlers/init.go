@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/pkg/ratelimit"
 	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -18,10 +20,12 @@ type InitHandler struct {
 	db  *gorm.DB
 	log *logrus.Logger
 	mu  sync.Mutex // 串行化 setup，防止并发请求同时通过初始化检查
+	// setupLimiter 无认证端点频控：防止脚本批量探测/滥用初始化接口
+	setupLimiter *ratelimit.Limiter
 }
 
 func NewInitHandler(db *gorm.DB, log *logrus.Logger) *InitHandler {
-	return &InitHandler{db: db, log: log}
+	return &InitHandler{db: db, log: log, setupLimiter: ratelimit.NewLimiter(time.Minute, 10)}
 }
 
 // isInitialized 判断系统是否已初始化（存在用户或旧版 admin_password 配置即视为已初始化）。
@@ -54,6 +58,12 @@ func (h *InitHandler) Status(c *gin.Context) {
 // Setup 首次初始化：创建首个管理员账号
 // POST /api/v1/init/setup  body: {username, password}
 func (h *InitHandler) Setup(c *gin.Context) {
+	// 无认证端点频控
+	if !h.setupLimiter.Allow(c.ClientIP()) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"code": 429, "message": "请求过于频繁，请稍后再试"})
+		return
+	}
+
 	var req struct {
 		Username string `json:"username" binding:"required,min=2,max=50"`
 		Password string `json:"password" binding:"required,min=8"`
@@ -101,12 +111,10 @@ func (h *InitHandler) Setup(c *gin.Context) {
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
-		// 同步旧版 admin_password 配置，兼容历史登录逻辑
-		var cfg model.SystemConfig
-		if err := tx.Where("key = ?", "admin_password").First(&cfg).Error; err == nil {
-			return tx.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed).Error
-		}
-		return tx.Create(&model.SystemConfig{Key: "admin_password", Value: hashed}).Error
+		// 旧版 admin_password 兼容写入已移除：登录只认 User 表（bcrypt），
+		// 历史遗留键由 db 层迁移（migrateLegacyAdminPassword）清理。
+		// 这里兜底删除，保证初始化完成后该键不存在。
+		return tx.Where("key = ?", "admin_password").Delete(&model.SystemConfig{}).Error
 	}); err != nil {
 		if alreadyInitialized {
 			c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "系统已初始化，无需重复设置"})
