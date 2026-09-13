@@ -2,6 +2,7 @@ import React from 'react'
 import { Modal, Button, Space, theme as antTheme } from 'antd'
 import { CloseOutlined } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
+import { useTranslation } from 'react-i18next'
 
 interface FormModalProps {
   /** 模态框是否可见 */
@@ -49,6 +50,7 @@ const FormModal: React.FC<FormModalProps> = ({
   okText,
   cancelText,
 }) => {
+  const {t} = useTranslation()
   const { theme } = useAppStore()
   const { token } = antTheme.useToken()
   const isGlass = theme === 'glass-light' || theme === 'glass-dark'
@@ -228,7 +230,7 @@ const FormModal: React.FC<FormModalProps> = ({
               borderColor: borderColor,
             }}
           >
-            {cancelText ?? '取消'}
+            {cancelText ?? t('common.cancel')}
           </Button>
           <Button
             type="primary"
@@ -249,7 +251,7 @@ const FormModal: React.FC<FormModalProps> = ({
                 : '0 2px 10px rgba(0,113,227,0.35)',
             }}
           >
-            {okText ?? (isEdit ? '保存修改' : '立即创建')}
+            {okText ?? (isEdit ? t('common.save') : t('common.create'))}
           </Button>
         </Space>
       </div>

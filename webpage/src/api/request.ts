@@ -32,7 +32,11 @@ request.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       useAppStore.getState().logout()
-      window.location.href = '/login'
+      // 记录当前路由，登录成功后回跳（跳过登录页本身与公开页）
+      const path = window.location.pathname + window.location.search
+      const isPublic = path.startsWith('/login') || path.startsWith('/oauth/callback')
+        || path.startsWith('/setup') || path.startsWith('/onboarding')
+      window.location.href = isPublic ? '/login' : `/login?redirect=${encodeURIComponent(path)}`
     } else {
       message.error(error.response?.data?.message || error.message || '网络错误')
     }

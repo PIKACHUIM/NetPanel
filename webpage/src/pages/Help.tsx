@@ -1,19 +1,21 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Col, Row, Typography, Collapse, Tag, Space } from 'antd'
 import {
   RocketOutlined, CloudOutlined, SafetyOutlined, LinkOutlined,
-  GlobalOutlined, TeamOutlined, QuestionCircleOutlined,
+  GlobalOutlined, TeamOutlined, QuestionCircleOutlined, RightOutlined,
 } from '@ant-design/icons'
 
 const { Title, Text, Paragraph } = Typography
 
+// path: 点击卡片直达的对应功能页
 const helpItems = [
-  { icon: <RocketOutlined style={{ color: '#0071e3' }} />, title: '快速上手', desc: '从安装到接入公网的完整流程，5 分钟跑通 NetPanel 核心功能。' },
-  { icon: <CloudOutlined style={{ color: '#ff9f0a' }} />, title: 'Cloudflare 隧道', desc: 'Quick / Named 两种隧道的创建、配置与常见报错排查。' },
-  { icon: <SafetyOutlined style={{ color: '#34c759' }} />, title: '安全中心', desc: 'WAF 规则、封禁策略、黑白名单与拦截页面的配置说明。' },
-  { icon: <LinkOutlined style={{ color: '#bf5af2' }} />, title: 'NPS / FRP / EasyTier', desc: '各穿透协议的服务端部署、客户端接入与性能对比。' },
-  { icon: <GlobalOutlined style={{ color: '#0a84ff' }} />, title: 'DDNS 与域名解析', desc: '绑定 Cloudflare / DNSPod 等解析商，动态 IP 自动更新。' },
-  { icon: <TeamOutlined style={{ color: '#f472b6' }} />, title: '账号与权限', desc: '多管理员协作、最后管理员保护、改名与密码重置规则。' },
+  { icon: <RocketOutlined style={{ color: '#0071e3' }} />, title: '快速上手', desc: '从安装到接入公网的完整流程，5 分钟跑通 NetPanel 核心功能。', path: '/cftunnel' },
+  { icon: <CloudOutlined style={{ color: '#ff9f0a' }} />, title: 'Cloudflare 隧道', desc: 'Quick / Named 两种隧道的创建、配置与常见报错排查。', path: '/cftunnel' },
+  { icon: <SafetyOutlined style={{ color: '#34c759' }} />, title: '安全中心', desc: 'WAF 规则、封禁策略、黑白名单与拦截页面的配置说明。', path: '/security/waf' },
+  { icon: <LinkOutlined style={{ color: '#bf5af2' }} />, title: 'NPS / FRP / EasyTier', desc: '各穿透协议的服务端部署、客户端接入与性能对比。', path: '/tunservice' },
+  { icon: <GlobalOutlined style={{ color: '#0a84ff' }} />, title: 'DDNS 与域名解析', desc: '绑定 Cloudflare / DNSPod 等解析商，动态 IP 自动更新。', path: '/ddns' },
+  { icon: <TeamOutlined style={{ color: '#f472b6' }} />, title: '账号与权限', desc: '多管理员协作、最后管理员保护、改名与密码重置规则。', path: '/admin/users' },
 ]
 
 const faqs = [
@@ -25,6 +27,7 @@ const faqs = [
 ]
 
 const Help: React.FC = () => {
+  const navigate = useNavigate()
   return (
     <div style={{ padding: 4 }}>
       <Title level={4} style={{ marginBottom: 2 }}>帮助与说明</Title>
@@ -33,9 +36,17 @@ const Help: React.FC = () => {
       <Row gutter={[14, 14]} style={{ marginTop: 18 }}>
         {helpItems.map(item => (
           <Col xs={24} sm={12} lg={8} key={item.title}>
-            <Card size="small" hoverable style={{ borderRadius: 'var(--radius-md)', height: '100%' }}>
+            <Card
+              size="small"
+              hoverable
+              onClick={() => item.path && navigate(item.path)}
+              style={{ borderRadius: 'var(--radius-md)', height: '100%' }}
+            >
               <div style={{ fontSize: 20, marginBottom: 8 }}>{item.icon}</div>
-              <b style={{ fontSize: 14 }}>{item.title}</b>
+              <b style={{ fontSize: 14 }}>
+                {item.title}
+                <RightOutlined style={{ float: 'right', fontSize: 11, color: 'rgba(128,128,128,0.6)', marginTop: 4 }} />
+              </b>
               <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>{item.desc}</Paragraph>
             </Card>
           </Col>

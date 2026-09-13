@@ -86,22 +86,6 @@ const MainLayout: React.FC = () => {
             children: [
                 {key: 'port-forward', icon: <NodeIndexOutlined/>, label: t('menu.portForward')},
                 {key: 'stun', icon: <WifiOutlined/>, label: t('menu.stun')},
-                {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
-                {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
-                {key: 'cftunnel', icon: <GlobalOutlined/>, label: t('menu.cftunnel')},
-                {key: 'tunservice', icon: <ApartmentOutlined/>, label: t('menu.tunservice')},
-            ],
-        },
-        {
-            key: 'network',
-            icon: <ApartmentOutlined/>,
-            label: t('menu.networkGroup'),
-            children: [
-                {key: 'nps/client', icon: <ApiOutlined/>, label: t('menu.npsClient')},
-                {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
-                {key: 'easytier/client', icon: <ApiOutlined/>, label: t('menu.easytierClient')},
-                {key: 'easytier/server', icon: <CloudServerOutlined/>, label: t('menu.easytierServer')},
-                {key: 'wireguard', icon: <SafetyOutlined/>, label: t('menu.wireguard')},
             ],
         },
         {
@@ -135,19 +119,21 @@ const MainLayout: React.FC = () => {
                 {key: 'ipdb', icon: <DatabaseOutlined/>, label: t('menu.ipdb')},
             ],
         },
-        // ── 内网穿透 ──
+        // ── 内网穿透：所有穿透/组网工具统一入口（tunservice 为聚合视图）──
         {
             key: 'tunnel',
             icon: <CloudOutlined/>,
             label: t('menu.tunnel'),
             children: [
-                {key: 'cftunnel', icon: <CloudOutlined/>, label: t('menu.cfTunnel')},
-                {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
+                {key: 'tunservice', icon: <ApartmentOutlined/>, label: t('menu.tunservice')},
+                {key: 'cftunnel', icon: <CloudOutlined/>, label: t('menu.cftunnel')},
+                {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frp')},
                 {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
                 {key: 'nps/client', icon: <ApiOutlined/>, label: t('menu.npsClient')},
                 {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
                 {key: 'easytier/client', icon: <ApiOutlined/>, label: t('menu.easytierClient')},
                 {key: 'easytier/server', icon: <CloudServerOutlined/>, label: t('menu.easytierServer')},
+                {key: 'wireguard', icon: <SafetyOutlined/>, label: t('menu.wireguard')},
             ],
         },
         {
@@ -562,8 +548,10 @@ const MainLayout: React.FC = () => {
 }
 
 function getOpenKeys(pathname: string): string[] {
-    if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun') || pathname.startsWith('/frp')) return ['port-mapping']
-    if (pathname.startsWith('/nps') || pathname.startsWith('/easytier') || pathname.startsWith('/wireguard')) return ['network']
+    if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun')) return ['port-mapping']
+    // 穿透/组网工具统一在 tunnel 分组
+    if (pathname.startsWith('/tunservice') || pathname.startsWith('/cftunnel') || pathname.startsWith('/frp')
+        || pathname.startsWith('/nps') || pathname.startsWith('/easytier') || pathname.startsWith('/wireguard')) return ['tunnel']
     if (pathname.startsWith('/mesh')) return ['mesh']
     if (pathname.startsWith('/ddns') || pathname.startsWith('/caddy')) return ['web-service']
     if (pathname.startsWith('/ipdb') || pathname.startsWith('/access') || pathname.startsWith('/security')) return ['security']
@@ -571,6 +559,7 @@ function getOpenKeys(pathname: string): string[] {
     if (pathname.startsWith('/domain')) return ['domain']
     if (pathname.startsWith('/callback')) return ['callback']
     if (pathname.startsWith('/ai')) return ['ai']
+    if (pathname.startsWith('/monitor')) return ['monitor']
     if (pathname.startsWith('/admin') || pathname.startsWith('/settings')) return ['admin']
     return []
 }

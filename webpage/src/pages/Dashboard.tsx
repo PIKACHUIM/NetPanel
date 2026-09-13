@@ -10,6 +10,7 @@ import {
   CheckOutlined, StopOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import {
   systemApi,
   portForwardApi, stunApi,
@@ -199,21 +200,23 @@ const RingProgress: React.FC<{
 }
 
 // 服务卡片
-const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean; hasWp?: boolean }> = ({ svc, isDark, hasWp }) => {
+const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean; hasWp?: boolean; onOpen?: (path: string) => void }> = ({ svc, isDark, hasWp, onOpen }) => {
   const isRunning = svc.running > 0
   const hasConfig = svc.count > 0
   const colors = serviceGroupColor[svc.type] || { main: '#0071e3', bg: 'rgba(0,113,227,0.08)', border: 'rgba(0,113,227,0.2)' }
   const percent = hasConfig ? Math.round((svc.running / svc.count) * 100) : 0
+  const target = serviceTypeRoute[svc.type]
 
   return (
     <div
       className={!isRunning ? 'service-card-idle' : undefined}
+      onClick={target ? () => onOpen?.(target) : undefined}
       style={{
       padding: '12px 14px',
       borderRadius: 12,
       border: `1px solid ${isRunning ? colors.border : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
       background: isRunning ? colors.bg : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-      cursor: 'default',
+      cursor: target ? 'pointer' : 'default',
       transition: 'all 0.2s ease',
       position: 'relative',
       overflow: 'hidden',
@@ -443,8 +446,28 @@ const MiniInfoCard: React.FC<{
   </div>
 )
 
+// 服务类型 -> 配置页路由（卡片点击直达）
+const serviceTypeRoute: Record<string, string> = {
+  port_forward: '/port-forward',
+  stun: '/stun',
+  frpc: '/frp/client',
+  frps: '/frp/server',
+  nps_client: '/nps/client',
+  nps_server: '/nps/server',
+  easytier_client: '/easytier/client',
+  easytier_server: '/easytier/server',
+  wireguard: '/wireguard',
+  ddns: '/ddns',
+  caddy: '/caddy',
+  cron: '/cron',
+  storage: '/storage',
+  access: '/access',
+  wol: '/wol',
+}
+
 const Dashboard: React.FC = () => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { theme, wallpaper } = useAppStore()
   const { token } = antTheme.useToken()
   const [info, setInfo] = useState<SystemInfo | null>(null)
@@ -576,6 +599,8 @@ const Dashboard: React.FC = () => {
 
   const runningCount = services.filter(s => s.running > 0).length
   const totalCount = services.length
+  // 新手引导：尚无任何已配置的穿透/服务时展示快速开始
+  const needOnboarding = services.every(s => s.count === 0)
   const cpuUsage = stats?.cpu_usage ?? 0
   const memUsage = stats?.mem_percent ?? 0
   const diskUsage = stats?.disk_percent ?? 0
@@ -606,6 +631,32 @@ const Dashboard: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {needOnboarding && (
+        <div
+          className={cardBaseClass}
+          style={{
+            ...cardBase,
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            border: `1px solid ${isDark ? 'rgba(0,113,227,0.35)' : 'rgba(0,113,227,0.25)'}`,
+            background: isDark ? 'rgba(0,113,227,0.08)' : 'rgba(0,113,227,0.05)',
+          }}
+        >
+          <RocketOutlined style={{ fontSize: 22, color: '#0071e3' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>{t('dashboard.onboarding.title')}</div>
+            <div style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)' }}>
+              {t('dashboard.onboarding.desc')}
+            </div>
+          </div>
+          <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => navigate('/cftunnel')}>
+            {t('dashboard.onboarding.primary')}
+          </Button>
+          <Button onClick={() => navigate('/tunservice')}>{t('dashboard.onboarding.secondary')}</Button>
+        </div>
+      )}
 
       {/* ── 顶部：标题 + 统计概览 ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -956,7 +1007,7 @@ borderRadius: 4, fontFamily: "'MapleMono', monospace",
             <Row gutter={[10, 10]} style={{ height: 'calc(100% - 65px)' }}>
               {services.map((svc) => (
                 <Col key={svc.type} xs={24} sm={12} md={8} style={{ height: '20%' }}>
-                  <ServiceCard svc={svc} isDark={isDark} hasWp={hasWp} />
+                  <ServiceCard svc={svc} isDark={isDark} hasWp={hasWp} onOpen={(p) => navigate(p)} />
                 </Col>
               ))}
             </Row>

@@ -47,7 +47,7 @@ const en = {
     dashboard: 'Dashboard',
     portForward: 'Port Forward',
     stun: 'STUN',
-    frpc: 'FRP Client',
+    frp: 'FRP Client',
     frps: 'FRP Server',
     cftunnel: 'CF Tunnel',
     tunservice: 'Tunnel Services',
@@ -134,6 +134,12 @@ const en = {
     os: 'OS',
     arch: 'Architecture',
     runningServices: 'Running Services',
+    onboarding: {
+      title: 'Quick start: reach your NAS from the internet',
+      desc: 'No services configured yet. The fastest path is Cloudflare Tunnel — no public IP required, a shareable URL in 3 steps. Or wire tunnels manually on the Tunnel Services page.',
+      primary: 'Create a tunnel',
+      secondary: 'Configure manually',
+    },
   },
   portForward: {
     title: 'Port Forward',
