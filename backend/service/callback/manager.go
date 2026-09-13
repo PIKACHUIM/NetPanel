@@ -285,14 +285,14 @@ func (m *Manager) executeAliESA(account *model.CallbackAccount, task *model.Call
 	// 使用阿里云 OpenAPI 签名 V4
 	apiURL := "https://esa.aliyuncs.com/"
 	params := map[string]string{
-		"Action":          "UpdateOriginPool",
-		"Version":         "2024-09-10",
-		"SiteId":          siteID,
-		"Format":          "JSON",
-		"AccessKeyId":     accessKeyID,
+		"Action":           "UpdateOriginPool",
+		"Version":          "2024-09-10",
+		"SiteId":           siteID,
+		"Format":           "JSON",
+		"AccessKeyId":      accessKeyID,
 		"SignatureMethod":  "HMAC-SHA1",
 		"SignatureVersion": "1.0",
-		"Timestamp":       time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+		"Timestamp":        time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 		"SignatureNonce":   fmt.Sprintf("%d", time.Now().UnixNano()),
 	}
 	if ruleID != "" {
@@ -366,15 +366,15 @@ func (m *Manager) executeTencentEO(account *model.CallbackAccount, task *model.C
 	timestamp := time.Now().Unix()
 
 	reqBody := map[string]interface{}{
-		"ZoneId": zoneID,
+		"ZoneId":        zoneID,
 		"OriginGroupId": ruleID,
 		"Origins": []map[string]interface{}{
 			{
-				"OriginId":     "origin-1",
-				"Origin":       event.NewIP,
-				"OriginPort":   fmt.Sprintf("%d", targetPort),
-				"Weight":       100,
-				"Private":      false,
+				"OriginId":   "origin-1",
+				"Origin":     event.NewIP,
+				"OriginPort": fmt.Sprintf("%d", targetPort),
+				"Weight":     100,
+				"Private":    false,
 			},
 		},
 	}

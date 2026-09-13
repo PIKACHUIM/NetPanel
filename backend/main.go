@@ -231,7 +231,7 @@ func startServer() *http.Server {
 	// AI 管理器
 	logAi := logger.NewDBLogger(log, "ai")
 	aiMgr := ai.NewManager(db, logAi)
-	
+
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
@@ -289,7 +289,7 @@ func startServer() *http.Server {
 	meshNodeMgr.Start()
 	aiMgr.Start()
 	lineregMgr.Start()
-	
+
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
 		log.Errorf("监控服务启动失败: %v", err)

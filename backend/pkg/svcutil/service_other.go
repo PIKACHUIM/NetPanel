@@ -18,5 +18,3 @@ func installWindowsService(exePath string) error {
 func uninstallWindowsService() error {
 	return fmt.Errorf("Windows 服务卸载仅在 Windows 平台可用")
 }
-
-

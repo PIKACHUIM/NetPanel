@@ -360,13 +360,13 @@ func (m *Manager) GetClientDetail(id uint) (map[string]interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"id":           cfg.ID,
-		"name":         cfg.Name,
-		"status":       m.GetClientStatus(id),
-		"last_error":   cfg.LastError,
-		"server_addr":  cfg.ServerAddr,
-		"server_port":  cfg.ServerPort,
-		"recent_logs":  logLines,
+		"id":          cfg.ID,
+		"name":        cfg.Name,
+		"status":      m.GetClientStatus(id),
+		"last_error":  cfg.LastError,
+		"server_addr": cfg.ServerAddr,
+		"server_port": cfg.ServerPort,
+		"recent_logs": logLines,
 	}, nil
 }
 

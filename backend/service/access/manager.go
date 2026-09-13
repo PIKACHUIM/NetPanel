@@ -42,10 +42,10 @@ type siteMatch struct {
 
 // Manager 访问控制管理器
 type Manager struct {
-	db           *gorm.DB
-	log          *logrus.Logger
-	rules        []resolvedRule
-	mu           sync.RWMutex
+	db    *gorm.DB
+	log   *logrus.Logger
+	rules []resolvedRule
+	mu    sync.RWMutex
 	// excludePaths 不受访问控制影响的路径前缀（可通过 SetExcludePaths 配置）
 	excludePaths []string
 }

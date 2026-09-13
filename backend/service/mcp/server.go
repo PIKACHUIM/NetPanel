@@ -535,9 +535,9 @@ func (s *Server) handleProbeConfigSet(args map[string]interface{}) map[string]in
 
 	// 覆盖传入字段（带范围校验）
 	fields := []struct {
-		key    string
-		min,   max int
-		dst    *int
+		key      string
+		min, max int
+		dst      *int
 	}{
 		{"interval_sec", 5, 3600, &intervalSec},
 		{"failure_threshold", 1, 10, &failureThreshold},
@@ -598,10 +598,10 @@ func (s *Server) handleTunserviceDiag() map[string]interface{} {
 		return s.textError("获取穿透服务列表失败: " + err.Error())
 	}
 	return s.textResult(map[string]interface{}{
-		"services":         views,
-		"snapshot":         s.lineregMgr.Selector().Snapshot(),
-		"rebind_mode":      s.lineregMgr.RebindMode(),
-		"pending_rebinds":  s.lineregMgr.PendingRebinds(),
+		"services":        views,
+		"snapshot":        s.lineregMgr.Selector().Snapshot(),
+		"rebind_mode":     s.lineregMgr.RebindMode(),
+		"pending_rebinds": s.lineregMgr.PendingRebinds(),
 	})
 }
 
