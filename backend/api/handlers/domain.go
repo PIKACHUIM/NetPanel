@@ -67,13 +67,13 @@ func newDNSRecordProvider(acc model.DomainAccount) dnsRecordProvider {
 		// Cloudflare: AccessID = Zone ID（可选），AccessSecret = API Token
 		// 若 AuthType == api_key，则 AccessID=Email, AccessSecret=Global API Key
 		if acc.AuthType == "api_key" {
-			return &cfProvider{email: acc.Email, apiKey: acc.AccessSecret}
+			return &cfProvider{email: acc.Email, apiKey: acc.AccessSecret.String()}
 		}
-		return &cfProvider{apiToken: acc.AccessSecret, zoneID: acc.AccessID}
+		return &cfProvider{apiToken: acc.AccessSecret.String(), zoneID: acc.AccessID}
 	case "alidns", "aliyun":
-		return &aliDNSRecordProvider{accessKeyID: acc.AccessID, accessKeySecret: acc.AccessSecret}
+		return &aliDNSRecordProvider{accessKeyID: acc.AccessID, accessKeySecret: acc.AccessSecret.String()}
 	case "dnspod":
-		return &dnspodRecordProvider{secretID: acc.AccessID, secretKey: acc.AccessSecret}
+		return &dnspodRecordProvider{secretID: acc.AccessID, secretKey: acc.AccessSecret.String()}
 	default:
 		return nil
 	}
@@ -461,11 +461,11 @@ func (p *dnspodRecordProvider) ListRecords(domain string) ([]ProviderRecord, err
 	var result struct {
 		Response struct {
 			RecordList []struct {
-				RecordId   uint   `json:"RecordId"`
-				Type       string `json:"Type"`
-				SubDomain  string `json:"Name"`
-				Value      string `json:"Value"`
-				TTL        int    `json:"TTL"`
+				RecordId  uint   `json:"RecordId"`
+				Type      string `json:"Type"`
+				SubDomain string `json:"Name"`
+				Value     string `json:"Value"`
+				TTL       int    `json:"TTL"`
 			} `json:"RecordList"`
 			Error *struct{ Message string } `json:"Error"`
 		} `json:"Response"`
@@ -629,10 +629,8 @@ func (h *DomainAccountHandler) Update(c *gin.Context) {
 		return
 	}
 	req.ID = uint(id)
-	// 如果 Secret 是掩码则保留原值
-	if strings.HasPrefix(req.AccessSecret, "****") {
-		req.AccessSecret = existing.AccessSecret
-	}
+	// Secret 空值（掩码回显提交）= 不修改，回填数据库现值
+	model.PreserveSecrets(&req, &existing)
 	h.db.Save(&req)
 	logger.WriteLog("info", "domain", fmt.Sprintf("更新域名账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
@@ -659,7 +657,7 @@ func (h *DomainAccountHandler) Test(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "账号不存在"})
 		return
 	}
-	provider := ddns.NewProvider(account.Provider, account.AccessID, account.AccessSecret)
+	provider := ddns.NewProvider(account.Provider, account.AccessID, account.AccessSecret.String())
 	if provider == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": fmt.Sprintf("不支持的 DNS 服务商: %s", account.Provider)})
 		return
@@ -1490,9 +1488,10 @@ func (h *IPDBHandler) Delete(c *gin.Context) {
 
 // parseIPsFromLine 从一行文本中解析出所有 IP/CIDR，支持空格、逗号、分号分隔多个 IP 段
 // 行格式示例：
-//   192.168.1.0/24
-//   192.168.1.0/24 10.0.0.0/8
-//   192.168.1.0/24,10.0.0.0/8;172.16.0.0/12
+//
+//	192.168.1.0/24
+//	192.168.1.0/24 10.0.0.0/8
+//	192.168.1.0/24,10.0.0.0/8;172.16.0.0/12
 func parseIPsFromLine(line string) []string {
 	// 统一将逗号、分号替换为空格，再按空格分割
 	replacer := strings.NewReplacer(",", " ", ";", " ")
@@ -1523,9 +1522,10 @@ func parseIPsFromLine(line string) []string {
 // parseTextToCIDRs 将文本内容解析为 IP/CIDR 列表
 // 支持每行多个 IP/CIDR（空格/逗号/分号分隔），行尾可附加 location 和 tags（会被忽略）
 // 格式：
-//   CIDR1 CIDR2 CIDR3
-//   CIDR1,CIDR2 location tags
-//   # 注释行
+//
+//	CIDR1 CIDR2 CIDR3
+//	CIDR1,CIDR2 location tags
+//	# 注释行
 func parseTextToCIDRs(text string) []string {
 	var cidrs []string
 	scanner := bufio.NewScanner(strings.NewReader(text))

@@ -71,6 +71,15 @@ func (m *Manager) Start(id uint) error {
 		return fmt.Errorf("存储配置不存在: %w", err)
 	}
 
+	// 纵深防御：即使 handler 侧漏校验，启动前再做一次安全校验
+	if err := ValidateConfig(&cfg); err != nil {
+		m.db.Model(&model.StorageConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"status":     "error",
+			"last_error": err.Error(),
+		})
+		return err
+	}
+
 	switch cfg.Protocol {
 	case "webdav":
 		return m.startWebDAV(id, &cfg)
@@ -94,7 +103,7 @@ func (m *Manager) startWebDAV(id uint, cfg *model.StorageConfig) error {
 		// 基础认证
 		if cfg.Username != "" {
 			user, pass, ok := r.BasicAuth()
-			if !ok || user != cfg.Username || pass != cfg.Password {
+			if !ok || user != cfg.Username || pass != cfg.Password.String() {
 				w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
@@ -138,11 +147,9 @@ func (m *Manager) startSFTP(id uint, cfg *model.StorageConfig) error {
 	// 配置 SSH 服务器
 	sshConfig := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			if cfg.Username == "" {
-				// 未设置用户名，允许任意登录
-				return nil, nil
-			}
-			if c.User() == cfg.Username && string(pass) == cfg.Password {
+			// 匿名放行已移除：SFTP 无文件系统沙箱，匿名等于向局域网开放
+			// 面板权限的整个磁盘；ValidateConfig 强制要求用户名密码
+			if c.User() == cfg.Username && string(pass) == cfg.Password.String() {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("用户名或密码错误")
@@ -375,7 +382,7 @@ func (m *Manager) startSMB(id uint, cfg *model.StorageConfig) error {
 		exec.Command("useradd", "-M", "-s", "/sbin/nologin", cfg.Username).Run()
 		// 设置 Samba 密码
 		cmd := exec.Command("smbpasswd", "-a", "-s", cfg.Username)
-		cmd.Stdin = strings.NewReader(cfg.Password + "\n" + cfg.Password + "\n")
+		cmd.Stdin = strings.NewReader(cfg.Password.String() + "\n" + cfg.Password.String() + "\n")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			m.log.Warnf("[SMB] 设置 Samba 用户密码失败: %v, output: %s", err, string(out))
 		}
