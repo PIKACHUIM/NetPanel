@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/pkg/utils"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -96,6 +98,55 @@ func (h *SystemHandler) GetStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": data})
+}
+
+// GetHealth 自检端点：检查 DB 可写/可读 + WAL 状态 + 各引擎心跳。
+// 供面板前端健康徽标、MCP 诊断工具及外部看门狗（cron 探测）消费。
+func (h *SystemHandler) GetHealth(c *gin.Context) {
+	checks := gin.H{}
+	healthy := true
+
+	// 1. DB 读
+	var cnt int64
+	if err := h.db.Model(&model.SystemConfig{}).Count(&cnt).Error; err != nil {
+		checks["db_read"] = "fail: " + err.Error()
+		healthy = false
+	} else {
+		checks["db_read"] = "ok"
+	}
+
+	// 2. DB 写（写临时表并删除，不污染业务数据）
+	if err := h.db.Exec("CREATE TABLE IF NOT EXISTS system_health_checks (id INTEGER PRIMARY KEY, ts INTEGER)").Error; err == nil {
+		if err := h.db.Exec("INSERT INTO system_health_checks (ts) VALUES (?)", time.Now().Unix()).Error; err == nil {
+			h.db.Exec("DELETE FROM system_health_checks")
+			checks["db_write"] = "ok"
+		} else {
+			checks["db_write"] = "fail: " + err.Error()
+			healthy = false
+		}
+	} else {
+		checks["db_write"] = "fail: " + err.Error()
+		healthy = false
+	}
+
+	// 3. 服务存活（SafeGo 托管的引擎循环定期上报心跳，过期视为异常）
+	for name, hb := range svcutil.EngineHeartbeats() {
+		status := "ok"
+		if time.Since(hb) > 3*time.Minute {
+			status = "stale: last " + hb.Format(time.RFC3339)
+			healthy = false
+		}
+		checks["engine_"+name] = status
+	}
+
+	code := 200
+	status := "healthy"
+	if !healthy {
+		code = 503
+		status = "unhealthy"
+	}
+	c.JSON(code, gin.H{"code": code, "status": status,
+		"uptime": time.Since(startTime).Round(time.Second).String(), "checks": checks})
 }
 
 // GetConfig 获取系统配置
