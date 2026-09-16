@@ -7,8 +7,14 @@ import {
   ExclamationCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import ReactECharts from 'echarts-for-react/lib/core'
+// 按需引入 echarts：只打包用到的图表类型与组件，避免全量引入（省 ~700kB）
+import * as echarts from 'echarts/core'
+import { ScatterChart, EffectScatterChart } from 'echarts/charts'
+import { GeoComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([ScatterChart, EffectScatterChart, GeoComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
 

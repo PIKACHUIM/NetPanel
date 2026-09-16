@@ -3,7 +3,14 @@ import { Card, Table, Button, Modal, Form, Input, Select, Switch, Space, App, Ta
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from 'echarts-for-react/lib/core'
+// 按需引入 echarts（与 MonitorDashboard 保持一致的拆包策略）
+import * as echarts from 'echarts/core'
+import { LineChart, ScatterChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 const { Option } = Select
 
