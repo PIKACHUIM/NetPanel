@@ -27,6 +27,7 @@ import (
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -84,8 +85,8 @@ func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 func (m *Manager) StartAll() {
 	m.startOnce.Do(func() {
 		m.stopCh = make(chan struct{})
-		go m.autoRenewLoop()
-		go m.acmeFlowLoop()
+		svcutil.SafeGo(m.log, "cert.autorenew", true, m.autoRenewLoop)
+		svcutil.SafeGo(m.log, "cert.acmeflow", true, m.acmeFlowLoop)
 	})
 }
 
