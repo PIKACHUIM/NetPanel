@@ -131,6 +131,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// 破坏性操作：手动清理必须在 admin 组内执行，且前端二次确认
 	auth.POST("/system/cleanup", sysHandler.CleanupRetention)
 	auth.GET("/system/cleanup/estimate", sysHandler.EstimateRetention)
+
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 	admin.GET("/system/config", sysHandler.GetConfig)
 	admin.PUT("/system/config", sysHandler.UpdateConfig)
