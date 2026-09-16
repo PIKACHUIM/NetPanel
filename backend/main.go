@@ -247,7 +247,7 @@ func startServer() *http.Server {
 	// AI 管理器
 	logAi := logger.NewDBLogger(log, "ai")
 	aiMgr := ai.NewManager(db, logAi)
-	
+
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
@@ -326,31 +326,32 @@ func startServer() *http.Server {
 
 	// 初始化路由
 	router := api.NewRouter(api.RouterOptions{
-		DB:             db,
-		Log:            log,
-		Config:         cfg,
-		PortForwardMgr: portforwardMgr,
-		StunMgr:        stunMgr,
-		FrpMgr:         frpMgr,
-		NpsMgr:         npsMgr,
-		EasytierMgr:    easytierMgr,
-		CftunnelMgr:    cftunnelMgr,
-		DdnsMgr:        ddnsMgr,
-		CaddyMgr:       caddyMgr,
-		CronMgr:        cronMgr,
-		StorageMgr:     storageMgr,
-		AccessMgr:      accessMgr,
-		FirewallMgr:    firewallMgr,
-		WireguardMgr:   wireguardMgr,
-		MeshNodeMgr:    meshNodeMgr,
-		TunserviceMgr:  tunserviceMgr,
-		LineregMgr:     lineregMgr,
-		DnsmasqMgr:     dnsmasqMgr,
-		WolMgr:         wolMgr,
-		CertMgr:        certMgr,
-		CallbackMgr:    callbackMgr,
-		SyslogMgr:      syslogMgr,
-		AiMgr:          aiMgr,
+		DB:               db,
+		Log:              log,
+		Config:           cfg,
+		PortForwardMgr:   portforwardMgr,
+		StunMgr:          stunMgr,
+		FrpMgr:           frpMgr,
+		NpsMgr:           npsMgr,
+		EasytierMgr:      easytierMgr,
+		CftunnelMgr:      cftunnelMgr,
+		DdnsMgr:          ddnsMgr,
+		CaddyMgr:         caddyMgr,
+		CronMgr:          cronMgr,
+		StorageMgr:       storageMgr,
+		AccessMgr:        accessMgr,
+		FirewallMgr:      firewallMgr,
+		WireguardMgr:     wireguardMgr,
+		MeshNodeMgr:      meshNodeMgr,
+		TunserviceMgr:    tunserviceMgr,
+		LineregMgr:       lineregMgr,
+		DnsmasqMgr:       dnsmasqMgr,
+		WolMgr:           wolMgr,
+		CertMgr:          certMgr,
+		CallbackMgr:      callbackMgr,
+		SyslogMgr:        syslogMgr,
+		AiMgr:            aiMgr,
+		RetentionCleaner: retentionCleaner,
 	})
 
 	// 挂载前端静态文件（SPA 模式：所有非 /api 路径均返回 index.html）

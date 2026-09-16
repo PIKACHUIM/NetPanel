@@ -352,6 +352,8 @@ export const systemApi = {
   updateConfig: (data: any) => request.put('/v1/system/config', data),
   changePassword: (data: any) => request.post('/v1/system/change-password', data),
   getInterfaces: () => request.get('/v1/system/interfaces'),
+  getHealth: () => request.get('/v1/system/health'),
+  cleanupRetention: () => request.post('/v1/system/cleanup'),
   login: (data: any) => request.post('/v1/auth/login', data),
 }
 

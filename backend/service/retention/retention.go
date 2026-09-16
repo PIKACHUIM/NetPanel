@@ -92,8 +92,9 @@ func (c *Cleaner) specs() []tableSpec {
 }
 
 // cleanupAll 清理所有表
-func (c *Cleaner) cleanupAll() {
+func (c *Cleaner) cleanupAll() int64 {
 	days := c.retentionDays()
+	var total int64
 	for _, spec := range c.specs() {
 		keep := spec.retentionDays
 		if keep == 0 {
@@ -101,10 +102,12 @@ func (c *Cleaner) cleanupAll() {
 		}
 		cutoff := time.Now().AddDate(0, 0, -keep)
 		if n := c.cleanupTable(spec.model, spec.timeColumn, cutoff); n > 0 {
+			total += n
 			c.log.Infof("[retention] 已清理 %s %d 条（保留 %d 天，截止 %s）",
 				fmt.Sprintf("%T", spec.model), n, keep, cutoff.Format("2006-01-02"))
 		}
 	}
+	return total
 }
 
 // cleanupTable 分批删除某表中时间早于 cutoff 的记录，返回删除总行数
@@ -122,6 +125,16 @@ func (c *Cleaner) cleanupTable(model interface{}, timeColumn string, cutoff time
 		}
 	}
 	return total
+}
+
+// CleanupNow 手动触发一轮全量清理，返回清理总行数（供 API 调用）
+func (c *Cleaner) CleanupNow() (total int64, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("清理失败: %v", r)
+		}
+	}()
+	return c.cleanupAll(), nil
 }
 
 // retentionDays 从 SystemConfig 读取保留天数，缺失/非法时回落默认值
