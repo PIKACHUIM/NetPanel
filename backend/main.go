@@ -19,6 +19,7 @@ import (
 	"github.com/netpanel/netpanel/api"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
+	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/pkg/secret"
 	"github.com/netpanel/netpanel/pkg/svcutil"
@@ -27,7 +28,6 @@ import (
 	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
-	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
@@ -42,6 +42,7 @@ import (
 	"github.com/netpanel/netpanel/service/monitor"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
@@ -248,7 +249,7 @@ func startServer() *http.Server {
 	// AI 管理器
 	logAi := logger.NewDBLogger(log, "ai")
 	aiMgr := ai.NewManager(db, logAi)
-	
+
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
@@ -311,7 +312,11 @@ func startServer() *http.Server {
 	lineregMgr.Start()
 	// 系统防火墙规则定时同步（此前 StartAutoSync 无任何调用者，功能实际未生效）
 	firewallMgr.StartAutoSync()
-	
+
+	// 数据保留清理器：定时分批清理时序数据，防止数据库无限膨胀
+	retentionCleaner := retention.New(db, log)
+	retentionStop := retentionCleaner.Start()
+
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
 		log.Errorf("监控服务启动失败: %v", err)
@@ -404,7 +409,10 @@ func startServer() *http.Server {
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
 		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv,
 		syslogMgr, wafMgr)
-
+	// 把清理器的停止函数链入全局优雅关闭
+	if prev := stopAllFn; prev != nil {
+		stopAllFn = func() { prev(); retentionStop() }
+	}
 
 	return srv
 }
