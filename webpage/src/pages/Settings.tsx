@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   LockOutlined, GlobalOutlined, InfoCircleOutlined,
-  CheckCircleOutlined, ThunderboltOutlined,
+  CheckCircleOutlined, ThunderboltOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -28,6 +28,10 @@ const Settings: React.FC = () => {
   // 测速弹窗开关（SystemConfig: speedtest_popup_enabled，默认开启）
   const [speedtestEnabled, setSpeedtestEnabled] = useState(true)
   const [speedtestLoaded, setSpeedtestLoaded] = useState(false)
+  // 数据保留天数（SystemConfig: retention_days，默认 30）
+  const [retentionDays, setRetentionDays] = useState<number>(30)
+  const [retentionLoaded, setRetentionLoaded] = useState(false)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
 
   // 读取系统配置中的测速弹窗开关
   const loadSpeedtestSwitch = async () => {
@@ -37,6 +41,9 @@ const Settings: React.FC = () => {
       if (val !== undefined) {
         setSpeedtestEnabled(val === 'true' || val === '1')
       }
+      // 数据保留天数（未配置时后端默认 30）
+      const days = parseInt(res?.data?.retention_days, 10)
+      if (!isNaN(days) && days > 0) setRetentionDays(days)
     } catch {
       // 读取失败保持默认开启
     }
@@ -54,6 +61,28 @@ const Settings: React.FC = () => {
     } catch {
       setSpeedtestEnabled(!checked)
       message.error(t('common.failed'))
+    }
+  }
+
+  const handleRetentionDaysChange = async (days: number) => {
+    setRetentionDays(days)
+    try {
+      await systemApi.updateConfig({ retention_days: String(days) })
+      message.success(t('settings.saved'))
+    } catch {
+      message.error(t('common.failed'))
+    }
+  }
+
+  const handleCleanup = async () => {
+    setCleanupLoading(true)
+    try {
+      const res: any = await systemApi.cleanupRetention()
+      message.success(`清理完成，共删除 ${res?.data?.deleted ?? 0} 条过期数据`)
+    } catch {
+      message.error(t('common.failed'))
+    } finally {
+      setCleanupLoading(false)
     }
   }
 
@@ -183,13 +212,44 @@ const Settings: React.FC = () => {
               </Space>
               </div>
 
-              <Divider />
+            <Divider />
 
-              <div>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                  <InfoCircleOutlined style={{ marginRight: 6, color: '#0071e3' }} />
-                  {t('settings.about')}
-                </Text>
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                <DeleteOutlined style={{ marginRight: 6, color: '#0071e3' }} />
+                数据保留
+              </Text>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Space>
+                  <Text type="secondary">时序数据保留：</Text>
+                  <Select
+                    value={retentionDays}
+                    onChange={handleRetentionDaysChange}
+                    style={{ width: 130 }}
+                  >
+                    {[7, 14, 30, 60, 90, 180, 365].map(d => (
+                      <Option key={d} value={d}>{d} 天</Option>
+                    ))}
+                  </Select>
+                </Space>
+                <Space style={{ marginBottom: 4 }}>
+                  <Button size="small" loading={cleanupLoading} onClick={handleCleanup} icon={<DeleteOutlined />}>
+                    立即清理
+                  </Button>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    清理监控指标、探测结果、WAF/系统日志等过期数据
+                  </Text>
+                </Space>
+              </Space>
+            </div>
+
+            <Divider />
+
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                <InfoCircleOutlined style={{ marginRight: 6, color: '#0071e3' }} />
+                {t('settings.about')}
+              </Text>
               <div style={{ lineHeight: 2 }}>
                 <div>
                   <Text type="secondary">版本：</Text>

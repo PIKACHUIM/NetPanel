@@ -6,8 +6,8 @@ import (
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
-	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
@@ -15,16 +15,17 @@ import (
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/netpanel/netpanel/service/linereg"
+	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
-	"github.com/netpanel/netpanel/service/ai"
-	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -33,31 +34,32 @@ import (
 
 // RouterOptions 路由选项
 type RouterOptions struct {
-	DB             *gorm.DB
-	Log            *logrus.Logger
-	Config         *config.Config
-	PortForwardMgr *portforward.Manager
-	StunMgr        *stun.Manager
-	FrpMgr         *frp.Manager
-	NpsMgr         *nps.Manager
-	EasytierMgr    *easytier.Manager
-	CftunnelMgr    *cftunnel.Manager
-	DdnsMgr        *ddns.Manager
-	CaddyMgr       *caddy.Manager
-	CronMgr        *cron.Manager
-	StorageMgr     *storage.Manager
-	AccessMgr      *access.Manager
-	FirewallMgr    *firewall.Manager
-	DnsmasqMgr     *dnsmasq.Manager
-	WolMgr         *wol.Manager
-	CertMgr        *cert.Manager
-	CallbackMgr    *callback.Manager
-	SyslogMgr      *syslog.Manager
-	WireguardMgr   *wireguard.Manager
-	MeshNodeMgr    *meshnode.Manager
-	TunserviceMgr  *tunservice.Manager
-	AiMgr          *ai.Manager
-	LineregMgr     *linereg.Manager
+	DB               *gorm.DB
+	Log              *logrus.Logger
+	Config           *config.Config
+	PortForwardMgr   *portforward.Manager
+	StunMgr          *stun.Manager
+	FrpMgr           *frp.Manager
+	NpsMgr           *nps.Manager
+	EasytierMgr      *easytier.Manager
+	CftunnelMgr      *cftunnel.Manager
+	DdnsMgr          *ddns.Manager
+	CaddyMgr         *caddy.Manager
+	CronMgr          *cron.Manager
+	StorageMgr       *storage.Manager
+	AccessMgr        *access.Manager
+	FirewallMgr      *firewall.Manager
+	DnsmasqMgr       *dnsmasq.Manager
+	WolMgr           *wol.Manager
+	CertMgr          *cert.Manager
+	CallbackMgr      *callback.Manager
+	SyslogMgr        *syslog.Manager
+	WireguardMgr     *wireguard.Manager
+	MeshNodeMgr      *meshnode.Manager
+	TunserviceMgr    *tunservice.Manager
+	AiMgr            *ai.Manager
+	RetentionCleaner *retention.Cleaner
+	LineregMgr       *linereg.Manager
 }
 
 // NewRouter 创建路由
@@ -121,10 +123,12 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.Use(middleware.JWTAuth(opts.DB), middleware.AdminOnly())
 
 	// 系统信息（配置读写与改密限管理员）
-	sysHandler := handlers.NewSystemHandler(opts.DB, opts.Log, opts.Config)
+	sysHandler := handlers.NewSystemHandler(opts.DB, opts.Log, opts.Config, opts.RetentionCleaner)
 	auth.GET("/system/info", sysHandler.GetInfo)
 	auth.GET("/system/stats", sysHandler.GetStats)
 	auth.GET("/system/interfaces", sysHandler.GetInterfaces)
+	auth.GET("/system/health", sysHandler.GetHealth)
+	auth.POST("/system/cleanup", sysHandler.CleanupRetention)
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 	admin.GET("/system/config", sysHandler.GetConfig)
 	admin.PUT("/system/config", sysHandler.UpdateConfig)
