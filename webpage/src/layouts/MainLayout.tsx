@@ -45,6 +45,7 @@ import {
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {useAppStore, wallpaperList, hasWallpaper, getWallpaperBg} from '../store/appStore'
+import HealthBadge from '../components/HealthBadge'
 import type {WallpaperKey} from '../store/appStore'
 import i18n from '../i18n'
 
@@ -424,6 +425,9 @@ const MainLayout: React.FC = () => {
 
                         {/* 右侧工具栏 */}
                         <Space size={6}>
+                            {/* 系统健康状态 */}
+                            <HealthBadge/>
+
                             {/* 语言切换 */}
                             <Tooltip title={language === 'zh' ? 'Switch to English' : '切换为中文'}>
                                 <div
