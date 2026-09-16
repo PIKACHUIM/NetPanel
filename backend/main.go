@@ -365,6 +365,16 @@ func startServer() *http.Server {
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: router,
+		// 超时配置（稳定性：防慢连接长期占住 goroutine 与 fd）：
+		//   - ReadTimeout 限制读请求，请求体都很小，30s 足够；
+		//   - WriteTimeout 必须保持 0：AI 对话与 CF 隧道日志走 SSE 流式响应、
+		//     终端走 WebSocket 升级，任何写超时都会掐断长连接；
+		//   - IdleTimeout 回收空闲连接，防连接堆积。
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
