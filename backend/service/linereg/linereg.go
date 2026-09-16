@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/service/selector"
 )
 
@@ -344,7 +345,7 @@ func (m *Manager) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.wg.Add(1)
-	go m.run(ctx)
+	svcutil.SafeGo(m.log, "linereg.run", true, func() { m.run(ctx) })
 	m.log.Info("[线路选择] 后台测速选线已启动")
 }
 
@@ -381,6 +382,7 @@ func (m *Manager) run(ctx context.Context) {
 			}
 			timer.Reset(m.currentInterval())
 		case <-timer.C:
+			svcutil.BeatEngineHeartbeat("linereg")
 			m.refresh(ctx)
 			timer.Reset(m.currentInterval())
 		}
