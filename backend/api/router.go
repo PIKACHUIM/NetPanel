@@ -125,6 +125,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/system/info", sysHandler.GetInfo)
 	auth.GET("/system/stats", sysHandler.GetStats)
 	auth.GET("/system/interfaces", sysHandler.GetInterfaces)
+	auth.GET("/system/health", sysHandler.GetHealth)
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 	admin.GET("/system/config", sysHandler.GetConfig)
 	admin.PUT("/system/config", sysHandler.UpdateConfig)
