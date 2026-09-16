@@ -8,9 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 )
 
 // AlertEngine 告警规则引擎
@@ -63,7 +65,7 @@ func (a *AlertEngine) Start() {
 
 	// 启动告警检查协程
 	a.wg.Add(1)
-	go a.alertChecker()
+	svcutil.SafeGo(logrus.StandardLogger(), "monitor.alert", true, a.alertChecker)
 
 	log.Println("[AlertEngine] 告警引擎启动完成")
 }
@@ -90,6 +92,7 @@ func (a *AlertEngine) alertChecker() {
 		case <-a.ctx.Done():
 			return
 		case <-ticker.C:
+			svcutil.BeatEngineHeartbeat("alert")
 			a.checkAlerts()
 		}
 	}
