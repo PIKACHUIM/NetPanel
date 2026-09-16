@@ -15,6 +15,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/netpanel/netpanel/pkg/svcutil"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -28,10 +29,12 @@ type SystemHandler struct {
 	db     *gorm.DB
 	log    *logrus.Logger
 	config *config.Config
+	// retention 数据保留清理器（手动清理用，可为 nil）
+	retention *retention.Cleaner
 }
 
-func NewSystemHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config) *SystemHandler {
-	return &SystemHandler{db: db, log: log, config: cfg}
+func NewSystemHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config, retentionCleaner *retention.Cleaner) *SystemHandler {
+	return &SystemHandler{db: db, log: log, config: cfg, retention: retentionCleaner}
 }
 
 // startTime 记录程序启动时间
@@ -147,6 +150,21 @@ func (h *SystemHandler) GetHealth(c *gin.Context) {
 	}
 	c.JSON(code, gin.H{"code": code, "status": status,
 		"uptime": time.Since(startTime).Round(time.Second).String(), "checks": checks})
+}
+
+// CleanupRetention 手动触发一轮数据保留清理
+func (h *SystemHandler) CleanupRetention(c *gin.Context) {
+	if h.retention == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "清理器未就绪"})
+		return
+	}
+	total, err := h.retention.CleanupNow()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	h.log.Infof("[retention] 手动清理完成，共 %d 条", total)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "清理完成", "data": gin.H{"deleted": total}})
 }
 
 // GetConfig 获取系统配置
