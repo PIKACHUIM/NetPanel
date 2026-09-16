@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/logger"
-	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/netpanel/netpanel/pkg/svcutil"
+	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/netpanel/netpanel/service/retention"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
