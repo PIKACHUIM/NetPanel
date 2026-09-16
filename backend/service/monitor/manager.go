@@ -8,11 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 )
 
 // Manager 监控服务管理器
@@ -102,7 +104,7 @@ func (m *Manager) Start() error {
 	
 	// 启动心跳检测
 	m.wg.Add(1)
-	go m.heartbeatChecker()
+	svcutil.SafeGo(logrus.StandardLogger(), "monitor.heartbeat", true, m.heartbeatChecker)
 	
 	// 启动子模块
 	m.ProbeEngine.Start()
