@@ -27,7 +27,18 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 		"&_pragma=journal_mode(WAL)" +
 		"&_pragma=synchronous(NORMAL)" +
 		"&_pragma=foreign_keys(ON)" +
-		"&_pragma=cache_size(-16000)"
+		"&_pragma=cache_size(-16000)" +
+		// _txlock=immediate：所有写事务统一用 BEGIN IMMEDIATE 开始。
+		//
+		// 背景：默认 deferred 事务是「先读、用到写时才真正加写锁」。在多连接
+		// 池下，事务内「先读 + 后写」会命中 SQLITE_BUSY_SNAPSHOT（错误码 517），
+		// busy_timeout 只对「等待写锁」有效、对快照冲突无效，会直接以 500 暴露给
+		// 用户。旧实现 MaxOpenConns(1) 由连接池天然串行化所以没这问题。
+		//
+		// BEGIN IMMEDIATE 在事务一开始就抢占写锁，读-写窗口内不会再有第三方
+		// 提交写入，快照冲突不再发生；拿不到锁时 busy_timeout 会等待。
+		// 只读事务（opts.ReadOnly=true）不受影响，仍走 deferred。
+		"&_txlock=immediate"
 
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
@@ -37,10 +48,12 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 	}
 
 	// 配置连接池：WAL 模式允许多连接并发读，读不再互相排队；
-	// 写仍由 SQLite 内部串行化，busy_timeout 负责等待写锁，避免 BUSY 报错
-	maxConns := runtime.NumCPU()
-	if maxConns < 4 {
-		maxConns = 4
+	// 写由 SQLite 内部串行化（见 _txlock=immediate 的说明）。
+	// 连接数按宿主实际可用 CPU 取值，小主机/容器里 NumCPU 可能虚高，
+	// 故用 GOMAXPROCS 口径并设保守上限，避免「1 核容器拿到 8 连接」。
+	maxConns := runtime.GOMAXPROCS(0)
+	if maxConns < 2 {
+		maxConns = 2
 	} else if maxConns > 8 {
 		maxConns = 8
 	}
@@ -49,8 +62,10 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 		return nil, err
 	}
 	sqlDB.SetMaxOpenConns(maxConns)
-	sqlDB.SetMaxIdleConns(maxConns)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	// 空闲连接数低于最大连接数：8 条常驻连接 × cache_size(16MB/连接) 在小内存
+	// 设备上会吃掉可观内存。空闲连接会被回收，不影响并发读上限。
+	sqlDB.SetMaxIdleConns(2)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
 	// 自动迁移所有表
 	if err := autoMigrate(db); err != nil {
