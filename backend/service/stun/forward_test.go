@@ -96,6 +96,8 @@ func TestUDPForwardKeepaliveAndRelay(t *testing.T) {
 		t.Fatalf("创建 UDP 转发器失败: %v", err)
 	}
 	defer f.Close()
+	// 测试目标在回环上，需放行本机地址拦截（生产默认拒绝）
+	f.allowLoopback = true
 
 	// 回环无 NAT：STUN 返回的映射地址应等于本 socket 地址
 	info, err := f.Keepalive()

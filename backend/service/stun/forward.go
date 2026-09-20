@@ -60,14 +60,16 @@ type udpForward struct {
 	stunAddr *net.UDPAddr
 	target   *net.UDPAddr
 	natType  NATType
+	// allowLoopback 允许转发到回环/未指定地址（仅限测试用，生产默认拒绝）。
+	allowLoopback bool
 
 	respCh chan []byte // 保活协程消费的 STUN 响应（按事务 ID 匹配）
 
-	mu             sync.Mutex
-	sessions       map[string]*net.UDPConn // 远端 peer -> 连接目标的 socket
-	lastSeen       map[string]time.Time
-	peerPacketCnt  map[string]int          // 速率限制：peer -> 当前窗口包数
-	peerWindowStart map[string]time.Time   // 速率限制窗口起始时间
+	mu              sync.Mutex
+	sessions        map[string]*net.UDPConn // 远端 peer -> 连接目标的 socket
+	lastSeen        map[string]time.Time
+	peerPacketCnt   map[string]int       // 速率限制：peer -> 当前窗口包数
+	peerWindowStart map[string]time.Time // 速率限制窗口起始时间
 
 	closeOnce sync.Once
 	log       *logrus.Logger
@@ -187,7 +189,8 @@ func (f *udpForward) sessionFor(peer *net.UDPAddr) *net.UDPConn {
 	// 127.0.0.1:18090（MCP 强制回环）等"仅本机可访问"的服务直接放到公网。
 	// 用户配置目标地址时已有表单提示，此处再加一道防线（目标端口转发到本机回环
 	// 地址是最危险的误用场景，如 target=127.0.0.1:2019）。
-	if f.target != nil && (f.target.IP.IsLoopback() || f.target.IP.IsUnspecified()) {
+	if f.target != nil && !f.allowLoopback &&
+		(f.target.IP.IsLoopback() || f.target.IP.IsUnspecified()) {
 		f.log.Warnf("[STUN服务][UDP转发] 拒绝转发到本机地址 %s（安全风险：公网可直达本机敏感服务）", f.target)
 		return nil
 	}
