@@ -1647,6 +1647,16 @@ const zh = {
     speedtestPopupTip: '开启后 TunService 页面显示 ⚡ 测速按钮，可手动触发线路即时测速',
     about: '关于',
   },
+  // 顶栏健康徽标（/system/health）
+  health: {
+    checking: '检测中…',
+    normal: '正常',
+    abnormal: '异常项：',
+    allOk: '系统正常',
+    abnormalUnknown: '系统自检未通过（明细不可用）',
+    selfCheckFailed: '系统自检未通过，请查看服务端日志或健康检查详情',
+    unreachable: '健康检查不可达（后端异常或网络问题）',
+  },
   // 内网穿透管理
   tunservice: {
     target: '目标服务',
