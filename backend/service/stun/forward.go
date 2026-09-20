@@ -32,6 +32,15 @@ const (
 	udpSessionIdleTimeout = 5 * time.Minute
 	// udpSessionSweepInterval 会话回收扫描间隔
 	udpSessionSweepInterval = time.Minute
+	// udpMaxSessions 单个转发器的并发 peer 会话上限。
+	// 超限时新来源会被丢弃（而非无限制 DialUDP），避免 UDP 洪泛
+	// 无限创建 socket + goroutine。
+	udpMaxSessions = 1024
+	// udpRateLimitPerPeer 每个来源每秒允许的包数上限。
+	// 用于抑制伪造源地址的 UDP 洪泛。
+	udpRateLimitPerPeer = 100
+	// udpRateLimitWindow 速率限制的滑动窗口粒度
+	udpRateLimitWindow = time.Second
 )
 
 // forwarder proxy 模式的持久转发器（UDP/TCP）
@@ -54,9 +63,11 @@ type udpForward struct {
 
 	respCh chan []byte // 保活协程消费的 STUN 响应（按事务 ID 匹配）
 
-	mu       sync.Mutex
-	sessions map[string]*net.UDPConn // 远端 peer -> 连接目标的 socket
-	lastSeen map[string]time.Time
+	mu             sync.Mutex
+	sessions       map[string]*net.UDPConn // 远端 peer -> 连接目标的 socket
+	lastSeen       map[string]time.Time
+	peerPacketCnt  map[string]int          // 速率限制：peer -> 当前窗口包数
+	peerWindowStart map[string]time.Time   // 速率限制窗口起始时间
 
 	closeOnce sync.Once
 	log       *logrus.Logger
@@ -69,14 +80,16 @@ func newUDPForward(listenPort int, stunAddr, target *net.UDPAddr, natType NATTyp
 		return nil, fmt.Errorf("绑定本地 UDP 端口 %d 失败: %w", listenPort, err)
 	}
 	f := &udpForward{
-		conn:     conn,
-		stunAddr: stunAddr,
-		target:   target,
-		natType:  natType,
-		respCh:   make(chan []byte, 16),
-		sessions: make(map[string]*net.UDPConn),
-		lastSeen: make(map[string]time.Time),
-		log:      log,
+		conn:            conn,
+		stunAddr:        stunAddr,
+		target:          target,
+		natType:         natType,
+		respCh:          make(chan []byte, 16),
+		sessions:        make(map[string]*net.UDPConn),
+		lastSeen:        make(map[string]time.Time),
+		peerPacketCnt:   make(map[string]int),
+		peerWindowStart: make(map[string]time.Time),
+		log:             log,
 	}
 	go f.readLoop()
 	return f, nil
@@ -146,9 +159,39 @@ func (f *udpForward) sessionFor(peer *net.UDPAddr) *net.UDPConn {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastSeen[key] = time.Now()
+
 	if c, ok := f.sessions[key]; ok {
 		return c
 	}
+
+	// 会话总数上限：防止 UDP 洪泛无限制创建 socket + goroutine
+	if len(f.sessions) >= udpMaxSessions {
+		f.log.Warnf("[STUN服务][UDP转发] 会话数达到上限 %d，丢弃新来源 %s", udpMaxSessions, key)
+		return nil
+	}
+
+	// 每来源速率限制：抑制伪造源地址的 UDP 洪泛
+	now := time.Now()
+	if ws, ok := f.peerWindowStart[key]; ok && now.Sub(ws) < udpRateLimitWindow {
+		if f.peerPacketCnt[key] >= udpRateLimitPerPeer {
+			f.log.Debugf("[STUN服务][UDP转发] 来源 %s 超过速率限制（%d/s），丢包", key, udpRateLimitPerPeer)
+			return nil
+		}
+		f.peerPacketCnt[key]++
+	} else {
+		f.peerWindowStart[key] = now
+		f.peerPacketCnt[key] = 1
+	}
+
+	// 本机/回环地址阻断：避免把 127.0.0.1:2019（Caddy Admin API 无鉴权）或
+	// 127.0.0.1:18090（MCP 强制回环）等"仅本机可访问"的服务直接放到公网。
+	// 用户配置目标地址时已有表单提示，此处再加一道防线（目标端口转发到本机回环
+	// 地址是最危险的误用场景，如 target=127.0.0.1:2019）。
+	if f.target != nil && (f.target.IP.IsLoopback() || f.target.IP.IsUnspecified()) {
+		f.log.Warnf("[STUN服务][UDP转发] 拒绝转发到本机地址 %s（安全风险：公网可直达本机敏感服务）", f.target)
+		return nil
+	}
+
 	c, err := net.DialUDP("udp4", nil, f.target)
 	if err != nil {
 		f.log.Warnf("[STUN服务][UDP转发] 连接目标 %s 失败: %v", f.target, err)
@@ -234,7 +277,24 @@ func (f *udpForward) Keepalive() (*NATInfo, error) {
 }
 
 func (f *udpForward) Close() {
-	f.closeOnce.Do(func() { f.conn.Close() })
+	f.closeOnce.Do(func() {
+		// 关闭主 socket 会让 readLoop 退出（ReadFromUDP 返回错误）
+		f.conn.Close()
+
+		// 同时关闭所有 peer 的目标 socket，释放 fd 并让 targetReadLoop 退出。
+		// 此前只关主 socket，sessions 里的每个 *net.UDPConn 与
+		// targetReadLoop 都不会退出——每次 Stop/Start（包括保存配置触发的
+		// 重建）都会泄漏 N 个 fd + N 个 goroutine（N = 该轮出现过的 peer 数）。
+		f.mu.Lock()
+		for key, c := range f.sessions {
+			c.Close()
+			delete(f.sessions, key)
+			delete(f.lastSeen, key)
+			delete(f.peerPacketCnt, key)
+			delete(f.peerWindowStart, key)
+		}
+		f.mu.Unlock()
+	})
 }
 
 // ===== TCP 转发 =====

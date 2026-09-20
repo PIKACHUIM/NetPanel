@@ -163,6 +163,13 @@ const defaultSTUNServer = "stun.l.google.com:19302"
 // runLoop 主循环：定时检测 + 指数退避重试。
 //   - proxy 模式：持久转发器（UDP/TCP）保活 + 转发，映射地址随保活刷新；
 //   - direct 模式：周期检测外部地址，由路由器（UPnP/NATMAP）负责映射转发。
+//
+// 关键设计：保活与重试退避解耦。
+//   - 保活固定按 keepaliveInterval（<=25s）运行，维持 NAT 映射（UDP NAT 映射空闲
+//     回收通常 30-120s）。失败只影响状态与显示，不推迟下一次保活，避免退避期内
+//     映射失效、恢复后拿到新端口触发多余"地址变化"回调。
+//   - 错误/建立失败才进入指数退避（5s->...->5min），仅用于重试建立转发器或
+//     处理检测失败，不影响保活定时器。
 func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 	defer func() {
 		m.entries.Delete(id)
@@ -171,7 +178,13 @@ func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 
 	backoff := 5 * time.Second
 	maxBackoff := 5 * time.Minute
+	// 检测/重试间隔：失败/重试时使用（指数退避），成功后重置为 baseCheckInterval
 	checkInterval := 30 * time.Second
+	baseCheckInterval := 30 * time.Second
+	// 保活间隔：独立于退避，固定运行以维持 NAT 映射
+	keepaliveInterval := 25 * time.Second
+	keepaliveTicker := time.NewTicker(keepaliveInterval)
+	defer keepaliveTicker.Stop()
 
 	var fwd forwarder
 	defer func() {
@@ -179,6 +192,34 @@ func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 			fwd.Close()
 		}
 	}()
+
+	// runKeepalive 执行一轮保活（仅在已有转发器时生效）。
+	// 保活失败只影响状态与显示，不推迟下一次保活定时器。
+	runKeepalive := func() {
+		if fwd == nil {
+			return
+		}
+		info, err := fwd.Keepalive()
+		if err != nil {
+			m.log.Debugf("[STUN服务][%d] 保活失败: %v", id, err)
+			return
+		}
+		if info != nil {
+			entry.mu.Lock()
+			entry.info = info
+			entry.stunStatus = "penetrating"
+			entry.mu.Unlock()
+			m.db.Model(&model.StunRule{}).Where("id = ?", id).Updates(map[string]interface{}{
+				"current_ip":   info.IP,
+				"current_port": info.Port,
+				"last_error":   "",
+				"stun_status":  "penetrating",
+			})
+			if info.NATType != "" {
+				m.db.Model(&model.StunRule{}).Where("id = ?", id).Update("nat_type", string(info.NATType))
+			}
+		}
+	}
 
 	for {
 		// 重新读取最新配置（配置修改会经 Stop/Start 重建循环，此处兜底）
@@ -241,7 +282,8 @@ func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 			}
 		}
 
-		// 成功后重置退避
+		// 成功后重置检测间隔（保活间隔不变）
+		checkInterval = baseCheckInterval
 		backoff = 5 * time.Second
 
 		// IP/端口变化时触发回调
@@ -257,6 +299,8 @@ func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-keepaliveTicker.C:
+			runKeepalive()
 		case <-time.After(checkInterval):
 		}
 	}
