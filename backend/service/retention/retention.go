@@ -137,6 +137,34 @@ func (c *Cleaner) CleanupNow() (total int64, err error) {
 	return c.cleanupAll(), nil
 }
 
+// EstimateCleanup 统计当前会被清理的过期数据总行数（不实际删除）。
+// 用于在执行破坏性清理前让用户知道会删多少，避免误触。
+func (c *Cleaner) EstimateCleanup() int64 {
+	days := c.retentionDays()
+	var total int64
+	for _, spec := range c.specs() {
+		keep := spec.retentionDays
+		if keep == 0 {
+			keep = days
+		}
+		cutoff := time.Now().AddDate(0, 0, -keep)
+		n := c.countTable(spec.model, spec.timeColumn, cutoff)
+		if n > 0 {
+			c.log.Debugf("[retention] 预估清理 %s %d 条（保留 %d 天，截止 %s）",
+				fmt.Sprintf("%T", spec.model), n, keep, cutoff.Format("2006-01-02"))
+		}
+		total += n
+	}
+	return total
+}
+
+// countTable 统计某表中时间早于 cutoff 的记录数
+func (c *Cleaner) countTable(model interface{}, timeColumn string, cutoff time.Time) int64 {
+	var n int64
+	c.db.Model(model).Where(fmt.Sprintf("%s < ?", timeColumn), cutoff).Count(&n)
+	return n
+}
+
 // retentionDays 从 SystemConfig 读取保留天数，缺失/非法时回落默认值
 func (c *Cleaner) retentionDays() int {
 	var cfg model.SystemConfig

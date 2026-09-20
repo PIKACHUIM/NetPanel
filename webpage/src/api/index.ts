@@ -354,6 +354,7 @@ export const systemApi = {
   getInterfaces: () => request.get('/v1/system/interfaces'),
   getHealth: () => request.get('/v1/system/health'),
   cleanupRetention: () => request.post('/v1/system/cleanup'),
+  estimateRetention: () => request.get('/v1/system/cleanup/estimate'),
   login: (data: any) => request.post('/v1/auth/login', data),
 }
 
