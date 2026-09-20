@@ -8,13 +8,8 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react/lib/core'
-// 按需引入 echarts：只打包用到的图表类型与组件，避免全量引入（省 ~700kB）
-import * as echarts from 'echarts/core'
-import { ScatterChart, EffectScatterChart } from 'echarts/charts'
-import { GeoComponent, TooltipComponent, LegendComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-
-echarts.use([ScatterChart, EffectScatterChart, GeoComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+// 按需引入 echarts：统一从共享模块取已注册的最小集合，避免全量引入（省 ~700kB）
+import echarts from '../lib/echarts'
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
 
@@ -323,7 +318,7 @@ const MonitorDashboard: React.FC = () => {
         >
           <Spin spinning={loading || !mapReady}>
             {mapReady ? (
-              <ReactECharts option={getMapOption()} style={{ height: '500px' }} notMerge={true} lazyUpdate={true} />
+              <ReactECharts echarts={echarts} option={getMapOption()} style={{ height: '500px' }} notMerge={true} lazyUpdate={true} />
             ) : (
               <div style={{ height: '500px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 加载地图中...
