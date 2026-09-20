@@ -32,6 +32,9 @@ const Settings: React.FC = () => {
   const [retentionDays, setRetentionDays] = useState<number>(30)
   const [retentionLoaded, setRetentionLoaded] = useState(false)
   const [cleanupLoading, setCleanupLoading] = useState(false)
+  // 立即清理前的预估删除条数（不实际删除，用于二次确认）
+  const [estimated, setEstimated] = useState<number | null>(null)
+  const [estimateLoading, setEstimateLoading] = useState(false)
 
   // 读取系统配置中的测速弹窗开关
   const loadSpeedtestSwitch = async () => {
@@ -44,6 +47,8 @@ const Settings: React.FC = () => {
       // 数据保留天数（未配置时后端默认 30）
       const days = parseInt(res?.data?.retention_days, 10)
       if (!isNaN(days) && days > 0) setRetentionDays(days)
+      // 预估当前会被清理的条数
+      loadEstimate()
     } catch {
       // 读取失败保持默认开启
     }
@@ -51,6 +56,17 @@ const Settings: React.FC = () => {
   if (!speedtestLoaded) {
     setSpeedtestLoaded(true)
     loadSpeedtestSwitch()
+  }
+
+  // 预估当前会被清理的过期数据总行数（不实际删除）
+  const loadEstimate = async () => {
+    try {
+      const res: any = await systemApi.estimateRetention()
+      const n = res?.data?.estimated
+      setEstimated(typeof n === 'number' ? n : null)
+    } catch {
+      setEstimated(null)
+    }
   }
 
   const handleSpeedtestSwitch = async (checked: boolean) => {
@@ -75,10 +91,28 @@ const Settings: React.FC = () => {
   }
 
   const handleCleanup = async () => {
+    // 二次确认：破坏性操作，先预估会删多少
+    setEstimateLoading(true)
+    try {
+      const res: any = await systemApi.estimateRetention()
+      const n = res?.data?.estimated
+      setEstimated(typeof n === 'number' ? n : null)
+    } catch {
+      setEstimated(null)
+    } finally {
+      setEstimateLoading(false)
+    }
+    const countText = (estimated != null && estimated > 0)
+      ? `预计删除 ${estimated} 条过期数据，确认执行吗？`
+      : '确认执行数据清理吗？（此操作不可撤销）'
+    if (!window.confirm(countText)) {
+      return
+    }
     setCleanupLoading(true)
     try {
       const res: any = await systemApi.cleanupRetention()
       message.success(`清理完成，共删除 ${res?.data?.deleted ?? 0} 条过期数据`)
+      loadEstimate()
     } catch {
       message.error(t('common.failed'))
     } finally {
