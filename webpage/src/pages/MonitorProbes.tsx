@@ -4,13 +4,8 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseC
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
 import ReactECharts from 'echarts-for-react/lib/core'
-// 按需引入 echarts（与 MonitorDashboard 保持一致的拆包策略）
-import * as echarts from 'echarts/core'
-import { LineChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-
-echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
+// 按需引入 echarts（与 MonitorDashboard 共用共享注册模块，含 LegendComponent）
+import echarts from '../lib/echarts'
 
 const { Option } = Select
 
@@ -343,7 +338,7 @@ const MonitorProbes: React.FC = () => {
         footer={null}
         width={900}
       >
-        <ReactECharts option={getResultsChartOption()} style={{ height: '400px' }} />
+        <ReactECharts echarts={echarts} option={getResultsChartOption()} style={{ height: '400px' }} />
       </Modal>
     </div>
   )
