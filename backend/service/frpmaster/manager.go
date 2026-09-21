@@ -24,6 +24,8 @@ const (
 	DefaultOfflineAfter = 90 * time.Second
 	// maxAgentLogBatch 单次日志回传的最大行数（防单条上报打爆日志表）。
 	maxAgentLogBatch = 100
+	// maxAgentLogMessageLen 单条日志消息最大字节数（防超长 message 撑满 text 列）。
+	maxAgentLogMessageLen = 4096
 )
 
 // 包级错误，供 API 层区分 404 / 401。
@@ -196,7 +198,7 @@ func (m *Manager) SaveLogs(nodeID uint, lines []string) (int, error) {
 		entries = append(entries, model.SystemLog{
 			Level:   "info",
 			Service: "frpmaster",
-			Message: fmt.Sprintf("[节点 %d] %s", nodeID, line),
+			Message: truncateToUTF8(fmt.Sprintf("[节点 %d] %s", nodeID, line), maxAgentLogMessageLen),
 			LogTime: now,
 		})
 	}
@@ -242,4 +244,18 @@ func newToken(n int) (string, error) {
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+// truncateToUTF8 将字符串截断至最多 maxBytes 字节（按 UTF-8 rune 边界对齐）。
+func truncateToUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	b := []byte(s)
+	for i := maxBytes - 1; i >= 0; i-- {
+		if b[i]&0xc0 != 0x80 {
+			return string(b[:i+1])
+		}
+	}
+	return string(b[:maxBytes])
 }

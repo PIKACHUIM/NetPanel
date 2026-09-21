@@ -604,7 +604,9 @@ export const frpmasterApi = {
   agentStatus: (nodeId: number, token: string, tunnels?: unknown) =>
     request.post('/v1/frpmaster/agent/status', { node_id: nodeId, token, tunnels }),
   agentConfig: (nodeId: number, token: string) =>
-    request.get(`/v1/frpmaster/agent/config?node_id=${nodeId}&token=${encodeURIComponent(token)}`),
+    request.post(`/v1/frpmaster/agent/config?node_id=${nodeId}`, null, {
+      headers: { 'X-Frp-Token': encodeURIComponent(token) },
+    }),
   agentLogs: (nodeId: number, token: string, logs: string[]) =>
     request.post('/v1/frpmaster/agent/logs', { node_id: nodeId, token, logs }),
 }

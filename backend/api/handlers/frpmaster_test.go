@@ -37,7 +37,7 @@ func newFrpMasterTestEnv(t *testing.T) *gin.Engine {
 	r.POST("/api/v1/frpmaster/agent/heartbeat", h.Heartbeat)
 	r.POST("/api/v1/frpmaster/agent/status", h.ReportStatus)
 	r.POST("/api/v1/frpmaster/agent/logs", h.ReportLogs)
-	r.GET("/api/v1/frpmaster/agent/config", h.FetchConfig)
+	r.POST("/api/v1/frpmaster/agent/config", h.FetchConfig)
 	return r
 }
 
@@ -96,9 +96,11 @@ func TestFrpMasterAgentFlow(t *testing.T) {
 		t.Fatalf("正确 token 心跳应 200，得到 code=%d body=%s", w.Code, w.Body.String())
 	}
 
-	// 4) 拉取本节点 frpc.toml（查询参数认证）
-	w = fmRequest(r, http.MethodGet,
-		fmt.Sprintf("/api/v1/frpmaster/agent/config?node_id=%d&token=%s", id, token), "")
+	// 4) 拉取本节点 frpc.toml（header 认证，POST）
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/frpmaster/agent/config?node_id=%d", id), nil)
+	req.Header.Set("X-Frp-Token", token)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("拉取配置应 200，得到 code=%d body=%s", w.Code, w.Body.String())
 	}

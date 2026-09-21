@@ -178,14 +178,15 @@ func (h *FrpMasterHandler) ReportStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
 }
 
-// FetchConfig GET /api/v1/frpmaster/agent/config?node_id=&token=
+// FetchConfig POST /api/v1/frpmaster/agent/config —— 拉取本节点 frpc.toml。
+// token 通过 X-Frp-Token header 传递，不放入 URL query，避免残留访问日志。
 func (h *FrpMasterHandler) FetchConfig(c *gin.Context) {
 	nodeID, err := strconv.ParseUint(c.Query("node_id"), 10, 64)
 	if err != nil || nodeID == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "node_id 非法"})
 		return
 	}
-	token := c.Query("token")
+	token := c.GetHeader("X-Frp-Token")
 	if !h.mgr.Authenticate(uint(nodeID), token) {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "节点 token 校验失败"})
 		return

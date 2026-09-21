@@ -117,7 +117,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	apiV1.POST("/frpmaster/agent/heartbeat", fmHandler.Heartbeat)
 	apiV1.POST("/frpmaster/agent/status", fmHandler.ReportStatus)
 	apiV1.POST("/frpmaster/agent/logs", fmHandler.ReportLogs)
-	apiV1.GET("/frpmaster/agent/config", fmHandler.FetchConfig)
+	apiV1.POST("/frpmaster/agent/config", fmHandler.FetchConfig)
 
 	// 需要认证的路由
 	auth := apiV1.Group("")
@@ -549,7 +549,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/frpmaster/nodes", fmHandler.List)
 	auth.POST("/frpmaster/nodes", fmHandler.Create)
 	admin.DELETE("/frpmaster/nodes/:id", fmHandler.Delete)
-	auth.GET("/frpmaster/nodes/:id/config", fmHandler.ConfigPreview)
+	admin.GET("/frpmaster/nodes/:id/config", fmHandler.ConfigPreview)
 
 	// ── 服务监控 ────────────────────────────────────────────────────────────────
 	// 服务器凭据与探测写操作限管理员（可经 SSH 在受管主机执行命令）
