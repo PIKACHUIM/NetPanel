@@ -140,6 +140,17 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": resp})
 }
 
+// hasRoleToken 判断逗号分隔的角色串中是否精确包含某个角色。
+// 不能用 strings.Contains：它会把 "notadmin" 之类的子串误判为 admin。
+func hasRoleToken(roles, want string) bool {
+	for _, r := range strings.Split(roles, ",") {
+		if strings.TrimSpace(r) == want {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateUser 创建用户
 // POST /api/v1/admin/users
 func (h *UserHandler) CreateUser(c *gin.Context) {
@@ -252,8 +263,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	// 当前操作者不能取消自己的管理员权限（防止误操作后无人可管理）。
 	// 按用户 ID 比较：本接口支持改名，用户名已不是稳定标识。
+	// 条件为「原本是 admin 且改后不再是 admin」——即自我降权。
 	if currentUserID != 0 && currentUserID == user.ID &&
-		strings.Contains(req.Roles, model.RoleAdmin) && !user.HasRole(model.RoleAdmin) {
+		user.HasRole(model.RoleAdmin) && !hasRoleToken(req.Roles, model.RoleAdmin) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "不能取消自己的管理员权限"})
 		return
 	}
