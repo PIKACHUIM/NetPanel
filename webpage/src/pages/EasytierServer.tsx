@@ -15,11 +15,11 @@ import { useTranslation } from 'react-i18next'
 import { easytierServerApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
-import { ProtoPortList } from '../components/FormListFields'
+import { ProtoPortList, PROTOCOL_OPTIONS } from '../components/FormListFields'
 import { useTableStyle } from '../hooks/useTableStyle'
 import {
   genNetworkName, genNetworkPassword, genRpcPort,
-  parseListenPorts, joinListenPorts,
+  parseListenPorts, parseListenPortsRaw, joinListenPorts,
 } from '../utils/networkParse'
 
 const { Text } = Typography
@@ -32,15 +32,6 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
     <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
   </div>
 )
-
-const PROTOCOL_OPTIONS = [
-  { label: 'TCP', value: 'tcp' },
-  { label: 'UDP', value: 'udp' },
-  { label: 'WS', value: 'ws' },
-  { label: 'WSS', value: 'wss' },
-  { label: 'WG', value: 'wg' },
-  { label: 'QUIC', value: 'quic' },
-]
 
 const EasytierServer: React.FC = () => {
   const tunnelCtx = useTunnelApi()
@@ -289,7 +280,14 @@ const EasytierServer: React.FC = () => {
         if (r.server_mode === 'config-server') return <Text type="secondary" style={{ fontSize: 11 }}>{r.config_server_addr || '-'}</Text>
         const ports = parseListenPorts(r.listen_ports)
         if (ports.length === 0) return <Text type="secondary">未配置</Text>
-        return <Space size={4} wrap>{ports.map((p, i) => <Tag key={i} color="geekblue" style={{ fontSize: 11 }}>{p.proto}:{p.port}</Tag>)}</Space>
+        // 与重构前保持一致：仅当原文带显式协议前缀时才显示 "proto:port"，
+        // 裸端口仍只显示端口号。用 raw 判断，避免把隐式补的 tcp 前缀显示出来。
+        const raws = parseListenPortsRaw(r.listen_ports)
+        return <Space size={4} wrap>{ports.map((p, i) => (
+          <Tag key={i} color="geekblue" style={{ fontSize: 11 }}>
+            {raws[i]?.includes(':') ? `${p.proto}:${p.port}` : p.port}
+          </Tag>
+        ))}</Space>
       },
     },
     {
