@@ -602,10 +602,10 @@ func TestRefreshMergesRemoteLines(t *testing.T) {
 
 	m := NewManager(db, nil, 0)
 	m.selector = selector.NewSelector(&fakeProber{}, 0)
-	m.SetRemoteLineProvider(func() []selector.Line {
+	m.SetRemoteLineProvider(func() ([]selector.Line, error) {
 		return []selector.Line{
 			{ID: "fnode:1", Name: "节点A", Tool: "frpc-remote", Address: "1.2.3.4:7000"},
-		}
+		}, nil
 	})
 	m.refresh(context.Background())
 	// 本机 6 条（frp1+nps1+et2+wg1+cftunnel1）+ 远程 1 条
@@ -614,7 +614,7 @@ func TestRefreshMergesRemoteLines(t *testing.T) {
 	}
 
 	// provider 不再返回远程线路 → 全量刷新后回到 6 条（fnode:1 被清理）。
-	m.SetRemoteLineProvider(func() []selector.Line { return nil })
+	m.SetRemoteLineProvider(func() ([]selector.Line, error) { return nil, nil })
 	m.refresh(context.Background())
 	if got := len(m.Selector().Lines()); got != 6 {
 		t.Fatalf("移除远程线路后应回到 6 条, got %d", got)

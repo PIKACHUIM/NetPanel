@@ -99,11 +99,11 @@ func (m *Manager) List() ([]model.FrpMasterNode, error) {
 // 候选扩展到多节点候选池。节点离线（心跳超时）时不再提供线路，linereg 的
 // SetLines 全量刷新会自动将其从选线状态中清理。
 // 注：Line.Region / Weight 字段依赖 M1（#85 selector 加权）合入后可在此补全。
-func (m *Manager) Lines() []selector.Line {
+func (m *Manager) Lines() ([]selector.Line, error) {
 	var nodes []model.FrpMasterNode
 	if err := m.db.Find(&nodes).Error; err != nil {
 		m.log.Warnf("[frpmaster] 读取节点列表失败: %v", err)
-		return nil
+		return nil, err
 	}
 	lines := make([]selector.Line, 0, len(nodes))
 	for _, n := range nodes {
@@ -120,7 +120,7 @@ func (m *Manager) Lines() []selector.Line {
 			Address: fmt.Sprintf("%s:%d", n.ServerAddr, n.ServerPort),
 		})
 	}
-	return lines
+	return lines, nil
 }
 
 // Create 注册节点：生成节点 token（明文仅本函数返回一次），落库存 SHA-256。
@@ -252,10 +252,28 @@ func truncateToUTF8(s string, maxBytes int) string {
 		return s
 	}
 	b := []byte(s)
+	// 从 maxBytes 向前找到第一个非续接字节（非 0b10xxxxxx），
+	// 在该 rune 的起始位置截断。原实现从 maxBytes-1 起找，会把跨越
+	// 边界的那个 rune 的续接字节留在末尾，产生非法 UTF-8。
 	for i := maxBytes - 1; i >= 0; i-- {
 		if b[i]&0xc0 != 0x80 {
-			return string(b[:i+1])
+			// b[i] 是某个 rune 的首字节，判断该 rune 是否完整落在边界内
+			size := 1
+			switch {
+			case b[i]&0x80 == 0x00:
+				size = 1
+			case b[i]&0xe0 == 0xc0:
+				size = 2
+			case b[i]&0xf0 == 0xe0:
+				size = 3
+			case b[i]&0xf8 == 0xf0:
+				size = 4
+			}
+			if i+size <= maxBytes {
+				return string(b[:i+size])
+			}
+			return string(b[:i])
 		}
 	}
-	return string(b[:maxBytes])
+	return ""
 }

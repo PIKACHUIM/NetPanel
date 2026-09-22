@@ -57,7 +57,7 @@ type Manager struct {
 	selector *selector.Selector
 	// remoteLines 远程线路提供者（如 frpc Master 的在线节点），可为 nil。
 	// 每轮 refresh 合并其返回的线路参与自动测速选线。
-	remoteLines func() []selector.Line
+	remoteLines func() ([]selector.Line, error)
 
 	// caddyUpdater 选线切换回调：把选中线路的入口同步到绑定的 Caddy 站点。
 	// 由上层注入（main.go），避免本包依赖 caddy。
@@ -187,8 +187,9 @@ func (m *Manager) SetProber(p selector.Prober) {
 // SetRemoteLineProvider 注册远程线路提供者（可选；如 frpc Master 在线节点）。
 // refresh 每轮把 provider 返回的线路合并进候选集合参与测速选线；provider
 // 不再返回某线路时，SetLines 全量刷新会自动清理其选线状态。
+// 返回 error 以便调用方区分「无远程节点」与「读取远程节点失败」。
 // 在 Start 前调用即可。
-func (m *Manager) SetRemoteLineProvider(fn func() []selector.Line) {
+func (m *Manager) SetRemoteLineProvider(fn func() ([]selector.Line, error)) {
 	m.remoteLines = fn
 }
 
@@ -400,7 +401,12 @@ func (m *Manager) refresh(ctx context.Context) {
 	// 合并远程线路（如 frpc Master 在线节点）：provider 因节点离线不再返回时，
 	// SetLines 全量刷新会自动清理对应线路的选线状态与锁线。
 	if m.remoteLines != nil {
-		if remote := m.remoteLines(); len(remote) > 0 {
+		// 区分「无远程线路」与「读取远程线路失败」：失败时保留本机线路继续选线，
+		// 但不静默当作空集合（否则远程节点全挂会被误判为正常无候选）。
+		remote, err := m.remoteLines()
+		if err != nil {
+			m.log.Warnf("[线路选择] 读取远程线路失败: %v", err)
+		} else if len(remote) > 0 {
 			lines = append(lines, remote...)
 		}
 	}

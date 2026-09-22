@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -198,7 +199,10 @@ func TestLinesFromOnlineNodes(t *testing.T) {
 		t.Fatalf("节点 A 心跳失败: %v", err)
 	}
 
-	lines := m.Lines()
+	lines, err := m.Lines()
+	if err != nil {
+		t.Fatalf("Lines 返回错误: %v", err)
+	}
 	if len(lines) != 1 {
 		t.Fatalf("应只有在线节点 A 提供线路，得到 %+v", lines)
 	}
@@ -210,7 +214,11 @@ func TestLinesFromOnlineNodes(t *testing.T) {
 
 	// A 心跳超时后同样离线 → 不应再提供线路。
 	time.Sleep(80 * time.Millisecond)
-	if got := m.Lines(); len(got) != 0 {
+	got, err := m.Lines()
+	if err != nil {
+		t.Fatalf("Lines 返回错误: %v", err)
+	}
+	if len(got) != 0 {
 		t.Fatalf("节点全部离线后不应有候选线路，得到 %+v", got)
 	}
 }
@@ -253,5 +261,28 @@ func TestSaveLogs(t *testing.T) {
 	db.Model(&model.SystemLog{}).Where("service = ?", "frpmaster").Count(&cnt)
 	if cnt != int64(2+maxAgentLogBatch) {
 		t.Fatalf("累计行数不符: %d", cnt)
+	}
+}
+
+// TestSaveLogsTruncatesMessageLength 单条超长日志必须被截断。
+// 回归 #89 的 P1：节点回传是外部输入，未限长可撑爆 SystemLog.Message(text) 列。
+func TestSaveLogsTruncatesMessageLength(t *testing.T) {
+	m := newTestMgr(t)
+
+	huge := strings.Repeat("啊", maxAgentLogMessageLen) // 每字 3 字节，远超上限
+	if n, err := m.SaveLogs(9, []string{huge}); err != nil || n != 1 {
+		t.Fatalf("应写 1 行, n=%d err=%v", n, err)
+	}
+
+	var row model.SystemLog
+	if err := m.db.Where("service = ?", "frpmaster").First(&row).Error; err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if len(row.Message) > maxAgentLogMessageLen {
+		t.Fatalf("消息长度 %d 超过上限 %d", len(row.Message), maxAgentLogMessageLen)
+	}
+	// 截断必须落在 UTF-8 rune 边界，否则会写入非法字节序列
+	if !utf8.ValidString(row.Message) {
+		t.Fatalf("截断后不是合法 UTF-8: %q", row.Message)
 	}
 }
