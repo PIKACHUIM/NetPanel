@@ -55,18 +55,20 @@ func (s *Secret) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Value 实现 driver.Valuer：以原文存入数据库，保持既有存储格式不变。
-func (s Secret) Value() (driver.Value, error) { return string(s), nil }
+// Value 实现 driver.Valuer：加密后存入数据库。
+// 密钥未初始化时退化为明文存储，兼容未启用加密的部署。
+func (s Secret) Value() (driver.Value, error) { return s.EncryptValue() }
 
-// Scan 实现 sql.Scanner：从数据库读取原文。
+// Scan 实现 sql.Scanner：从数据库读取并解密。
+// 解密失败时返回原值，兼容启用加密前写入的历史明文。
 func (s *Secret) Scan(src any) error {
 	switch v := src.(type) {
 	case nil:
 		*s = ""
 	case string:
-		*s = Secret(v)
+		*s = Secret(v).DecryptValue()
 	case []byte:
-		*s = Secret(v)
+		*s = Secret(v).DecryptValue()
 	default:
 		return fmt.Errorf("无法将 %T 扫描为 Secret", src)
 	}
