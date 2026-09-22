@@ -75,7 +75,7 @@ func (s *Signer) generateNewCA() error {
 
 	ca := model.CACert{
 		CACertPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})),
-		CAKeyPEM:  string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: toPKCS8PrivKey(caKey)})),
+		CAKeyPEM:  model.Secret(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: toPKCS8PrivKey(caKey)})),
 		ExpiresAt: caCert.NotAfter,
 		Status:    "active",
 	}
@@ -148,12 +148,13 @@ func (s *Signer) GetCACert() []byte {
 	return s.caChain
 }
 
-// toPKCS8PrivKey 转换 ECDSA 私钥为 PKCS#8 格式
+// toPKCS8PrivKey 转换 ECDSA 私钥为 PKCS#8 DER 格式。
+// 原实现手工拼接 DER：补了公钥位串却把私钥写成裸整数，且长度字节写死，
+// 生成的密钥无法被 x509.ParsePKCS8PrivateKey 解析（CA 完全不可用）。
 func toPKCS8PrivKey(key *ecdsa.PrivateKey) []byte {
-	keyBytes := elliptic.Marshal(key.Curve, key.X, key.Y)
-	prefix := []byte{0x30, 0x82, 0x1, 0x2, 0x2, 0x1, 0x1, 0x0, 0xA0, 0x81, 0x0, 0x30, 0x13, 0x6, 0x7, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x2, 0x1, 0x6, 0x8, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x3, 0x1, 0x7, 0x3, 0x82, 0x1, 0x4, 0x0}
-	content := append(prefix, keyBytes...)
-	content = append(content, []byte{0x2, 0x1, 0x1}...)
-	content = append(content, key.D.Bytes()...)
-	return content
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil
+	}
+	return der
 }
