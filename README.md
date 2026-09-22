@@ -168,7 +168,7 @@ docker run -d \
   -p 8080:8080 \
   -v ./data:/app/data \
   --restart unless-stopped \
-  ghcr.io/netpanel/netpanel:latest
+  ghcr.io/pikachuim/netpanel:latest
 
 # 完整（含 TUN）
 docker run -d \
@@ -180,7 +180,7 @@ docker run -d \
   --sysctl net.ipv4.ip_forward=1 \
   --sysctl net.ipv6.conf.all.forwarding=1 \
   --restart unless-stopped \
-  ghcr.io/netpanel/netpanel:latest
+  ghcr.io/pikachuim/netpanel:latest
 ```
 
 </details>

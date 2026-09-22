@@ -8,7 +8,7 @@
 
 services:
   netpanel:
-    image: ghcr.io/netpanel/netpanel:latest
+    image: ghcr.io/pikachuim/netpanel:latest
     container_name: netpanel
     restart: unless-stopped
     ports:

@@ -145,7 +145,7 @@ docker run -d \
   -p 8080:8080 \
   -v ./data:/app/data \
   --restart unless-stopped \
-  ghcr.io/netpanel/netpanel:latest
+  ghcr.io/pikachuim/netpanel:latest
 ```
 
 ### 完整部署（含组网能力）
@@ -170,23 +170,16 @@ docker run -d \
   --sysctl net.ipv4.ip_forward=1 \
   --sysctl net.ipv6.conf.all.forwarding=1 \
   -e TZ=Asia/Shanghai \
-  ghcr.io/netpanel/netpanel:latest
+  ghcr.io/pikachuim/netpanel:latest
 ```
 
 ::: warning 关于 Docker 网络功能
 EasyTier 异地组网和部分网络功能需要 `NET_ADMIN` 权限和 TUN 设备支持。如果不使用这些功能，可以使用最小化部署，无需额外权限。
 :::
-      - SYS_MODULE
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv6.conf.all.forwarding=1
-```
 
 启动：
 
-```bash
+```
 docker-compose up -d
 ```
 
@@ -200,7 +193,7 @@ EasyTier 异地组网和部分网络功能需要 `NET_ADMIN` 权限和 TUN 设�
 
 需要 **Go 1.21+** 和 **Node.js 20+**。
 
-```bash
+```
 # 1. 克隆仓库
 git clone https://github.com/PIKACHUIM/NetPanel.git
 cd netpanel
@@ -224,7 +217,7 @@ cd ..
 
 ## 启动参数
 
-```bash
+```
 ./netpanel [选项]
 ```
 
@@ -236,7 +229,7 @@ cd ..
 
 **示例：**
 
-```bash
+```
 # 修改端口和数据目录
 ./netpanel -port 9090 -data /var/lib/netpanel
 
@@ -266,7 +259,7 @@ http://localhost:8080
 
 如果你想参与开发，可以分别启动前后端开发服务器：
 
-```bash
+```
 # 终端 1：启动后端（开发模式）
 cd backend
 go run . -port 8080
