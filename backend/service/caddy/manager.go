@@ -850,6 +850,90 @@ func (m *Manager) setError(id uint, errMsg string) {
 	})
 }
 
+// rebuildPortServer 重建指定端口的 Caddy 服务器，将该端口所有运行中的站点合并到同一 server。
+// overrides 提供临时上游地址覆盖（key=站点 ID），不写库，仅用于 UpdateUpstream 热切换。
+func (m *Manager) rebuildPortServer(port int, overrides map[uint]string) error {
+	var sites []model.CaddySite
+	m.db.Where("port = ? AND enable = ? AND status = ?", port, true, "running").Find(&sites)
+
+	if len(sites) == 0 {
+		serverKey := fmt.Sprintf("netpanel_port_%d", port)
+		m.adminRequest("DELETE", fmt.Sprintf("/config/apps/http/servers/%s", serverKey), nil)
+		return nil
+	}
+
+	var allRoutes []interface{}
+	var allTLSPolicies []interface{}
+
+	for i := range sites {
+		site := &sites[i]
+		if overrides != nil {
+			if up, ok := overrides[site.ID]; ok {
+				site.UpstreamAddr = up
+			}
+		}
+
+		routes, err := m.buildRoutes(site, m.loadRouteDeps([]model.CaddySite{*site}))
+		if err != nil {
+			m.log.Errorf("[Caddy] 站点 [%s](%d) 构建路由失败: %v", site.Name, site.ID, err)
+			continue
+		}
+		allRoutes = append(allRoutes, routes...)
+
+		if site.TLSEnable {
+			if tlsCfg := m.buildTLSConfig(site); tlsCfg != nil {
+				allTLSPolicies = append(allTLSPolicies, tlsCfg)
+			}
+		}
+	}
+
+	// 排序：host matcher 在前，无 matcher（catch-all）在后
+	allRoutes = orderRoutes(allRoutes)
+
+	serverCfg := map[string]interface{}{
+		"listen": []string{fmt.Sprintf(":%d", port)},
+		"routes": allRoutes,
+		"automatic_https": map[string]interface{}{
+			"disable": true,
+		},
+		"logs": map[string]interface{}{
+			"default_logger_name": fmt.Sprintf("netpanel_port_%d", port),
+		},
+	}
+	if len(allTLSPolicies) > 0 {
+		serverCfg["tls_connection_policies"] = allTLSPolicies
+	}
+
+	if cfgJSON, err := json.MarshalIndent(serverCfg, "", "  "); err == nil {
+		m.log.Infof("[Caddy] 端口 %d 服务器配置（共 %d 个站点）:\n%s", port, len(sites), string(cfgJSON))
+	}
+
+	serverKey := fmt.Sprintf("netpanel_port_%d", port)
+	m.adminRequest("DELETE", fmt.Sprintf("/config/apps/http/servers/%s", serverKey), nil)
+	if err := m.adminRequest("PUT", fmt.Sprintf("/config/apps/http/servers/%s", serverKey), serverCfg); err != nil {
+		return fmt.Errorf("加载端口 %d 服务器配置失败: %w", port, err)
+	}
+	return nil
+}
+
+// orderRoutes 将有 host matcher 的路由排在 catch-all 之前，避免后者抢先匹配。
+func orderRoutes(routes []interface{}) []interface{} {
+	var matched, catchAll []interface{}
+	for _, r := range routes {
+		route, ok := r.(map[string]interface{})
+		if !ok {
+			catchAll = append(catchAll, r)
+			continue
+		}
+		if _, hasMatch := route["match"]; hasMatch {
+			matched = append(matched, r)
+		} else {
+			catchAll = append(catchAll, r)
+		}
+	}
+	return append(matched, catchAll...)
+}
+
 // GetCaddyDataDir 获取 Caddy 数据目录
 func (m *Manager) GetCaddyDataDir() string {
 	return filepath.Join(m.dataDir, "caddy")
