@@ -353,7 +353,7 @@ func (m *Manager) GetTopology() (map[string]interface{}, error) {
 
 // tunnelInfo 隧道信息
 type tunnelInfo struct {
-	Type        string `json:"type"`         // frpc/frps/nps_client/nps_server/easytier_client/easytier_server/port_forward/stun
+	Type        string `json:"type"` // frpc/frps/nps_client/nps_server/easytier_client/easytier_server/port_forward/stun
 	Name        string `json:"name"`
 	ID          uint   `json:"id"`
 	ServerAddr  string `json:"server_addr"`  // 连接的服务器地址
@@ -366,13 +366,13 @@ type tunnelInfo struct {
 
 // edgeInfo 边信息
 type edgeInfo struct {
-	Source       uint   `json:"source"`        // 源节点ID（0=本机）
-	Target       uint   `json:"target"`        // 目标节点ID（0=本机）
-	TunnelType   string `json:"tunnel_type"`   // frp/nps/easytier
-	TunnelName   string `json:"tunnel_name"`   // 隧道名称
-	Direction    string `json:"direction"`     // unidirectional/bidirectional/p2p
-	SourceLabel  string `json:"source_label"`  // 源端标签（如"客户端"）
-	TargetLabel  string `json:"target_label"`  // 目标端标签（如"服务端"）
+	Source      uint   `json:"source"`       // 源节点ID（0=本机）
+	Target      uint   `json:"target"`       // 目标节点ID（0=本机）
+	TunnelType  string `json:"tunnel_type"`  // frp/nps/easytier
+	TunnelName  string `json:"tunnel_name"`  // 隧道名称
+	Direction   string `json:"direction"`    // unidirectional/bidirectional/p2p
+	SourceLabel string `json:"source_label"` // 源端标签（如"客户端"）
+	TargetLabel string `json:"target_label"` // 目标端标签（如"服务端"）
 }
 
 // getLocalTunnels 获取本机的隧道数据
@@ -787,13 +787,13 @@ func (m *Manager) buildNodeInfos(nodes []model.MeshNode, allTunnels map[uint][]t
 // buildTunnelStats 构建隧道统计
 func buildTunnelStats(tunnels []tunnelInfo) map[string]interface{} {
 	stats := map[string]interface{}{
-		"total":           len(tunnels),
-		"port_forward":    0,
-		"stun":            0,
-		"frp":             0,
-		"nps":             0,
-		"easytier":        0,
-		"details":         tunnels,
+		"total":        len(tunnels),
+		"port_forward": 0,
+		"stun":         0,
+		"frp":          0,
+		"nps":          0,
+		"easytier":     0,
+		"details":      tunnels,
 	}
 
 	for _, t := range tunnels {

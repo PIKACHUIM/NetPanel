@@ -283,10 +283,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		}
 		updates["password"] = hashed
 		revoke = true
-		// 同步更新 SystemConfig 中的 admin_password（兼容旧登录逻辑）
-		if user.Username == "admin" {
-			h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
-		}
 	}
 
 	// 敏感变更时递增令牌版本，使该账号所有已签发 JWT 立即失效

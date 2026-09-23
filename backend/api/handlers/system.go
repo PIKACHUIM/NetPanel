@@ -115,7 +115,16 @@ func (h *SystemHandler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": result})
 }
 
-// UpdateConfig 更新系统配置
+// updatableConfigKeys 允许经 PUT /system/config 写入的键白名单。
+// 该接口此前无白名单，任意登录用户可写任意键（包括 admin_password），
+// 曾构成提权路径；现仅放行界面偏好类键，且路由已收入 admin 组。
+var updatableConfigKeys = map[string]bool{
+	"language":                true,
+	"theme":                   true,
+	"speedtest_popup_enabled": true,
+}
+
+// UpdateConfig 更新系统配置（仅管理员，键白名单见 updatableConfigKeys）
 func (h *SystemHandler) UpdateConfig(c *gin.Context) {
 	var req map[string]string
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -124,8 +133,20 @@ func (h *SystemHandler) UpdateConfig(c *gin.Context) {
 	}
 
 	var keys []string
+	for key := range req {
+		if !updatableConfigKeys[key] {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": fmt.Sprintf("不允许修改配置键 %q（可修改: language, theme, speedtest_popup_enabled）", key),
+			})
+			return
+		}
+	}
 	for key, value := range req {
-		h.db.Model(&model.SystemConfig{}).Where("key = ?", key).Update("value", value)
+		if err := h.db.Model(&model.SystemConfig{}).Where("key = ?", key).Update("value", value).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置写入失败"})
+			return
+		}
 		keys = append(keys, key)
 	}
 	logger.WriteLog("info", "system", fmt.Sprintf("更新系统配置: %s", strings.Join(keys, ", ")))
@@ -174,35 +195,12 @@ func (h *SystemHandler) ChangePassword(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码更新失败"})
 			return
 		}
-		// 如果是 admin 用户，同步更新 SystemConfig 中的 admin_password（兼容旧逻辑）
-		if username == "admin" {
-			h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
-		}
 		logger.WriteLog("info", "system", fmt.Sprintf("用户 %s 修改了密码", username))
 		c.JSON(http.StatusOK, gin.H{"code": 200, "message": "密码修改成功"})
 		return
 	}
 
-	// User 表中不存在，兼容旧版：通过 SystemConfig 验证（仅 admin）
-	var cfg model.SystemConfig
-	if err := h.db.Where("key = ?", "admin_password").First(&cfg).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询密码失败"})
-		return
-	}
-
-	// 验证旧密码
-	if !utils.CheckPassword(req.OldPassword, cfg.Value) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "旧密码错误"})
-		return
-	}
-
-	// 更新新密码
-	hashed, err := utils.HashPassword(req.NewPassword)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码加密失败"})
-		return
-	}
-	h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
-	logger.WriteLog("info", "system", fmt.Sprintf("用户 %s 修改了密码(旧版兼容)", username))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "密码修改成功"})
+	// User 表中不存在该用户名（历史版本经 SystemConfig 登录的兼容路径已移除，
+	// 能登录进来的用户必然有 User 记录），属于异常状态
+	c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "当前用户记录不存在"})
 }

@@ -34,7 +34,7 @@ func (n *NotificationManager) Send(accountID uint, title, message string) error 
 	if err := n.db.First(&account, accountID).Error; err != nil {
 		return fmt.Errorf("通知渠道不存在: %w", err)
 	}
-	
+
 	// 根据类型发送通知
 	switch account.Type {
 	case "webhook":
@@ -60,18 +60,18 @@ func (n *NotificationManager) sendWebhook(account model.CallbackAccount, title, 
 	if err := json.Unmarshal([]byte(account.Config), &config); err != nil {
 		return err
 	}
-	
+
 	url, ok := config["url"].(string)
 	if !ok {
 		return fmt.Errorf("Webhook URL 未配置")
 	}
-	
+
 	payload := map[string]interface{}{
 		"title":   title,
 		"message": message,
 		"time":    time.Now().Format("2006-01-02 15:04:05"),
 	}
-	
+
 	return n.sendHTTPPost(url, payload)
 }
 
@@ -147,19 +147,19 @@ func (n *NotificationManager) sendWechatWork(account model.CallbackAccount, titl
 	if err := json.Unmarshal([]byte(account.Config), &config); err != nil {
 		return err
 	}
-	
+
 	webhookURL, ok := config["webhook_url"].(string)
 	if !ok {
 		return fmt.Errorf("企业微信 Webhook URL 未配置")
 	}
-	
+
 	payload := map[string]interface{}{
 		"msgtype": "markdown",
 		"markdown": map[string]interface{}{
 			"content": fmt.Sprintf("## %s\n\n%s", title, message),
 		},
 	}
-	
+
 	return n.sendHTTPPost(webhookURL, payload)
 }
 
@@ -169,12 +169,12 @@ func (n *NotificationManager) sendDingtalk(account model.CallbackAccount, title,
 	if err := json.Unmarshal([]byte(account.Config), &config); err != nil {
 		return err
 	}
-	
+
 	webhookURL, ok := config["webhook_url"].(string)
 	if !ok {
 		return fmt.Errorf("钉钉 Webhook URL 未配置")
 	}
-	
+
 	payload := map[string]interface{}{
 		"msgtype": "markdown",
 		"markdown": map[string]interface{}{
@@ -182,7 +182,7 @@ func (n *NotificationManager) sendDingtalk(account model.CallbackAccount, title,
 			"text":  message,
 		},
 	}
-	
+
 	return n.sendHTTPPost(webhookURL, payload)
 }
 
@@ -192,24 +192,24 @@ func (n *NotificationManager) sendTelegram(account model.CallbackAccount, title,
 	if err := json.Unmarshal([]byte(account.Config), &config); err != nil {
 		return err
 	}
-	
+
 	botToken, ok := config["bot_token"].(string)
 	if !ok {
 		return fmt.Errorf("Telegram Bot Token 未配置")
 	}
-	
+
 	chatID, ok := config["chat_id"].(string)
 	if !ok {
 		return fmt.Errorf("Telegram Chat ID 未配置")
 	}
-	
+
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	payload := map[string]interface{}{
-		"chat_id": chatID,
-		"text":    fmt.Sprintf("*%s*\n\n%s", title, message),
+		"chat_id":    chatID,
+		"text":       fmt.Sprintf("*%s*\n\n%s", title, message),
 		"parse_mode": "Markdown",
 	}
-	
+
 	return n.sendHTTPPost(url, payload)
 }
 
@@ -219,12 +219,12 @@ func (n *NotificationManager) sendDiscord(account model.CallbackAccount, title, 
 	if err := json.Unmarshal([]byte(account.Config), &config); err != nil {
 		return err
 	}
-	
+
 	webhookURL, ok := config["webhook_url"].(string)
 	if !ok {
 		return fmt.Errorf("Discord Webhook URL 未配置")
 	}
-	
+
 	payload := map[string]interface{}{
 		"embeds": []map[string]interface{}{
 			{
@@ -235,7 +235,7 @@ func (n *NotificationManager) sendDiscord(account model.CallbackAccount, title, 
 			},
 		},
 	}
-	
+
 	return n.sendHTTPPost(webhookURL, payload)
 }
 
@@ -245,22 +245,22 @@ func (n *NotificationManager) sendHTTPPost(url string, payload interface{}) erro
 	if err != nil {
 		return err
 	}
-	
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP 请求失败 (%d): %s", resp.StatusCode, string(body))
 	}
-	
+
 	return nil
 }
 

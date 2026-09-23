@@ -359,15 +359,15 @@ func (m *Manager) executeTencentEO(account *model.CallbackAccount, task *model.C
 	timestamp := time.Now().Unix()
 
 	reqBody := map[string]interface{}{
-		"ZoneId": zoneID,
+		"ZoneId":        zoneID,
 		"OriginGroupId": ruleID,
 		"Origins": []map[string]interface{}{
 			{
-				"OriginId":     "origin-1",
-				"Origin":       event.NewIP,
-				"OriginPort":   fmt.Sprintf("%d", targetPort),
-				"Weight":       100,
-				"Private":      false,
+				"OriginId":   "origin-1",
+				"Origin":     event.NewIP,
+				"OriginPort": fmt.Sprintf("%d", targetPort),
+				"Weight":     100,
+				"Private":    false,
 			},
 		},
 	}

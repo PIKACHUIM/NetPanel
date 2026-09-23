@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/netpanel/netpanel/pkg/utils"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -46,13 +48,64 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("数据库迁移失败: %w", err)
 	}
 
+	// 数据库文件收权：含全部配置凭据，仅限运行用户可读写（Windows 上无 POSIX 权限，调用为无害 no-op）
+	for _, p := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		if err := os.Chmod(p, 0600); err != nil {
+			fmt.Printf("警告: 数据库文件收权失败 %s: %v\n", p, err)
+		}
+	}
+
 	// 历史遗留表数据迁移
 	migrateLegacyCloudflareTunnels(db)
+	// 旧版 admin 口令迁移（SystemConfig -> User 记录，随后删除该键）
+	migrateLegacyAdminPassword(db)
 
 	// 初始化默认数据
 	initDefaultData(db)
 
 	return db, nil
+}
+
+// migrateLegacyAdminPassword 一次性迁移旧版管理员口令。
+//
+// 历史版本把 admin 口令存在 SystemConfig 并支持"User 表无记录时经该键登录"。
+// 该路径与 PUT /system/config（此前任意登录用户可写任意键）组合构成提权链，
+// 已移除。此处把遗留口令提升为 admin User 记录（沿用其 bcrypt 哈希；明文则
+// 现场哈希），保证老部署平滑升级不掉线，随后删除该配置键。
+func migrateLegacyAdminPassword(db *gorm.DB) {
+	var cfg SystemConfig
+	if err := db.Where("key = ?", "admin_password").First(&cfg).Error; err != nil || cfg.Value == "" {
+		return
+	}
+
+	var count int64
+	db.Model(&User{}).Where("username = ?", "admin").Count(&count)
+	if count == 0 {
+		hash := cfg.Value
+		if !strings.HasPrefix(hash, "$2") {
+			// 明文历史口令：现场转为 bcrypt
+			hashed, err := utils.HashPassword(hash)
+			if err != nil {
+				fmt.Printf("警告: 旧版 admin 口令迁移失败（哈希错误）: %v\n", err)
+				return
+			}
+			hash = hashed
+		}
+		if err := db.Create(&User{
+			Username: "admin",
+			Password: hash,
+			Enable:   true,
+			IsAdmin:  true,
+			Remark:   "旧版口令自动迁移",
+		}).Error; err != nil {
+			fmt.Printf("警告: 旧版 admin 口令迁移失败: %v\n", err)
+			return
+		}
+		fmt.Println("已将旧版 SystemConfig admin_password 迁移为 admin 用户记录（登录路径已统一为 User 表）")
+	}
+	if err := db.Where("key = ?", "admin_password").Delete(&SystemConfig{}).Error; err != nil {
+		fmt.Printf("警告: 清理 admin_password 配置键失败: %v\n", err)
+	}
 }
 
 // autoMigrate 自动迁移所有模型
