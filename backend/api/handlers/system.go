@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/pkg/utils"
+	"github.com/netpanel/netpanel/pkg/svcutil"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -26,10 +29,12 @@ type SystemHandler struct {
 	db     *gorm.DB
 	log    *logrus.Logger
 	config *config.Config
+	// retention 数据保留清理器（手动清理用，可为 nil）
+	retention *retention.Cleaner
 }
 
-func NewSystemHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config) *SystemHandler {
-	return &SystemHandler{db: db, log: log, config: cfg}
+func NewSystemHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config, retentionCleaner *retention.Cleaner) *SystemHandler {
+	return &SystemHandler{db: db, log: log, config: cfg, retention: retentionCleaner}
 }
 
 // startTime 记录程序启动时间
@@ -98,6 +103,78 @@ func (h *SystemHandler) GetStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": data})
 }
 
+// GetHealth 自检端点：检查 DB 可写/可读 + WAL 状态 + 各引擎心跳。
+// 供面板前端健康徽标、MCP 诊断工具及外部看门狗（cron 探测）消费。
+func (h *SystemHandler) GetHealth(c *gin.Context) {
+	checks := gin.H{}
+	healthy := true
+
+	// 1. DB 读
+	var cnt int64
+	if err := h.db.Model(&model.SystemConfig{}).Count(&cnt).Error; err != nil {
+		checks["db_read"] = "fail: " + err.Error()
+		healthy = false
+	} else {
+		checks["db_read"] = "ok"
+	}
+
+	// 2. DB 写（写临时表并删除，不污染业务数据）
+	if err := h.db.Exec("CREATE TABLE IF NOT EXISTS system_health_checks (id INTEGER PRIMARY KEY, ts INTEGER)").Error; err == nil {
+		if err := h.db.Exec("INSERT INTO system_health_checks (ts) VALUES (?)", time.Now().Unix()).Error; err == nil {
+			h.db.Exec("DELETE FROM system_health_checks")
+			checks["db_write"] = "ok"
+		} else {
+			checks["db_write"] = "fail: " + err.Error()
+			healthy = false
+		}
+	} else {
+		checks["db_write"] = "fail: " + err.Error()
+		healthy = false
+	}
+
+	// 3. 服务存活（SafeGo 托管的引擎循环定期上报心跳，过期视为异常）
+	for name, hb := range svcutil.EngineHeartbeats() {
+		status := "ok"
+		if time.Since(hb) > 3*time.Minute {
+			status = "stale: last " + hb.Format(time.RFC3339)
+			healthy = false
+		}
+		checks["engine_"+name] = status
+	}
+
+	code := 200
+	status := "healthy"
+	if !healthy {
+		code = 503
+		status = "unhealthy"
+	}
+	c.JSON(code, gin.H{"code": code, "status": status,
+		"uptime": time.Since(startTime).Round(time.Second).String(), "checks": checks})
+}
+
+// CleanupRetention 手动触发一轮数据保留清理。
+//
+// 安全约束：此操作会真实删除数据，属于破坏性动作，必须在 admin 组内执行
+// （路由层 admin.Use(middleware.JWTAuth(), middleware.AdminOnly()) 已保证）。
+// 前端仍需二次确认，避免普通用户误触。
+func (h *SystemHandler) CleanupRetention(c *gin.Context) {
+	if h.retention == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "清理器未就绪"})
+		return
+	}
+	total, err := h.retention.CleanupNow()
+	if err != nil {
+		// 失败时返回通用文案，不把内部细节（含 SQL 片段、文件路径等）拼进 error，
+		// 详情由服务端日志记录，避免信息泄漏。
+		logger.WriteLog("error", "retention", fmt.Sprintf("手动清理失败: %v", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "清理失败，请查看服务端日志"})
+		return
+	}
+	// 审计留痕：记录操作者、删除条数，便于事后追溯
+	logger.WriteLog("info", "retention", fmt.Sprintf("手动清理完成: 删除 %d 条过期数据", total))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "清理完成", "data": gin.H{"deleted": total}})
+}
+
 // GetConfig 获取系统配置
 func (h *SystemHandler) GetConfig(c *gin.Context) {
 	var configs []model.SystemConfig
@@ -115,7 +192,11 @@ func (h *SystemHandler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": result})
 }
 
-// UpdateConfig 更新系统配置
+// UpdateConfig 更新系统配置（upsert：键不存在时创建，存在时更新）。
+//
+// 修复 P0：此前用 Where(key).Update(value)，键不存在时静默不写入却仍返回"配置已更新"，
+// 导致 retention_days 等任意新键都写不进去、用户以为设置生效实际是默认值。
+// 改为 upsert 后，新增配置键也能正确落库。
 func (h *SystemHandler) UpdateConfig(c *gin.Context) {
 	var req map[string]string
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -125,14 +206,40 @@ func (h *SystemHandler) UpdateConfig(c *gin.Context) {
 
 	var keys []string
 	for key, value := range req {
-		h.db.Model(&model.SystemConfig{}).Where("key = ?", key).Update("value", value)
+		// upsert：键不存在时创建，存在时更新值
+		var cfg model.SystemConfig
+		if err := h.db.First(&cfg, "key = ?", key).Error; err != nil {
+			// 键不存在，创建
+			cfg = model.SystemConfig{Key: key, Value: value}
+			if err := h.db.Create(&cfg).Error; err != nil {
+				logger.WriteLog("error", "system", fmt.Sprintf("创建配置 %s 失败: %v", key, err))
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存失败，请查看服务端日志"})
+				return
+			}
+		} else {
+			// 键存在，更新值
+			if err := h.db.Model(&model.SystemConfig{}).Where("key = ?", key).Update("value", value).Error; err != nil {
+				logger.WriteLog("error", "system", fmt.Sprintf("更新配置 %s 失败: %v", key, err))
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存失败，请查看服务端日志"})
+				return
+			}
+		}
 		keys = append(keys, key)
 	}
 	logger.WriteLog("info", "system", fmt.Sprintf("更新系统配置: %s", strings.Join(keys, ", ")))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "配置已更新"})
 }
 
-// GetInterfaces 获取网络接口列表
+// EstimateRetention 清理前预估：返回当前会被清理的过期数据总行数（不实际删除）。
+// 用于在执行破坏性清理前让用户知道会删多少，避免误触。
+func (h *SystemHandler) EstimateRetention(c *gin.Context) {
+	if h.retention == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "清理器未就绪"})
+		return
+	}
+	total := h.retention.EstimateCleanup()
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"estimated": total}})
+}
 func (h *SystemHandler) GetInterfaces(c *gin.Context) {
 	interfaces := utils.GetNetInterfaces()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": interfaces})

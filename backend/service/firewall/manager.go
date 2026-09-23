@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -155,14 +156,14 @@ func (m *Manager) StartAutoSync() {
 	// 启动时立即同步一次
 	m.SyncSystemRulesAsync()
 
-	go func() {
+	svcutil.SafeGo(m.log, "firewall.autosync", true, func() {
 		ticker := time.NewTicker(30 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			m.log.Info("[Firewall] 定时触发系统防火墙规则同步")
 			m.SyncSystemRulesAsync()
 		}
-	}()
+	})
 }
 
 // DetectBackend 检测当前系统可用的防火墙后端
