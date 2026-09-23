@@ -607,4 +607,6 @@ export const lineregApi = {
     updateConfig: (data: ProbeConfig) => request.put('/v1/linereg/config', data),
     rebindPending: () => request.get('/v1/linereg/rebind-pending'),
     rebindApply: () => request.post('/v1/linereg/rebind-apply'),
+    // 单线路探测历史（延迟趋势图）
+    getLineHistory: (lineId: string, limit = 100) => request.get(`/v1/linereg/line/${encodeURIComponent(lineId)}/history?limit=${limit}`),
 }
