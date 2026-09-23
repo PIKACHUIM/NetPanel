@@ -28,6 +28,7 @@ import (
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -89,11 +90,13 @@ func (m *Manager) Stop() {
 	m.cancel()
 }
 
-// StartAll 启动自动续期检查和 ACME 流程定时器（幂等）
+// StartAll 启动自动续期检查和 ACME 流程定时器（幂等）。
+// 使用 svcutil.SafeGo 做 panic 隔离：任一引擎循环崩溃只隔离重启自身，
+// 不再拖垮整个面板进程。
 func (m *Manager) StartAll() {
 	m.startOnce.Do(func() {
-		go m.autoRenewLoop()
-		go m.acmeFlowLoop()
+		svcutil.SafeGo(m.log, "cert.autorenew", true, m.autoRenewLoop)
+		svcutil.SafeGo(m.log, "cert.acmeflow", true, m.acmeFlowLoop)
 	})
 }
 
