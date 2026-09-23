@@ -70,16 +70,33 @@ type Manager struct {
 	log     *logrus.Logger
 	dataDir string
 	mu      sync.Mutex
+	// stopCh 用于终止后台续期与 ACME 流程轮询 goroutine
+	stopCh    chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 	return &Manager{db: db, log: log, dataDir: dataDir}
 }
 
-// StartAll 启动自动续期检查和 ACME 流程定时器
+// StartAll 启动自动续期检查和 ACME 流程定时器（幂等）
 func (m *Manager) StartAll() {
-	go m.autoRenewLoop()
-	go m.acmeFlowLoop()
+	m.startOnce.Do(func() {
+		m.stopCh = make(chan struct{})
+		go m.autoRenewLoop()
+		go m.acmeFlowLoop()
+	})
+}
+
+// StopAll 停止后台轮询，供进程优雅关闭时回收 goroutine。
+// 原实现没有停止入口，进程退出前两个 goroutine 会持续运行。
+func (m *Manager) StopAll() {
+	m.stopOnce.Do(func() {
+		if m.stopCh != nil {
+			close(m.stopCh)
+		}
+	})
 }
 
 // autoRenewLoop 每 12 小时检查一次证书到期情况
@@ -90,8 +107,13 @@ func (m *Manager) autoRenewLoop() {
 	// 启动时先检查一次
 	m.checkAndRenew()
 
-	for range ticker.C {
-		m.checkAndRenew()
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.checkAndRenew()
+		}
 	}
 }
 
@@ -103,8 +125,13 @@ func (m *Manager) acmeFlowLoop() {
 	// 启动时先检查一次
 	m.processAcmeFlowTasks()
 
-	for range ticker.C {
-		m.processAcmeFlowTasks()
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.processAcmeFlowTasks()
+		}
 	}
 }
 

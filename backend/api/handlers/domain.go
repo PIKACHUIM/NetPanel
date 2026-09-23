@@ -25,6 +25,7 @@ import (
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/pkg/safehttp"
 	"github.com/netpanel/netpanel/service/access"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
@@ -1607,10 +1608,12 @@ func (h *IPDBHandler) Import(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "导入成功", "data": gin.H{"count": imported}})
 }
 
-// downloadAndParseCIDRs 下载 URL 内容并解析为 IP/CIDR 列表
+// downloadAndParseCIDRs 下载 URL 内容并解析为 IP/CIDR 列表。
+//
+// URL 由用户提供、请求由服务端发出，必须走带 SSRF 防护的客户端，
+// 否则可被用来探测内网主机或读取云厂商元数据服务。
 func (h *IPDBHandler) downloadAndParseCIDRs(url string) ([]string, error) {
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := safehttp.Get(context.Background(), url, 60*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("下载失败: %w", err)
 	}

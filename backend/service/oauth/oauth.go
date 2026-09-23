@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,8 +22,14 @@ type UserInfo struct {
 	Name              string `json:"name"`
 	PreferredUsername string `json:"preferred_username"`
 	Email             string `json:"email"`
-	Picture           string `json:"picture"`
+	// EmailVerified 由 IdP 声明邮箱是否已验证。
+	// 保留该字段用于后续策略收紧（例如要求邮箱已验证才允许自动开通账号）。
+	EmailVerified bool   `json:"email_verified"`
+	Picture       string `json:"picture"`
 }
+
+// oauthUsernameInvalidRe 本地用户名中不允许出现的字符
+var oauthUsernameInvalidRe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
 // Service OAuth2/OIDC 服务
 type Service struct {
@@ -196,32 +203,19 @@ func (s *Service) FindOrCreateUser(providerName string, userInfo *UserInfo) (*mo
 		return &user, nil
 	}
 
-	// 再尝试通过用户名匹配
-	username := userInfo.PreferredUsername
-	if username == "" {
-		username = userInfo.Name
-	}
-	if username == "" {
-		username = userInfo.Email
-	}
-	if username == "" {
-		username = userInfo.Sub
-	}
-
-	err = s.db.Where("username = ?", username).First(&user).Error
-	if err == nil {
-		// 已有同名本地用户，绑定 OAuth 信息
-		s.db.Model(&user).Updates(map[string]interface{}{
-			"oauth_provider": providerName,
-			"oauth_sub":      userInfo.Sub,
-			"email":          userInfo.Email,
-		})
-		return &user, nil
+	// 不再按用户名自动绑定本地已有账号。
+	//
+	// 原实现用 IdP 返回的 preferred_username 去匹配本地同名用户并直接绑定，
+	// 而 preferred_username 完全由 IdP（可自建）控制：只要 IdP 声称用户名是
+	// "admin"，即可把本地面板管理员账号与外部身份绑定，随后以该身份登录，
+	// 构成账号接管。现改为：身份只能通过 (provider, sub) 精确匹配复用，
+	// 否则为其单独创建一个非管理员账号，绝不触碰任何已有账号。
+	if strings.TrimSpace(userInfo.Sub) == "" {
+		return nil, fmt.Errorf("OAuth 用户标识（sub）为空，无法建立身份绑定")
 	}
 
-	// 创建新用户
 	user = model.User{
-		Username:      username,
+		Username:      s.uniqueUsername(userInfo),
 		Email:         userInfo.Email,
 		Enable:        true,
 		IsAdmin:       false,
@@ -233,4 +227,49 @@ func (s *Service) FindOrCreateUser(providerName string, userInfo *UserInfo) (*mo
 		return nil, fmt.Errorf("创建 OAuth 用户失败: %w", err)
 	}
 	return &user, nil
+}
+
+// uniqueUsername 依据 IdP 信息生成一个不与现有账号冲突的本地用户名。
+// 显式避开内置 admin，避免外部身份占用保留用户名。
+func (s *Service) uniqueUsername(userInfo *UserInfo) string {
+	base := sanitizeUsername(userInfo.PreferredUsername)
+	if base == "" {
+		base = sanitizeUsername(userInfo.Name)
+	}
+	if base == "" {
+		base = sanitizeUsername(userInfo.Email)
+	}
+	if base == "" {
+		base = sanitizeUsername(userInfo.Sub)
+	}
+	if base == "" {
+		base = "oauth-user"
+	}
+	if len(base) > 40 {
+		base = base[:40]
+	}
+	if strings.EqualFold(base, "admin") {
+		base = "admin-oauth"
+	}
+
+	candidate := base
+	for i := 1; i <= 50; i++ {
+		var cnt int64
+		s.db.Model(&model.User{}).Where("username = ?", candidate).Count(&cnt)
+		if cnt == 0 {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s-%d", base, i)
+	}
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+}
+
+// sanitizeUsername 清洗用户名：邮箱取 @ 前缀，剔除不安全字符。
+func sanitizeUsername(raw string) string {
+	v := strings.TrimSpace(raw)
+	if i := strings.Index(v, "@"); i > 0 {
+		v = v[:i]
+	}
+	v = oauthUsernameInvalidRe.ReplaceAllString(v, "-")
+	return strings.Trim(v, "-._")
 }
