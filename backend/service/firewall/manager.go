@@ -196,6 +196,17 @@ func (m *Manager) DetectBackend() string {
 
 // ApplyRule 将规则应用到系统防火墙
 func (m *Manager) ApplyRule(rule *model.FirewallRule) error {
+	// 校验先行：规则字段会被拼进 iptables/nft/ufw/firewalld/netsh 的参数，
+	// 未校验时可通过 nft 表达式注入执行额外的防火墙语句。
+	if err := validateRule(rule); err != nil {
+		m.log.Warnf("[Firewall] 规则校验未通过: id=%d err=%v", rule.ID, err)
+		m.db.Model(&model.FirewallRule{}).Where("id = ?", rule.ID).Updates(map[string]any{
+			"apply_status": "error",
+			"last_error":   err.Error(),
+		})
+		return err
+	}
+
 	backend := m.DetectBackend()
 	m.log.Infof("[Firewall] 应用规则: id=%d name=%s backend=%s", rule.ID, rule.Name, backend)
 
@@ -234,6 +245,11 @@ func (m *Manager) ApplyRule(rule *model.FirewallRule) error {
 
 // RemoveRule 从系统防火墙删除规则
 func (m *Manager) RemoveRule(rule *model.FirewallRule) error {
+	if err := validateRule(rule); err != nil {
+		m.log.Warnf("[Firewall] 删除规则校验未通过: id=%d err=%v", rule.ID, err)
+		return err
+	}
+
 	backend := m.DetectBackend()
 	m.log.Infof("[Firewall] 删除规则: id=%d name=%s backend=%s", rule.ID, rule.Name, backend)
 

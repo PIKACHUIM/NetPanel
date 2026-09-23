@@ -61,12 +61,23 @@ func (h *CaddyHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.Stop(uint(id))
+	// 先落库新配置，再依据 enable 决定启动或停止。
+	// 若先 Stop 后 Save，Stop 内部的 syncPort 会基于旧配置重建；
+	// 且当 enable 由 true 改为 false 时，Save 后不再触发 syncPort，
+	// 会残留旧路由。先 Save 后 Start/Stop 可保证最终状态与配置一致。
 	req.ID = uint(id)
-	h.db.Save(&req)
+	if err := h.db.Save(&req).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存失败: " + err.Error()})
+		return
+	}
 	logger.WriteLog("info", "caddy", fmt.Sprintf("修改网页服务: ID=%d", id))
 	if req.Enable {
-		h.mgr.Start(uint(id))
+		if err := h.mgr.Start(uint(id)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	} else {
+		h.mgr.Stop(uint(id))
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
@@ -81,19 +92,22 @@ func (h *CaddyHandler) Delete(c *gin.Context) {
 
 func (h *CaddyHandler) Start(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	// 先落库启用开关，再启动。Manager.Start 会校验 enable，
+	// 若先 Start 后置位，则「停止后再启动」这条路径必然因 enable=false 而失败。
+	h.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("enable", true)
 	if err := h.mgr.Start(uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	h.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("enable", true)
 	logger.WriteLog("info", "caddy", fmt.Sprintf("启动网页服务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
 func (h *CaddyHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.mgr.Stop(uint(id))
+	// 先落库关闭开关，再停止。Manager.Stop 只负责运行态，不再改 enable。
 	h.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("enable", false)
+	h.mgr.Stop(uint(id))
 	logger.WriteLog("info", "caddy", fmt.Sprintf("停止网页服务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
@@ -400,6 +414,10 @@ func (h *StorageHandler) List(c *gin.Context) {
 	h.db.Order("id desc").Find(&configs)
 	for i := range configs {
 		configs[i].Status = h.mgr.GetStatus(configs[i].ID)
+		// 凭据不回显：网络存储密码属敏感信息，列表接口不应返回明文
+		if configs[i].Password != "" {
+			configs[i].Password = "******"
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": configs})
 }
@@ -414,24 +432,56 @@ func (h *StorageHandler) Create(c *gin.Context) {
 	h.db.Create(&cfg)
 	logger.WriteLog("info", "storage", fmt.Sprintf("创建网络存储: ID=%d", cfg.ID))
 	if cfg.Enable {
-		h.mgr.Start(cfg.ID)
+		// 启动失败（根目录非法 / 未配置凭据等）必须回传给调用方，
+		// 否则前端会显示"创建成功"而实际未生效
+		if err := h.mgr.Start(cfg.ID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "data": cfg, "message": "创建成功但启动失败: " + err.Error()})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": cfg, "message": "创建成功"})
 }
 
 func (h *StorageHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var existing model.StorageConfig
+	if err := h.db.First(&existing, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
 	var req model.StorageConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
+	// 密码回显为掩码时保留原值，避免「查看后保存」把密码清空
+	if strings.HasPrefix(req.Password, "****") {
+		req.Password = existing.Password
+	}
 	h.mgr.Stop(uint(id))
-	req.ID = uint(id)
-	h.db.Save(&req)
+	// 按字段更新，避免 Save 全量覆盖把未提交字段写为零值
+	updates := map[string]any{
+		"name":        req.Name,
+		"enable":      req.Enable,
+		"protocol":    req.Protocol,
+		"listen_addr": req.ListenAddr,
+		"listen_port": req.ListenPort,
+		"root_path":   req.RootPath,
+		"username":    req.Username,
+		"password":    req.Password,
+		"read_only":   req.ReadOnly,
+		"remark":      req.Remark,
+	}
+	if err := h.db.Model(&existing).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存失败: " + err.Error()})
+		return
+	}
 	logger.WriteLog("info", "storage", fmt.Sprintf("修改网络存储: ID=%d", id))
 	if req.Enable {
-		h.mgr.Start(uint(id))
+		if err := h.mgr.Start(uint(id)); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }

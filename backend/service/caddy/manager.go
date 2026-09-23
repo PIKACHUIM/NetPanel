@@ -21,6 +21,7 @@ import (
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/service/access"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -43,18 +44,29 @@ type Manager struct {
 	panelPort int // NetPanel 面板监听端口
 	mu        sync.Mutex
 	started   bool
+	admin     adminEndpoint
 	adminHTTP *http.Client
+	// syncMu 保护「读库 → 构建配置 → PUT 到 Caddy」整段流程，
+	// 否则并发的 Start/Stop 会各自基于旧快照生成配置并互相覆盖
+	syncMu sync.Mutex
+	// upstreamOverride 内存中的上游覆盖（自动选线切换用，不落库，重启进程后回退）
+	overrideMu       sync.Mutex
+	upstreamOverride map[uint]string
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
+	// netpanel_session_auth 中间件由 Caddy 依据 JSON 配置实例化，
+	// 拿不到 Manager 上的依赖，这里把 DB 注入到包级桥接变量
+	SetAuthDB(db)
+	admin := newAdminEndpoint(dataDir)
 	return &Manager{
-		db:        db,
-		log:       log,
-		dataDir:   dataDir,
-		panelPort: 8080, // 默认值
-		adminHTTP: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		db:               db,
+		log:              log,
+		dataDir:          dataDir,
+		panelPort:        8080, // 默认值
+		admin:            admin,
+		adminHTTP:        admin.httpClient(),
+		upstreamOverride: make(map[uint]string),
 	}
 }
 
@@ -100,6 +112,10 @@ func (m *Manager) StartAll() {
 
 // StopAll 停止所有站点并关闭 Caddy 引擎
 func (m *Manager) StopAll() {
+	// 与 syncPort 互斥，避免停机过程中有并发的配置热加载
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -151,12 +167,14 @@ func (m *Manager) Stop(id uint) {
 		nil,
 	)
 	m.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("status", "stopped")
+
+	if err := m.syncPort(port); err != nil {
+		m.log.Errorf("[Caddy] 站点 [%s] 停止后同步端口 %d 失败: %v", site.Name, port, err)
+	}
 }
 
-// Restart 重启指定站点
+// Restart 重启指定站点（重新同步其所在端口）
 func (m *Manager) Restart(id uint) error {
-	m.Stop(id)
-	time.Sleep(200 * time.Millisecond)
 	return m.Start(id)
 }
 
@@ -224,7 +242,9 @@ func (m *Manager) ensureCaddyRunning() error {
 	// 设置 Caddy Admin 监听地址
 	adminCfg := &caddy.Config{
 		Admin: &caddy.AdminConfig{
-			Listen: caddyAdminAddr,
+			Listen:        m.admin.listen,
+			EnforceOrigin: true,
+			Origins:       m.admin.origins(),
 		},
 		Logging: &caddy.Logging{
 			Logs: map[string]*caddy.CustomLog{
@@ -246,7 +266,7 @@ func (m *Manager) ensureCaddyRunning() error {
 
 	// 等待 Admin API 就绪
 	for i := 0; i < 10; i++ {
-		resp, err := m.adminHTTP.Get("http://" + caddyAdminAddr + "/config/")
+		resp, err := m.adminHTTP.Get(m.admin.baseURL + "/config/")
 		if err == nil {
 			resp.Body.Close()
 			break
@@ -346,7 +366,7 @@ func (m *Manager) DeployServer(port int, sites []model.CaddySite) error {
 func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 	// 匹配条件：只有当域名是真实域名（非 localhost、非 IP）时才添加 host matcher
 	var hostMatchers []interface{}
-	if site.Domain != "" && !isLocalOrIP(site.Domain) {
+	if hasHostMatcher(site.Domain) {
 		hostMatchers = append(hostMatchers, map[string]interface{}{
 			"host": []string{site.Domain},
 		})
@@ -384,15 +404,16 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		})
 
 	case "static":
-		if site.RootPath == "" {
-			return nil, fmt.Errorf("静态文件根目录不能为空")
+		root, err := ValidateRootPath(site.RootPath)
+		if err != nil {
+			return nil, err
 		}
-		if err := os.MkdirAll(site.RootPath, 0755); err != nil {
+		if err := os.MkdirAll(root, 0755); err != nil {
 			return nil, fmt.Errorf("创建静态文件目录失败: %w", err)
 		}
 		fileHandler := map[string]interface{}{
 			"handler": "file_server",
-			"root":    site.RootPath,
+			"root":    root,
 		}
 		if site.FileList {
 			fileHandler["browse"] = map[string]interface{}{}
@@ -400,8 +421,8 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		mainHandlers = append(mainHandlers, fileHandler)
 
 	case "redirect":
-		if site.RedirectTo == "" {
-			return nil, fmt.Errorf("重定向目标地址不能为空")
+		if err := ValidateRedirectTarget(site.RedirectTo); err != nil {
+			return nil, err
 		}
 		code := site.RedirectCode
 		if code == 0 {
@@ -420,15 +441,37 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 	}
 
 	// WAF:站点绑定启用的 WAF 配置时,在 handler 链最前插入 WAF 检查中间件
-	if wafCfgID := m.findEnabledWafForSite(site.ID); wafCfgID != 0 {
-		mainHandlers = append([]interface{}{map[string]interface{}{
-			"handler":   "netpanel_waf",
-			"config_id": wafCfgID,
-		}}, mainHandlers...)
+	if deps != nil {
+		if wafCfgID := deps.waf[site.ID]; wafCfgID != 0 {
+			mainHandlers = append([]interface{}{map[string]interface{}{
+				"handler":   "netpanel_waf",
+				"config_id": wafCfgID,
+			}}, mainHandlers...)
+		}
+	}
+
+	// 站点级 IP 黑白名单：绑定了网站的反代站点由 Caddy 直接对外服务，
+	// 请求不经过面板的 Gin 中间件，因此必须在 Caddy 侧判定。
+	// 放在 handler 链最前，使拒绝尽早发生。
+	if deps != nil {
+		if b, ok := deps.acl[site.ID]; ok && len(b.ips) > 0 {
+			mainHandlers = append([]interface{}{map[string]interface{}{
+				"handler": "netpanel_ip_acl",
+				"mode":    b.mode,
+				"ranges":  b.ips,
+			}}, mainHandlers...)
+		}
 	}
 
 	// 查询认证规则
-	authMode, authRule := m.findAuthRule(site.ID)
+	var authMode string
+	var authRule model.AccessRule
+	if deps != nil {
+		if b, ok := deps.auth[site.ID]; ok {
+			authMode = b.mode
+			authRule = b.rule
+		}
+	}
 
 	switch authMode {
 	case "basic_auth":
@@ -444,10 +487,8 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		return []interface{}{route}, nil
 
 	case "page_login":
-		// 页面跳转登录: 两个 route
-		// Route 1: 没有有效 session cookie → 重定向到 NetPanel 登录页
-		// Route 2: 有 cookie → 正常代理
-		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, site), nil
+		// 页面跳转登录：认证由 netpanel_session_auth 中间件完成
+		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, authRule), nil
 
 	default:
 		// 无认证
@@ -459,97 +500,164 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 	}
 }
 
-// findEnabledWafForSite 查找绑定到指定站点且已启用的 WAF 配置 ID,未找到返回 0
-func (m *Manager) findEnabledWafForSite(siteID uint) uint {
-	var configs []model.WafConfig
-	m.db.Where("enable = ?", true).Find(&configs)
+// authBinding 站点绑定的认证规则。
+type authBinding struct {
+	mode string
+	rule model.AccessRule
+}
 
-	for _, cfg := range configs {
-		if cfg.BindSiteIDs == "" {
-			continue
-		}
-		var siteIDs []uint
-		if err := json.Unmarshal([]byte(cfg.BindSiteIDs), &siteIDs); err != nil {
-			continue
-		}
-		for _, id := range siteIDs {
-			if id == siteID {
-				return cfg.ID
+// aclBinding 站点绑定的 IP 访问控制（已解析为具体 IP/CIDR 列表）。
+type aclBinding struct {
+	mode string
+	ips  []string
+}
+
+// routeDeps 站点路由构建所需的预加载依赖。
+// 此前 buildRoutes 对每个站点各执行一次 findEnabledWafForSite / findAuthRule，
+// 二者内部都是全表扫描再逐个 JSON 解析绑定关系，端口下 N 个站点就是 2N 次全表扫描。
+// 现改为按端口一次性加载，构建 map[siteID] 供 O(1) 查询。
+type routeDeps struct {
+	waf  map[uint]uint        // siteID -> WAF 配置 ID
+	auth map[uint]authBinding // siteID -> 认证规则
+	acl  map[uint]aclBinding  // siteID -> IP 黑白名单
+}
+
+// loadRouteDeps 一次性加载启用 WAF、认证规则与 IP 访问控制的绑定关系。
+func (m *Manager) loadRouteDeps(sites []model.CaddySite) *routeDeps {
+	deps := &routeDeps{
+		waf:  make(map[uint]uint),
+		auth: make(map[uint]authBinding),
+		acl:  make(map[uint]aclBinding),
+	}
+
+	var wafConfigs []model.WafConfig
+	m.db.Where("enable = ?", true).Find(&wafConfigs)
+	for _, cfg := range wafConfigs {
+		for _, sid := range parseSiteIDs(cfg.BindSiteIDs) {
+			if _, ok := deps.waf[sid]; !ok {
+				deps.waf[sid] = cfg.ID
 			}
 		}
 	}
-	return 0
-}
 
-// findAuthRule 查找绑定到指定站点的认证规则
-func (m *Manager) findAuthRule(siteID uint) (string, model.AccessRule) {
 	var rules []model.AccessRule
-	m.db.Where("enable = ? AND auth_mode != ''", true).Find(&rules)
-
+	m.db.Where("enable = ?", true).Find(&rules)
 	for _, rule := range rules {
-		if rule.BindSiteIDs == "" {
+		siteIDs := parseSiteIDs(rule.BindSiteIDs)
+		if len(siteIDs) == 0 {
 			continue
 		}
-		var siteIDs []uint
-		if err := json.Unmarshal([]byte(rule.BindSiteIDs), &siteIDs); err != nil {
+		// IP 黑白名单：绑定到站点的规则需要在 Caddy 侧判定
+		if ips := access.ResolveIPs(m.db, rule); len(ips) > 0 {
+			mode := rule.Mode
+			if mode == "" {
+				mode = "blacklist"
+			}
+			for _, sid := range siteIDs {
+				if _, ok := deps.acl[sid]; !ok {
+					deps.acl[sid] = aclBinding{mode: mode, ips: ips}
+				}
+			}
+		}
+		// 登录认证：仅 auth_mode 非空时生效
+		if rule.AuthMode == "" {
 			continue
 		}
-		for _, id := range siteIDs {
-			if id == siteID {
-				return rule.AuthMode, rule
+		for _, sid := range siteIDs {
+			if _, ok := deps.auth[sid]; !ok {
+				deps.auth[sid] = authBinding{mode: rule.AuthMode, rule: rule}
 			}
 		}
 	}
-	return "", model.AccessRule{}
+	return deps
 }
 
-// buildPageLoginRoutes 构建页面跳转登录的路由
-// 无 cookie 时重定向到 NetPanel 面板的登录页面
-func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers []interface{}, site *model.CaddySite) []interface{} {
-	// 构建 NetPanel 面板登录页的 URL
-	// 使用请求的 scheme + 请求的 hostname + 面板端口
-	// redirect 参数带上代理站点的完整地址，登录成功后跳回
-	panelLogin := fmt.Sprintf("{http.request.scheme}://{http.request.host}:%d/login?redirect={http.request.scheme}://{http.request.hostport}{http.request.uri}", m.panelPort)
+// parseSiteIDs 解析 JSON 数组形式的站点绑定 ID 列表。
+func parseSiteIDs(raw string) []uint {
+	if raw == "" {
+		return nil
+	}
+	var ids []uint
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil
+	}
+	return ids
+}
 
-	// Route 1: 没有 netpanel_session cookie → 重定向到面板登录页
-	redirectRoute := map[string]interface{}{
-		"match": []interface{}{
-			map[string]interface{}{
-				"not": []interface{}{
-					map[string]interface{}{
-						"header_regexp": map[string]interface{}{
-							"Cookie": map[string]interface{}{
-								"pattern": "netpanel_session=.+",
-							},
-						},
-					},
-				},
-			},
-		},
-		"handle": []interface{}{
-			map[string]interface{}{
-				"handler":     "static_response",
-				"status_code": 302,
-				"headers": map[string]interface{}{
-					"Location": []string{panelLogin},
-				},
-			},
-		},
+// hasHostMatcher 判断域名是否应生成 host/sni 匹配条件。
+// localhost、IP 与空域名不生成 matcher，其路由是无条件匹配（兜底）。
+func hasHostMatcher(domain string) bool {
+	return domain != "" && !isLocalOrIP(domain)
+}
+
+// sortSitesForRouting 将有 host 匹配（真实域名）的站点排在前，无域名的排在后。
+func sortSitesForRouting(sites []model.CaddySite) []model.CaddySite {
+	out := make([]model.CaddySite, 0, len(sites))
+	var wildcard []model.CaddySite
+	for _, s := range sites {
+		if hasHostMatcher(s.Domain) {
+			out = append(out, s)
+		} else {
+			wildcard = append(wildcard, s)
+		}
+	}
+	return append(out, wildcard...)
+}
+
+// countWildcardSites 统计无域名匹配（兜底路由）站点的数量。
+func countWildcardSites(sites []model.CaddySite) int {
+	n := 0
+	for _, s := range sites {
+		if !hasHostMatcher(s.Domain) {
+			n++
+		}
+	}
+	return n
+}
+
+// orderTLSPolicies 将带 SNI match 的策略排在前、无 match 的兜底策略排最后。
+// Caddy 按顺序取第一个匹配的策略，无 match 的策略若靠前会成为兜底，
+// 使后续具体的 SNI 策略失效。
+func orderTLSPolicies(policies []interface{}) []interface{} {
+	var matched, unmatched []interface{}
+	for _, p := range policies {
+		pm, ok := p.(map[string]interface{})
+		if ok && pm["match"] != nil {
+			matched = append(matched, p)
+		} else {
+			unmatched = append(unmatched, p)
+		}
+	}
+	return append(matched, unmatched...)
+}
+
+// buildPageLoginRoutes 构建页面跳转登录的路由。
+//
+// 认证由 netpanel_session_auth 中间件完成：它会校验 Cookie 的 HMAC 签名、
+// 有效期以及用户是否仍然启用，未通过时 302 到面板登录页。
+// 不能仅靠 Caddy 的 header_regexp 匹配 Cookie 是否存在——那样任何人
+// 手工设置 netpanel_session=x 就能绕过认证。
+func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
+	var allowedIDs []uint
+	if rule.AllowedUserIDs != "" {
+		json.Unmarshal([]byte(rule.AllowedUserIDs), &allowedIDs)
 	}
 
-	// Route 2: 有 cookie → 正常代理
-	proxyRoute := map[string]interface{}{
-		"handle": mainHandlers,
+	authHandler := map[string]interface{}{
+		"handler":    "netpanel_session_auth",
+		"panel_port": m.panelPort,
+	}
+	if len(allowedIDs) > 0 {
+		authHandler["allowed_user_ids"] = allowedIDs
 	}
 
-	// 如果有 host matcher，添加到两个 route 上
+	route := map[string]interface{}{
+		"handle": append([]interface{}{authHandler}, mainHandlers...),
+	}
 	if len(hostMatchers) > 0 {
-		// 对 redirectRoute，合并 host matcher 和 cookie not-match
-		redirectRoute["match"] = append(hostMatchers, redirectRoute["match"].([]interface{})...)
-		proxyRoute["match"] = hostMatchers
+		route["match"] = hostMatchers
 	}
-
-	return []interface{}{redirectRoute, proxyRoute}
+	return []interface{}{route}
 }
 
 // buildBasicAuthHandler 构建 Caddy Basic Auth handler
@@ -606,7 +714,7 @@ func (m *Manager) buildBasicAuthHandler(rule model.AccessRule) map[string]interf
 func (m *Manager) buildTLSConfig(site *model.CaddySite) map[string]interface{} {
 	tlsCfg := map[string]interface{}{}
 
-	if site.Domain != "" {
+	if hasHostMatcher(site.Domain) {
 		tlsCfg["match"] = map[string]interface{}{
 			"sni": []string{site.Domain},
 		}
@@ -683,7 +791,7 @@ func (m *Manager) adminRequest(method, path string, body interface{}) error {
 		reqBody = bytes.NewReader(nil)
 	}
 
-	url := "http://" + caddyAdminAddr + path
+	url := m.admin.baseURL + path
 	req, err := http.NewRequestWithContext(
 		context.Background(),
 		method,
