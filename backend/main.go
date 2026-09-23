@@ -41,6 +41,7 @@ import (
 	"github.com/netpanel/netpanel/service/monitor"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
@@ -235,7 +236,7 @@ func startServer() *http.Server {
 	// AI 管理器
 	logAi := logger.NewDBLogger(log, "ai")
 	aiMgr := ai.NewManager(db, logAi)
-	
+
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
@@ -295,7 +296,11 @@ func startServer() *http.Server {
 	lineregMgr.Start()
 	// 系统防火墙规则定时同步（此前 StartAutoSync 无任何调用者，功能实际未生效）
 	firewallMgr.StartAutoSync()
-	
+
+	// 数据保留清理器：定时分批清理时序数据，防止数据库无限膨胀
+	retentionCleaner := retention.New(db, log)
+	retentionStop := retentionCleaner.Start()
+
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
 		log.Errorf("监控服务启动失败: %v", err)
@@ -310,31 +315,32 @@ func startServer() *http.Server {
 
 	// 初始化路由
 	router := api.NewRouter(api.RouterOptions{
-		DB:             db,
-		Log:            log,
-		Config:         cfg,
-		PortForwardMgr: portforwardMgr,
-		StunMgr:        stunMgr,
-		FrpMgr:         frpMgr,
-		NpsMgr:         npsMgr,
-		EasytierMgr:    easytierMgr,
-		CftunnelMgr:    cftunnelMgr,
-		DdnsMgr:        ddnsMgr,
-		CaddyMgr:       caddyMgr,
-		CronMgr:        cronMgr,
-		StorageMgr:     storageMgr,
-		AccessMgr:      accessMgr,
-		FirewallMgr:    firewallMgr,
-		WireguardMgr:   wireguardMgr,
-		MeshNodeMgr:    meshNodeMgr,
-		TunserviceMgr:  tunserviceMgr,
-		LineregMgr:     lineregMgr,
-		DnsmasqMgr:     dnsmasqMgr,
-		WolMgr:         wolMgr,
-		CertMgr:        certMgr,
-		CallbackMgr:    callbackMgr,
-		SyslogMgr:      syslogMgr,
-		AiMgr:          aiMgr,
+		DB:               db,
+		Log:              log,
+		Config:           cfg,
+		PortForwardMgr:   portforwardMgr,
+		StunMgr:          stunMgr,
+		FrpMgr:           frpMgr,
+		NpsMgr:           npsMgr,
+		EasytierMgr:      easytierMgr,
+		CftunnelMgr:      cftunnelMgr,
+		DdnsMgr:          ddnsMgr,
+		CaddyMgr:         caddyMgr,
+		CronMgr:          cronMgr,
+		StorageMgr:       storageMgr,
+		AccessMgr:        accessMgr,
+		FirewallMgr:      firewallMgr,
+		WireguardMgr:     wireguardMgr,
+		MeshNodeMgr:      meshNodeMgr,
+		TunserviceMgr:    tunserviceMgr,
+		LineregMgr:       lineregMgr,
+		DnsmasqMgr:       dnsmasqMgr,
+		WolMgr:           wolMgr,
+		CertMgr:          certMgr,
+		CallbackMgr:      callbackMgr,
+		SyslogMgr:        syslogMgr,
+		AiMgr:            aiMgr,
+		RetentionCleaner: retentionCleaner,
 	})
 
 	// 挂载前端静态文件（SPA 模式：所有非 /api 路径均返回 index.html）
@@ -372,6 +378,16 @@ func startServer() *http.Server {
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: router,
+		// 超时配置（稳定性：防慢连接长期占住 goroutine 与 fd）：
+		//   - ReadTimeout 限制读请求，请求体都很小，30s 足够；
+		//   - WriteTimeout 必须保持 0：AI 对话与 CF 隧道日志走 SSE 流式响应、
+		//     终端走 WebSocket 升级，任何写超时都会掐断长连接；
+		//   - IdleTimeout 回收空闲连接，防连接堆积。
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
@@ -387,6 +403,10 @@ func startServer() *http.Server {
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
 		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv)
+	// 把清理器的停止函数链入全局优雅关闭
+	if prev := stopAllFn; prev != nil {
+		stopAllFn = func() { prev(); retentionStop() }
+	}
 
 	return srv
 }
