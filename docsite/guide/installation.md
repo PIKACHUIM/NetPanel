@@ -14,7 +14,7 @@
 
 ## 方式一：直接下载运行（推荐）
 
-从 [GitHub Releases](https://github.com/netpanel/netpanel/releases) 页面下载对应平台的压缩包。
+从 [GitHub Releases](https://github.com/PIKACHUIM/NetPanel/releases) 页面下载对应平台的压缩包。
 
 ### 下载包说明
 
@@ -31,7 +31,7 @@
 
 ```bash
 # 下载（以 Linux amd64 为例）
-wget https://github.com/netpanel/netpanel/releases/latest/download/netpanel-linux-amd64.tar.gz
+wget https://github.com/PIKACHUIM/NetPanel/releases/latest/download/netpanel-linux-amd64.tar.gz
 
 # 解压
 tar -xzf netpanel-linux-amd64.tar.gz
@@ -58,10 +58,10 @@ cd netpanel-linux-amd64
 
 ```bash
 # 使用 curl（推荐）
-curl -fsSL https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.sh | sudo bash
 
 # 或使用 wget
-wget -qO- https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.sh | sudo bash
 ```
 
 ::: tip 需要 root 权限
@@ -76,7 +76,7 @@ bash install.sh [选项]
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--version <ver>` | `latest` | 指定版本，如 `v0.1.0` |
+| `--version <ver>` | `latest` | 指定版本，如 `v1.0.0` |
 | `--port <port>` | `8080` | 监听端口 |
 | `--dir <path>` | `/opt/netpanel` | 安装目录 |
 | `--no-service` | — | 不注册 systemd 服务 |
@@ -110,14 +110,14 @@ journalctl -u netpanel -f
 
 ```powershell
 # 以管理员身份运行 PowerShell，执行：
-irm https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.ps1 | iex
 ```
 
 或下载脚本后本地运行：
 
 ```powershell
 # 下载脚本
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/netpanel/netpanel/main/scripts/install.ps1" -OutFile "install.ps1"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/install.ps1" -OutFile "install.ps1"
 
 # 运行（以管理员身份）
 .\install.ps1 -Port 8080
@@ -127,12 +127,41 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/netpanel/netpanel/main
 
 ## 方式四：Docker 部署
 
-### 使用 docker run
+### 最小化部署（推荐新手）
+
+仅需 Web 面板和基础功能（端口转发、DDNS、反向代理等），无需额外权限：
+
+```bash
+# 使用 docker-compose（推荐）
+curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/docker-compose.minimal.yml -o docker-compose.yml
+docker compose up -d
+```
+
+或手动运行：
 
 ```bash
 docker run -d \
   --name netpanel \
+  -p 8080:8080 \
+  -v ./data:/app/data \
   --restart unless-stopped \
+  ghcr.io/pikachuim/netpanel:latest
+```
+
+### 完整部署（含组网能力）
+
+需要 EasyTier 异地组网、WireGuard VPN、Mesh 节点等 TUN 网络功能：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/docker-compose.full.yml -o docker-compose.yml
+docker compose up -d
+```
+
+或手动运行：
+
+```bash
+docker run -d \
+  --name netpanel \
   -p 8080:8080 \
   -v ./data:/app/data \
   --cap-add NET_ADMIN \
@@ -141,39 +170,16 @@ docker run -d \
   --sysctl net.ipv4.ip_forward=1 \
   --sysctl net.ipv6.conf.all.forwarding=1 \
   -e TZ=Asia/Shanghai \
-  ghcr.io/netpanel/netpanel:latest
+  ghcr.io/pikachuim/netpanel:latest
 ```
 
-### 使用 docker-compose（推荐）
-
-创建 `docker-compose.yml` 文件：
-
-```yaml
-services:
-  netpanel:
-    image: ghcr.io/netpanel/netpanel:latest
-    container_name: netpanel
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - TZ=Asia/Shanghai
-    # EasyTier / TUN 设备需要特权模式或 NET_ADMIN 能力
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv6.conf.all.forwarding=1
-```
+::: warning 关于 Docker 网络功能
+EasyTier 异地组网和部分网络功能需要 `NET_ADMIN` 权限和 TUN 设备支持。如果不使用这些功能，可以使用最小化部署，无需额外权限。
+:::
 
 启动：
 
-```bash
+```
 docker-compose up -d
 ```
 
@@ -187,9 +193,9 @@ EasyTier 异地组网和部分网络功能需要 `NET_ADMIN` 权限和 TUN 设�
 
 需要 **Go 1.21+** 和 **Node.js 20+**。
 
-```bash
+```
 # 1. 克隆仓库
-git clone https://github.com/netpanel/netpanel.git
+git clone https://github.com/PIKACHUIM/NetPanel.git
 cd netpanel
 
 # 2. 构建前端
@@ -211,7 +217,7 @@ cd ..
 
 ## 启动参数
 
-```bash
+```
 ./netpanel [选项]
 ```
 
@@ -223,7 +229,7 @@ cd ..
 
 **示例：**
 
-```bash
+```
 # 修改端口和数据目录
 ./netpanel -port 9090 -data /var/lib/netpanel
 
@@ -253,7 +259,7 @@ http://localhost:8080
 
 如果你想参与开发，可以分别启动前后端开发服务器：
 
-```bash
+```
 # 终端 1：启动后端（开发模式）
 cd backend
 go run . -port 8080
