@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -20,26 +21,36 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("创建数据目录失败: %w", err)
 	}
 
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	// pragma 通过 DSN 传入，确保在每个连接建立时生效（连接池多连接下
+	// 事后 db.Exec 设置的 pragma 只作用于其中一个连接）
+	dsn := dbPath + "?_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=foreign_keys(ON)" +
+		"&_pragma=cache_size(-16000)"
+
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
 	}
 
-	// 配置连接池
+	// 配置连接池：WAL 模式允许多连接并发读，读不再互相排队；
+	// 写仍由 SQLite 内部串行化，busy_timeout 负责等待写锁，避免 BUSY 报错
+	maxConns := runtime.NumCPU()
+	if maxConns < 4 {
+		maxConns = 4
+	} else if maxConns > 8 {
+		maxConns = 8
+	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(1) // SQLite 单连接
-	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetMaxOpenConns(maxConns)
+	sqlDB.SetMaxIdleConns(maxConns)
 	sqlDB.SetConnMaxLifetime(time.Hour)
-
-	// 启用 WAL 模式提升并发性能
-	db.Exec("PRAGMA journal_mode=WAL")
-	db.Exec("PRAGMA synchronous=NORMAL")
-	db.Exec("PRAGMA foreign_keys=ON")
 
 	// 自动迁移所有表
 	if err := autoMigrate(db); err != nil {

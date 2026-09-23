@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -78,7 +79,9 @@ func (m *Manager) Start(id uint) error {
 	entry := &ddnsEntry{cancel: cancel}
 	m.entries.Store(id, entry)
 
-	go m.runDDNS(ctx, id, &task)
+	svcutil.SafeGo(m.log, fmt.Sprintf("ddns.task-%d", id), true, func() {
+		m.runDDNS(ctx, id, &task)
+	})
 
 	m.db.Model(&model.DDNSTask{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"status":     "running",
@@ -140,6 +143,7 @@ func (m *Manager) runDDNS(ctx context.Context, id uint, task *model.DDNSTask) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			svcutil.BeatEngineHeartbeat("ddns")
 			// 重新读取最新配置（用户可能修改了间隔等参数）
 			var latestTask model.DDNSTask
 			if err := m.db.First(&latestTask, id).Error; err != nil {
