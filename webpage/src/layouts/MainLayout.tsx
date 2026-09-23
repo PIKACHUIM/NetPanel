@@ -86,9 +86,6 @@ const MainLayout: React.FC = () => {
             children: [
                 {key: 'port-forward', icon: <NodeIndexOutlined/>, label: t('menu.portForward')},
                 {key: 'stun', icon: <WifiOutlined/>, label: t('menu.stun')},
-                {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
-                {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
-                {key: 'cftunnel', icon: <GlobalOutlined/>, label: t('menu.cftunnel')},
                 {key: 'tunservice', icon: <ApartmentOutlined/>, label: t('menu.tunservice')},
             ],
         },
@@ -97,10 +94,6 @@ const MainLayout: React.FC = () => {
             icon: <ApartmentOutlined/>,
             label: t('menu.networkGroup'),
             children: [
-                {key: 'nps/client', icon: <ApiOutlined/>, label: t('menu.npsClient')},
-                {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
-                {key: 'easytier/client', icon: <ApiOutlined/>, label: t('menu.easytierClient')},
-                {key: 'easytier/server', icon: <CloudServerOutlined/>, label: t('menu.easytierServer')},
                 {key: 'wireguard', icon: <SafetyOutlined/>, label: t('menu.wireguard')},
             ],
         },

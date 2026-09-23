@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api/authFetch';
 import {
   Card,
   Table,
@@ -89,11 +90,11 @@ const MonitorTunnels: React.FC = () => {
       const [bindingsRes, serversRes, frpRes, npsRes, easytierRes, cftunnelRes, wireguardRes] = await Promise.all([
         monitorApi.listTunnelBindings() as unknown as TunnelBinding[],
         monitorApi.listServers() as unknown as Server[],
-        fetch('/api/v1/frpc').then(res => res.json()).catch(() => ({ data: [] })),
-        fetch('/api/v1/nps/client').then(res => res.json()).catch(() => ({ data: [] })),
-        fetch('/api/v1/easytier/client').then(res => res.json()).catch(() => ({ data: [] })),
-        fetch('/api/v1/cftunnel').then(res => res.json()).catch(() => ({ data: [] })),
-        fetch('/api/v1/wireguard').then(res => res.json()).catch(() => ({ data: [] })),
+        authFetch('/api/v1/frpc').then(res => res.json()).catch(() => ({ data: [] })),
+        authFetch('/api/v1/nps/client').then(res => res.json()).catch(() => ({ data: [] })),
+        authFetch('/api/v1/easytier/client').then(res => res.json()).catch(() => ({ data: [] })),
+        authFetch('/api/v1/cftunnel').then(res => res.json()).catch(() => ({ data: [] })),
+        authFetch('/api/v1/wireguard').then(res => res.json()).catch(() => ({ data: [] })),
       ]);
 
       // fetch 接口返回 {code, data} 包装,统一解包

@@ -196,6 +196,12 @@ type UDPProxy struct {
 	connMu sync.Mutex
 	stopCh chan struct{}
 
+	// sessions 保存「客户端地址 -> 到目标的上游连接」映射。
+	// 原实现把该表作为 serve() 的局部变量，Stop() 无从得知并关闭这些上游连接，
+	// 导致每个会话的读 goroutine 永久阻塞、socket 无法释放（长期运行必然泄漏）。
+	sessMu   sync.Mutex
+	sessions map[string]*net.UDPConn
+
 	trafficIn  int64
 	trafficOut int64
 	log        *logrus.Logger
@@ -207,6 +213,7 @@ func newUDPProxy(listenIP, targetAddr string, listenPort, targetPort int, log *l
 		listenPort: listenPort,
 		targetAddr: targetAddr,
 		targetPort: targetPort,
+		sessions:   make(map[string]*net.UDPConn),
 		log:        log,
 	}
 }
@@ -235,12 +242,25 @@ func (p *UDPProxy) Start() error {
 	return nil
 }
 
+// listener 并发安全地读取当前监听连接。
+func (p *UDPProxy) listener() *net.UDPConn {
+	p.connMu.Lock()
+	defer p.connMu.Unlock()
+	return p.conn
+}
+
 func (p *UDPProxy) serve() {
+	// 捕获监听连接，避免与 Stop() 并发读写 p.conn 字段
+	conn := p.listener()
+	if conn == nil {
+		return
+	}
+
 	buf := make([]byte, 65507)
-	sessions := sync.Map{}
+	targetAddrStr := fmt.Sprintf("%s:%d", p.targetAddr, p.targetPort)
 
 	for {
-		n, remoteAddr, err := p.conn.ReadFromUDP(buf)
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if strings.Contains(err.Error(), "use of closed network connection") {
 				break
@@ -252,47 +272,78 @@ func (p *UDPProxy) serve() {
 		copy(data, buf[:n])
 		atomic.AddInt64(&p.trafficIn, int64(n))
 
-		targetAddrStr := fmt.Sprintf("%s:%d", p.targetAddr, p.targetPort)
 		key := remoteAddr.String()
 
-		val, ok := sessions.Load(key)
-		var targetConn *net.UDPConn
-		if ok {
-			targetConn = val.(*net.UDPConn)
-		} else {
-			tAddr, err := net.ResolveUDPAddr("udp", targetAddrStr)
-			if err != nil {
+		p.sessMu.Lock()
+		targetConn, ok := p.sessions[key]
+		if !ok {
+			tAddr, rerr := net.ResolveUDPAddr("udp", targetAddrStr)
+			if rerr != nil {
+				p.sessMu.Unlock()
 				continue
 			}
-			targetConn, err = net.DialUDP("udp", nil, tAddr)
-			if err != nil {
+			targetConn, rerr = net.DialUDP("udp", nil, tAddr)
+			if rerr != nil {
+				p.sessMu.Unlock()
 				continue
 			}
-			sessions.Store(key, targetConn)
-			go func(rc *net.UDPAddr, tc *net.UDPConn) {
-				rbuf := make([]byte, 65507)
-				for {
-					rn, _, rerr := tc.ReadFromUDP(rbuf)
-					if rerr != nil {
-						break
-					}
-					p.conn.WriteToUDP(rbuf[:rn], rc)
-					atomic.AddInt64(&p.trafficOut, int64(rn))
-				}
-				sessions.Delete(rc.String())
-			}(remoteAddr, targetConn)
+			p.sessions[key] = targetConn
+			go p.relayBack(conn, remoteAddr, targetConn, key)
 		}
-		targetConn.Write(data)
+		p.sessMu.Unlock()
+
+		_, _ = targetConn.Write(data)
+	}
+}
+
+// relayBack 把目标端的回包转发给客户端；上游连接被关闭时退出并清理会话表。
+func (p *UDPProxy) relayBack(listenConn *net.UDPConn, rc *net.UDPAddr, tc *net.UDPConn, key string) {
+	defer func() {
+		p.sessMu.Lock()
+		// 仅当表中仍是本条连接时删除，避免误删后来重建的同名会话
+		if cur, ok := p.sessions[key]; ok && cur == tc {
+			delete(p.sessions, key)
+		}
+		p.sessMu.Unlock()
+		_ = tc.Close()
+	}()
+
+	rbuf := make([]byte, 65507)
+	for {
+		rn, _, rerr := tc.ReadFromUDP(rbuf)
+		if rerr != nil {
+			return
+		}
+		if _, werr := listenConn.WriteToUDP(rbuf[:rn], rc); werr != nil {
+			return
+		}
+		atomic.AddInt64(&p.trafficOut, int64(rn))
 	}
 }
 
 func (p *UDPProxy) Stop() {
 	p.connMu.Lock()
-	defer p.connMu.Unlock()
-	if p.conn != nil {
+	hadConn := p.conn != nil
+	if hadConn {
 		p.conn.Close()
 		p.conn = nil
+	}
+	p.connMu.Unlock()
+	if hadConn {
 		p.log.Infof("[端口转发][UDP] 停止监听 %s:%d", p.listenIP, p.listenPort)
+	}
+
+	// 关闭全部上游会话连接：唤醒阻塞在 ReadFromUDP 的 relayBack goroutine，
+	// 并释放 socket。原实现只关闭监听连接，会话连接与 goroutine 会永久泄漏。
+	p.sessMu.Lock()
+	conns := make([]*net.UDPConn, 0, len(p.sessions))
+	for key, c := range p.sessions {
+		conns = append(conns, c)
+		delete(p.sessions, key)
+	}
+	p.sessMu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
 	}
 }
 

@@ -157,6 +157,12 @@ func (m *Manager) StopAll() {
 func (m *Manager) Start(id uint) error {
 	_ = m.Stop(id)
 
+	// 复位关闭标志：StopAll 会将其置为 true 以阻止自动重启，
+	// 若不复位，此后手动启动的隧道在崩溃后将永远不会自动重启。
+	m.mu.Lock()
+	m.stopping = false
+	m.mu.Unlock()
+
 	if !m.isBinaryAvailable() {
 		return fmt.Errorf("cloudflared 二进制不存在，请先下载: %s", m.getBinaryPath())
 	}
@@ -184,7 +190,10 @@ func (m *Manager) Start(id uint) error {
 	}
 
 	logBuf := newRingBuffer(maxLogLines)
+	// stderr 缓冲用于在进程异常退出时输出诊断信息。
+	// 写入位于 stderr 读取 goroutine、读取位于 watcher goroutine，需加锁。
 	var stderrBuf bytes.Buffer
+	var stderrMu sync.Mutex
 
 	stdoutPipe, _ := cmd.StdoutPipe()
 	stderrPipe, _ := cmd.StderrPipe()
@@ -223,7 +232,9 @@ func (m *Manager) Start(id uint) error {
 		for scanner.Scan() {
 			line := scanner.Text()
 			logBuf.write("[stderr] " + line)
+			stderrMu.Lock()
 			stderrBuf.WriteString(line + "\n")
+			stderrMu.Unlock()
 		}
 	}()
 
@@ -231,7 +242,12 @@ func (m *Manager) Start(id uint) error {
 		err := cmd.Wait()
 		close(entry.done)
 		m.tunnels.Delete(id)
-		_ = stderrBuf.String()
+		stderrMu.Lock()
+		stderrOutput := stderrBuf.String()
+		stderrMu.Unlock()
+		if stderrOutput != "" {
+			m.log.Warnf("[CF隧道][%d] stderr 输出:\n%s", id, stderrOutput)
+		}
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
 			m.log.Warnf("[CF隧道][%d] %s", id, errMsg)

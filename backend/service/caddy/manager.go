@@ -21,21 +21,12 @@ import (
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/service/access"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
-const caddyAdminAddr = "localhost:2019"
-
-// ServerKey 为同端口聚合的 Caddy server 生成统一 key（同端口所有站点共享一个 server）。
-// 格式：netpanel_p{port}；若端口与面板相同则改为 netpanel_p{port}_proxy 避免冲突。
-func ServerKey(port int) string {
-	key := fmt.Sprintf("netpanel_p%d", port)
-	if port <= 0 {
-		return key
-	}
-	return key
-}
+// Manager Caddy 网站服务管理器
 type Manager struct {
 	db        *gorm.DB
 	log       *logrus.Logger
@@ -43,18 +34,29 @@ type Manager struct {
 	panelPort int // NetPanel 面板监听端口
 	mu        sync.Mutex
 	started   bool
+	admin     adminEndpoint
 	adminHTTP *http.Client
+	// syncMu 保护「读库 → 构建配置 → PUT 到 Caddy」整段流程，
+	// 否则并发的 Start/Stop 会各自基于旧快照生成配置并互相覆盖
+	syncMu sync.Mutex
+	// upstreamOverride 内存中的上游覆盖（自动选线切换用，不落库，重启进程后回退）
+	overrideMu       sync.Mutex
+	upstreamOverride map[uint]string
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
+	// netpanel_session_auth 中间件由 Caddy 依据 JSON 配置实例化，
+	// 拿不到 Manager 上的依赖，这里把 DB 注入到包级桥接变量
+	SetAuthDB(db)
+	admin := newAdminEndpoint(dataDir)
 	return &Manager{
-		db:        db,
-		log:       log,
-		dataDir:   dataDir,
-		panelPort: 8080, // 默认值
-		adminHTTP: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		db:               db,
+		log:              log,
+		dataDir:          dataDir,
+		panelPort:        8080, // 默认值
+		admin:            admin,
+		adminHTTP:        admin.httpClient(),
+		upstreamOverride: make(map[uint]string),
 	}
 }
 
@@ -63,8 +65,7 @@ func (m *Manager) SetPanelPort(port int) {
 	m.panelPort = port
 }
 
-// StartAll 启动 Caddy 引擎并加载所有已启用站点（异步，不阻塞主进程）。
-// 聚合策略：同一端口的站点共享一个 Caddy server，用 host matcher 区分不同域名。
+// StartAll 启动 Caddy 引擎并加载所有已启用站点（异步，不阻塞主进程）
 func (m *Manager) StartAll() {
 	go func() {
 		defer func() {
@@ -84,22 +85,20 @@ func (m *Manager) StartAll() {
 			return
 		}
 
-		// 按端口分组，同端口聚合部署
-		portSites := make(map[int][]model.CaddySite)
 		for _, s := range sites {
-			portSites[s.Port] = append(portSites[s.Port], s)
-		}
-		for port, group := range portSites {
-			if err := m.DeployServer(port, group); err != nil {
-				m.log.Errorf("[Caddy] 部署端口 %d 聚合 server 失败: %v", port, err)
+			if err := m.Start(s.ID); err != nil {
+				m.log.Errorf("[Caddy] 站点 [%s] 启动失败: %v", s.Name, err)
 			}
 		}
-		m.log.Infof("[Caddy] 已部署 %d 个聚合 server（%d 个站点）", len(portSites), len(sites))
 	}()
 }
 
 // StopAll 停止所有站点并关闭 Caddy 引擎
 func (m *Manager) StopAll() {
+	// 与 syncPort 互斥，避免停机过程中有并发的配置热加载
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -118,7 +117,122 @@ func (m *Manager) StopAll() {
 	m.db.Model(&model.CaddySite{}).Where("1 = 1").Update("status", "stopped")
 }
 
-// Start 启动指定站点（保留兼容接口；实际部署委托给 DeployServer）
+// serverKeyForPort 根据监听端口生成 Caddy server key。
+// 同端口的所有站点共享同一个 server，通过 Host/SNI 匹配路由，避免端口冲突。
+func serverKeyForPort(port int) string {
+	return fmt.Sprintf("netpanel_port_%d", port)
+}
+
+// syncPort 重新构建指定端口下的全部启用站点，合并为单个 Caddy server 并热加载。
+// 端口下无启用站点时删除该 server。
+func (m *Manager) syncPort(port int) error {
+	// 串行化「读库 → 构建 → PUT」：并发的 Start/Stop/UpdateUpstream 命中同一端口时
+	// 各自基于不同快照生成配置，后写者会覆盖先写者，导致丢站点或配置回退
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+
+	var sites []model.CaddySite
+	m.db.Where("enable = ? AND port = ?", true, port).Find(&sites)
+
+	key := serverKeyForPort(port)
+	path := fmt.Sprintf("/config/apps/http/servers/%s", key)
+
+	// 无启用站点 → 删除该端口 server
+	if len(sites) == 0 {
+		m.adminRequest("DELETE", path, nil)
+		return nil
+	}
+
+	// 一次性加载 WAF 与认证规则的绑定关系，避免每个站点各自全表扫描
+	deps := m.loadRouteDeps(sites)
+
+	// 排序：有 host 匹配（真实域名）的站点在前，无域名的站点（localhost/IP/空）
+	// 必须排最后——它们会生成无条件匹配路由，若靠前会吞掉同端口其他站点的流量
+	sites = sortSitesForRouting(sites)
+
+	// 同端口下最多允许一个无域名站点，否则互斥路由会静默失效
+	wildcard := countWildcardSites(sites)
+	if wildcard > 1 {
+		for i := range sites {
+			m.setError(sites[i].ID, fmt.Sprintf("端口 %d 下存在 %d 个无域名站点，仅允许一个（否则会互相抢占流量）", port, wildcard))
+		}
+		return fmt.Errorf("端口 %d 下存在 %d 个无域名站点，仅允许一个", port, wildcard)
+	}
+
+	// 合并所有站点的路由与 TLS 策略
+	var routes []interface{}
+	var tlsPolicies []interface{}
+	// 成功构建的站点 ID：只对它们置 running，构建失败的不被误标
+	builtIDs := make([]uint, 0, len(sites))
+	for i := range sites {
+		site := &sites[i]
+		// 应用内存中的上游覆盖（自动选线切换）
+		m.overrideMu.Lock()
+		if ov, ok := m.upstreamOverride[site.ID]; ok && ov != "" {
+			site.UpstreamAddr = ov
+		}
+		m.overrideMu.Unlock()
+
+		r, err := m.buildRoutes(site, deps)
+		if err != nil {
+			// 单个站点构建失败不拖垮整个端口，标记错误后跳过
+			m.setError(site.ID, err.Error())
+			continue
+		}
+		routes = append(routes, r...)
+		builtIDs = append(builtIDs, site.ID)
+		if site.TLSEnable {
+			if tls := m.buildTLSConfig(site); tls != nil {
+				tlsPolicies = append(tlsPolicies, tls)
+			}
+		}
+	}
+
+	if len(routes) == 0 {
+		m.adminRequest("DELETE", path, nil)
+		return nil
+	}
+
+	serverCfg := map[string]interface{}{
+		"listen": []string{fmt.Sprintf(":%d", port)},
+		"routes": routes,
+		// 禁用自动 HTTPS 重定向
+		"automatic_https": map[string]interface{}{
+			"disable": true,
+		},
+		// 开启访问日志
+		"logs": map[string]interface{}{
+			"default_logger_name": key,
+		},
+	}
+	if len(tlsPolicies) > 0 {
+		// 带 SNI 的策略在前，无 match 的兜底策略在最后，
+		// 否则无 match 策略会被 Caddy 当作第一个匹配项而让后续 SNI 策略失效
+		serverCfg["tls_connection_policies"] = orderTLSPolicies(tlsPolicies)
+	}
+
+	// 输出调试日志
+	if cfgJSON, err := json.MarshalIndent(serverCfg, "", "  "); err == nil {
+		m.log.Infof("[Caddy] 端口 %d 配置:\n%s", port, string(cfgJSON))
+	}
+
+	if err := m.adminRequest("PUT", path, serverCfg); err != nil {
+		// 标记该端口所有站点为 error
+		for i := range sites {
+			m.setError(sites[i].ID, err.Error())
+		}
+		return fmt.Errorf("加载端口 %d 站点配置失败: %w", port, err)
+	}
+
+	// 仅标记成功构建的站点为 running
+	m.db.Model(&model.CaddySite{}).Where("id IN ?", builtIDs).Updates(map[string]interface{}{
+		"status":     "running",
+		"last_error": "",
+	})
+	return nil
+}
+
+// Start 启动指定站点（要求已启用），并同步其所在端口的全部站点
 func (m *Manager) Start(id uint) error {
 	var site model.CaddySite
 	if err := m.db.First(&site, id).Error; err != nil {
@@ -127,36 +241,55 @@ func (m *Manager) Start(id uint) error {
 	if !site.Enable {
 		return fmt.Errorf("站点 [%s] 未启用", site.Name)
 	}
+
 	if err := m.ensureCaddyRunning(); err != nil {
 		return fmt.Errorf("Caddy 引擎未就绪: %w", err)
 	}
-	// 重新加载同端口所有站点（保持聚合状态一致）
-	var portSites []model.CaddySite
-	m.db.Where("port = ? AND enable = ?", site.Port, true).Find(&portSites)
-	if len(portSites) == 0 {
-		return fmt.Errorf("端口 %d 无可启用的站点", site.Port)
+
+	// 应用内存中的上游覆盖（自动选线切换），使预校验与 syncPort 一致
+	m.overrideMu.Lock()
+	if ov, ok := m.upstreamOverride[id]; ok && ov != "" {
+		site.UpstreamAddr = ov
 	}
-	return m.DeployServer(site.Port, portSites)
+	m.overrideMu.Unlock()
+
+	// 预校验单站点配置，提前暴露构建错误
+	if _, err := m.buildRoutes(&site, m.loadRouteDeps([]model.CaddySite{site})); err != nil {
+		m.setError(id, err.Error())
+		return fmt.Errorf("构建路由配置失败: %w", err)
+	}
+
+	if err := m.syncPort(site.Port); err != nil {
+		return err
+	}
+
+	m.log.Infof("[Caddy] 站点 [%s] 已启动，监听 :%d", site.Name, site.Port)
+	return nil
 }
 
-// Stop 停止指定站点（清除该站点的路由，若同端口无其他站点则删除整个 server）
+// Stop 停止指定站点：仅负责运行态（置 stopped 并同步所在端口），
+// 持久化启用开关（enable）由调用方（handler）负责，避免语义与 StopAll 不一致。
 func (m *Manager) Stop(id uint) {
 	var site model.CaddySite
 	if err := m.db.First(&site, id).Error; err != nil {
 		return
 	}
-	key := ServerKey(site.Port)
-	m.adminRequest("DELETE",
-		fmt.Sprintf("/config/apps/http/servers/%s", key),
-		nil,
-	)
+	port := site.Port
+
+	// 清理内存中的上游覆盖
+	m.overrideMu.Lock()
+	delete(m.upstreamOverride, id)
+	m.overrideMu.Unlock()
+
 	m.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("status", "stopped")
+
+	if err := m.syncPort(port); err != nil {
+		m.log.Errorf("[Caddy] 站点 [%s] 停止后同步端口 %d 失败: %v", site.Name, port, err)
+	}
 }
 
-// Restart 重启指定站点
+// Restart 重启指定站点（重新同步其所在端口）
 func (m *Manager) Restart(id uint) error {
-	m.Stop(id)
-	time.Sleep(200 * time.Millisecond)
 	return m.Start(id)
 }
 
@@ -181,22 +314,11 @@ func (m *Manager) UpdateUpstream(id uint, upstream string) error {
 	}
 
 	// 内存中替换上游目标，不写库（保留用户原始配置，重启后回退）
-	site.UpstreamAddr = upstream
-	// 重新加载同端口所有站点以重建聚合 server
-	var portSites []model.CaddySite
-	m.db.Where("port = ? AND enable = ?", site.Port, true).Find(&portSites)
-	if len(portSites) == 0 {
-		return fmt.Errorf("端口 %d 无可启用的站点", site.Port)
-	}
-	// 将更新后的 site 放回组内（内存中替换，不落库）
-	for i, s := range portSites {
-		if s.ID == site.ID {
-			portSites[i] = site
-			break
-		}
-	}
-	if err := m.DeployServer(site.Port, portSites); err != nil {
-		m.setError(id, err.Error())
+	m.overrideMu.Lock()
+	m.upstreamOverride[id] = upstream
+	m.overrideMu.Unlock()
+
+	if err := m.syncPort(site.Port); err != nil {
 		return err
 	}
 	m.log.Infof("[Caddy] 站点 [%s] 上游目标已切换为 %s", site.Name, upstream)
@@ -224,7 +346,9 @@ func (m *Manager) ensureCaddyRunning() error {
 	// 设置 Caddy Admin 监听地址
 	adminCfg := &caddy.Config{
 		Admin: &caddy.AdminConfig{
-			Listen: caddyAdminAddr,
+			Listen:        m.admin.listen,
+			EnforceOrigin: true,
+			Origins:       m.admin.origins(),
 		},
 		Logging: &caddy.Logging{
 			Logs: map[string]*caddy.CustomLog{
@@ -246,7 +370,7 @@ func (m *Manager) ensureCaddyRunning() error {
 
 	// 等待 Admin API 就绪
 	for i := 0; i < 10; i++ {
-		resp, err := m.adminHTTP.Get("http://" + caddyAdminAddr + "/config/")
+		resp, err := m.adminHTTP.Get(m.admin.baseURL + "/config/")
 		if err == nil {
 			resp.Body.Close()
 			break
@@ -259,94 +383,12 @@ func (m *Manager) ensureCaddyRunning() error {
 	return nil
 }
 
-// buildServerConfig 构建 Caddy 服务器配置（单站点版，兼容接口）
-func (m *Manager) buildServerConfig(site *model.CaddySite, routes []interface{}) map[string]interface{} {
-	listenAddr := fmt.Sprintf(":%d", site.Port)
-	serverCfg := map[string]interface{}{
-		"listen": []string{listenAddr},
-		"routes": routes,
-		"automatic_https": map[string]interface{}{"disable": true},
-		"logs": map[string]interface{}{
-			"default_logger_name": fmt.Sprintf("netpanel_%d", site.ID),
-		},
-	}
-	if site.TLSEnable {
-		if tlsCfg := m.buildTLSConfig(site); tlsCfg != nil {
-			serverCfg["tls_connection_policies"] = []interface{}{tlsCfg}
-		}
-	}
-	return serverCfg
-}
-
-// DeployServer 为指定端口的所有站点构建聚合 server 并部署。
-// 同端口的多个站点共享一个 Caddy server，通过 host matcher 区分域名；
-// 无域名的站点使用 catch-all 路由（match: []）。
-func (m *Manager) DeployServer(port int, sites []model.CaddySite) error {
-	if len(sites) == 0 {
-		return nil
-	}
-	key := ServerKey(port)
-	var allRoutes []interface{}
-	for _, site := range sites {
-		routes, err := m.buildRoutes(&site)
-		if err != nil {
-			m.setError(site.ID, err.Error())
-			m.log.Warnf("[Caddy] 站点 [%s](id=%d) 路由构建失败: %v", site.Name, site.ID, err)
-			continue
-		}
-		allRoutes = append(allRoutes, routes...)
-	}
-	if len(allRoutes) == 0 {
-		return fmt.Errorf("端口 %d 无有效路由", port)
-	}
-	// 日志名称使用端口而非单站点 ID（多站点共享日志）
-	serverCfg := map[string]interface{}{
-		"listen": []string{fmt.Sprintf(":%d", port)},
-		"routes": allRoutes,
-		"automatic_https": map[string]interface{}{"disable": true},
-		"logs": map[string]interface{}{
-			"default_logger_name": key,
-		},
-	}
-	// 取第一个启用了 TLS 的站点的 TLS 配置（同端口站点一般 TLS 策略相同）
-	for _, site := range sites {
-		if site.TLSEnable {
-			if tlsCfg := m.buildTLSConfig(&site); tlsCfg != nil {
-				serverCfg["tls_connection_policies"] = []interface{}{tlsCfg}
-				break
-			}
-		}
-	}
-	// 先删旧配置，再 PUT（避免 409 key already exists）
-	m.adminRequest("DELETE", fmt.Sprintf("/config/apps/http/servers/%s", key), nil)
-	if err := m.adminRequest("PUT", fmt.Sprintf("/config/apps/http/servers/%s", key), serverCfg); err != nil {
-		for _, site := range sites {
-			m.setError(site.ID, err.Error())
-		}
-		return fmt.Errorf("部署聚合 server %s 失败: %w", key, err)
-	}
-	// 更新所有站点状态
-	for _, site := range sites {
-		m.db.Model(&model.CaddySite{}).Where("id = ?", site.ID).Updates(map[string]interface{}{
-			"status":     "running",
-			"last_error": "",
-		})
-	}
-	if _, err := json.MarshalIndent(serverCfg, "", "  "); err == nil {
-		names := make([]string, len(sites))
-		for i, s := range sites {
-			names[i] = s.Name
-		}
-		m.log.Infof("[Caddy] 聚合 server [%s] 已部署，端口 :%d，站点: %v", key, port, names)
-	}
-	return nil
-}
-
-// buildRoute 构建路由配置，返回路由数组
-func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
+// buildRoute 构建路由配置，返回路由数组。
+// deps 为预先加载的 WAF/认证绑定关系，可为 nil（此时跳过 WAF 与认证查询）。
+func (m *Manager) buildRoutes(site *model.CaddySite, deps *routeDeps) ([]interface{}, error) {
 	// 匹配条件：只有当域名是真实域名（非 localhost、非 IP）时才添加 host matcher
 	var hostMatchers []interface{}
-	if site.Domain != "" && !isLocalOrIP(site.Domain) {
+	if hasHostMatcher(site.Domain) {
 		hostMatchers = append(hostMatchers, map[string]interface{}{
 			"host": []string{site.Domain},
 		})
@@ -384,15 +426,16 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		})
 
 	case "static":
-		if site.RootPath == "" {
-			return nil, fmt.Errorf("静态文件根目录不能为空")
+		root, err := ValidateRootPath(site.RootPath)
+		if err != nil {
+			return nil, err
 		}
-		if err := os.MkdirAll(site.RootPath, 0755); err != nil {
+		if err := os.MkdirAll(root, 0755); err != nil {
 			return nil, fmt.Errorf("创建静态文件目录失败: %w", err)
 		}
 		fileHandler := map[string]interface{}{
 			"handler": "file_server",
-			"root":    site.RootPath,
+			"root":    root,
 		}
 		if site.FileList {
 			fileHandler["browse"] = map[string]interface{}{}
@@ -400,8 +443,8 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		mainHandlers = append(mainHandlers, fileHandler)
 
 	case "redirect":
-		if site.RedirectTo == "" {
-			return nil, fmt.Errorf("重定向目标地址不能为空")
+		if err := ValidateRedirectTarget(site.RedirectTo); err != nil {
+			return nil, err
 		}
 		code := site.RedirectCode
 		if code == 0 {
@@ -420,15 +463,37 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 	}
 
 	// WAF:站点绑定启用的 WAF 配置时,在 handler 链最前插入 WAF 检查中间件
-	if wafCfgID := m.findEnabledWafForSite(site.ID); wafCfgID != 0 {
-		mainHandlers = append([]interface{}{map[string]interface{}{
-			"handler":   "netpanel_waf",
-			"config_id": wafCfgID,
-		}}, mainHandlers...)
+	if deps != nil {
+		if wafCfgID := deps.waf[site.ID]; wafCfgID != 0 {
+			mainHandlers = append([]interface{}{map[string]interface{}{
+				"handler":   "netpanel_waf",
+				"config_id": wafCfgID,
+			}}, mainHandlers...)
+		}
+	}
+
+	// 站点级 IP 黑白名单：绑定了网站的反代站点由 Caddy 直接对外服务，
+	// 请求不经过面板的 Gin 中间件，因此必须在 Caddy 侧判定。
+	// 放在 handler 链最前，使拒绝尽早发生。
+	if deps != nil {
+		if b, ok := deps.acl[site.ID]; ok && len(b.ips) > 0 {
+			mainHandlers = append([]interface{}{map[string]interface{}{
+				"handler": "netpanel_ip_acl",
+				"mode":    b.mode,
+				"ranges":  b.ips,
+			}}, mainHandlers...)
+		}
 	}
 
 	// 查询认证规则
-	authMode, authRule := m.findAuthRule(site.ID)
+	var authMode string
+	var authRule model.AccessRule
+	if deps != nil {
+		if b, ok := deps.auth[site.ID]; ok {
+			authMode = b.mode
+			authRule = b.rule
+		}
+	}
 
 	switch authMode {
 	case "basic_auth":
@@ -444,10 +509,8 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 		return []interface{}{route}, nil
 
 	case "page_login":
-		// 页面跳转登录: 两个 route
-		// Route 1: 没有有效 session cookie → 重定向到 NetPanel 登录页
-		// Route 2: 有 cookie → 正常代理
-		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, site), nil
+		// 页面跳转登录：认证由 netpanel_session_auth 中间件完成
+		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, authRule), nil
 
 	default:
 		// 无认证
@@ -459,97 +522,164 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 	}
 }
 
-// findEnabledWafForSite 查找绑定到指定站点且已启用的 WAF 配置 ID,未找到返回 0
-func (m *Manager) findEnabledWafForSite(siteID uint) uint {
-	var configs []model.WafConfig
-	m.db.Where("enable = ?", true).Find(&configs)
+// authBinding 站点绑定的认证规则。
+type authBinding struct {
+	mode string
+	rule model.AccessRule
+}
 
-	for _, cfg := range configs {
-		if cfg.BindSiteIDs == "" {
-			continue
-		}
-		var siteIDs []uint
-		if err := json.Unmarshal([]byte(cfg.BindSiteIDs), &siteIDs); err != nil {
-			continue
-		}
-		for _, id := range siteIDs {
-			if id == siteID {
-				return cfg.ID
+// aclBinding 站点绑定的 IP 访问控制（已解析为具体 IP/CIDR 列表）。
+type aclBinding struct {
+	mode string
+	ips  []string
+}
+
+// routeDeps 站点路由构建所需的预加载依赖。
+// 此前 buildRoutes 对每个站点各执行一次 findEnabledWafForSite / findAuthRule，
+// 二者内部都是全表扫描再逐个 JSON 解析绑定关系，端口下 N 个站点就是 2N 次全表扫描。
+// 现改为按端口一次性加载，构建 map[siteID] 供 O(1) 查询。
+type routeDeps struct {
+	waf  map[uint]uint        // siteID -> WAF 配置 ID
+	auth map[uint]authBinding // siteID -> 认证规则
+	acl  map[uint]aclBinding  // siteID -> IP 黑白名单
+}
+
+// loadRouteDeps 一次性加载启用 WAF、认证规则与 IP 访问控制的绑定关系。
+func (m *Manager) loadRouteDeps(sites []model.CaddySite) *routeDeps {
+	deps := &routeDeps{
+		waf:  make(map[uint]uint),
+		auth: make(map[uint]authBinding),
+		acl:  make(map[uint]aclBinding),
+	}
+
+	var wafConfigs []model.WafConfig
+	m.db.Where("enable = ?", true).Find(&wafConfigs)
+	for _, cfg := range wafConfigs {
+		for _, sid := range parseSiteIDs(cfg.BindSiteIDs) {
+			if _, ok := deps.waf[sid]; !ok {
+				deps.waf[sid] = cfg.ID
 			}
 		}
 	}
-	return 0
-}
 
-// findAuthRule 查找绑定到指定站点的认证规则
-func (m *Manager) findAuthRule(siteID uint) (string, model.AccessRule) {
 	var rules []model.AccessRule
-	m.db.Where("enable = ? AND auth_mode != ''", true).Find(&rules)
-
+	m.db.Where("enable = ?", true).Find(&rules)
 	for _, rule := range rules {
-		if rule.BindSiteIDs == "" {
+		siteIDs := parseSiteIDs(rule.BindSiteIDs)
+		if len(siteIDs) == 0 {
 			continue
 		}
-		var siteIDs []uint
-		if err := json.Unmarshal([]byte(rule.BindSiteIDs), &siteIDs); err != nil {
+		// IP 黑白名单：绑定到站点的规则需要在 Caddy 侧判定
+		if ips := access.ResolveIPs(m.db, rule); len(ips) > 0 {
+			mode := rule.Mode
+			if mode == "" {
+				mode = "blacklist"
+			}
+			for _, sid := range siteIDs {
+				if _, ok := deps.acl[sid]; !ok {
+					deps.acl[sid] = aclBinding{mode: mode, ips: ips}
+				}
+			}
+		}
+		// 登录认证：仅 auth_mode 非空时生效
+		if rule.AuthMode == "" {
 			continue
 		}
-		for _, id := range siteIDs {
-			if id == siteID {
-				return rule.AuthMode, rule
+		for _, sid := range siteIDs {
+			if _, ok := deps.auth[sid]; !ok {
+				deps.auth[sid] = authBinding{mode: rule.AuthMode, rule: rule}
 			}
 		}
 	}
-	return "", model.AccessRule{}
+	return deps
 }
 
-// buildPageLoginRoutes 构建页面跳转登录的路由
-// 无 cookie 时重定向到 NetPanel 面板的登录页面
-func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers []interface{}, site *model.CaddySite) []interface{} {
-	// 构建 NetPanel 面板登录页的 URL
-	// 使用请求的 scheme + 请求的 hostname + 面板端口
-	// redirect 参数带上代理站点的完整地址，登录成功后跳回
-	panelLogin := fmt.Sprintf("{http.request.scheme}://{http.request.host}:%d/login?redirect={http.request.scheme}://{http.request.hostport}{http.request.uri}", m.panelPort)
+// parseSiteIDs 解析 JSON 数组形式的站点绑定 ID 列表。
+func parseSiteIDs(raw string) []uint {
+	if raw == "" {
+		return nil
+	}
+	var ids []uint
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil
+	}
+	return ids
+}
 
-	// Route 1: 没有 netpanel_session cookie → 重定向到面板登录页
-	redirectRoute := map[string]interface{}{
-		"match": []interface{}{
-			map[string]interface{}{
-				"not": []interface{}{
-					map[string]interface{}{
-						"header_regexp": map[string]interface{}{
-							"Cookie": map[string]interface{}{
-								"pattern": "netpanel_session=.+",
-							},
-						},
-					},
-				},
-			},
-		},
-		"handle": []interface{}{
-			map[string]interface{}{
-				"handler":     "static_response",
-				"status_code": 302,
-				"headers": map[string]interface{}{
-					"Location": []string{panelLogin},
-				},
-			},
-		},
+// hasHostMatcher 判断域名是否应生成 host/sni 匹配条件。
+// localhost、IP 与空域名不生成 matcher，其路由是无条件匹配（兜底）。
+func hasHostMatcher(domain string) bool {
+	return domain != "" && !isLocalOrIP(domain)
+}
+
+// sortSitesForRouting 将有 host 匹配（真实域名）的站点排在前，无域名的排在后。
+func sortSitesForRouting(sites []model.CaddySite) []model.CaddySite {
+	out := make([]model.CaddySite, 0, len(sites))
+	var wildcard []model.CaddySite
+	for _, s := range sites {
+		if hasHostMatcher(s.Domain) {
+			out = append(out, s)
+		} else {
+			wildcard = append(wildcard, s)
+		}
+	}
+	return append(out, wildcard...)
+}
+
+// countWildcardSites 统计无域名匹配（兜底路由）站点的数量。
+func countWildcardSites(sites []model.CaddySite) int {
+	n := 0
+	for _, s := range sites {
+		if !hasHostMatcher(s.Domain) {
+			n++
+		}
+	}
+	return n
+}
+
+// orderTLSPolicies 将带 SNI match 的策略排在前、无 match 的兜底策略排最后。
+// Caddy 按顺序取第一个匹配的策略，无 match 的策略若靠前会成为兜底，
+// 使后续具体的 SNI 策略失效。
+func orderTLSPolicies(policies []interface{}) []interface{} {
+	var matched, unmatched []interface{}
+	for _, p := range policies {
+		pm, ok := p.(map[string]interface{})
+		if ok && pm["match"] != nil {
+			matched = append(matched, p)
+		} else {
+			unmatched = append(unmatched, p)
+		}
+	}
+	return append(matched, unmatched...)
+}
+
+// buildPageLoginRoutes 构建页面跳转登录的路由。
+//
+// 认证由 netpanel_session_auth 中间件完成：它会校验 Cookie 的 HMAC 签名、
+// 有效期以及用户是否仍然启用，未通过时 302 到面板登录页。
+// 不能仅靠 Caddy 的 header_regexp 匹配 Cookie 是否存在——那样任何人
+// 手工设置 netpanel_session=x 就能绕过认证。
+func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
+	var allowedIDs []uint
+	if rule.AllowedUserIDs != "" {
+		json.Unmarshal([]byte(rule.AllowedUserIDs), &allowedIDs)
 	}
 
-	// Route 2: 有 cookie → 正常代理
-	proxyRoute := map[string]interface{}{
-		"handle": mainHandlers,
+	authHandler := map[string]interface{}{
+		"handler":    "netpanel_session_auth",
+		"panel_port": m.panelPort,
+	}
+	if len(allowedIDs) > 0 {
+		authHandler["allowed_user_ids"] = allowedIDs
 	}
 
-	// 如果有 host matcher，添加到两个 route 上
+	route := map[string]interface{}{
+		"handle": append([]interface{}{authHandler}, mainHandlers...),
+	}
 	if len(hostMatchers) > 0 {
-		// 对 redirectRoute，合并 host matcher 和 cookie not-match
-		redirectRoute["match"] = append(hostMatchers, redirectRoute["match"].([]interface{})...)
-		proxyRoute["match"] = hostMatchers
+		route["match"] = hostMatchers
 	}
-
-	return []interface{}{redirectRoute, proxyRoute}
+	return []interface{}{route}
 }
 
 // buildBasicAuthHandler 构建 Caddy Basic Auth handler
@@ -606,7 +736,7 @@ func (m *Manager) buildBasicAuthHandler(rule model.AccessRule) map[string]interf
 func (m *Manager) buildTLSConfig(site *model.CaddySite) map[string]interface{} {
 	tlsCfg := map[string]interface{}{}
 
-	if site.Domain != "" {
+	if hasHostMatcher(site.Domain) {
 		tlsCfg["match"] = map[string]interface{}{
 			"sni": []string{site.Domain},
 		}
@@ -683,7 +813,7 @@ func (m *Manager) adminRequest(method, path string, body interface{}) error {
 		reqBody = bytes.NewReader(nil)
 	}
 
-	url := "http://" + caddyAdminAddr + path
+	url := m.admin.baseURL + path
 	req, err := http.NewRequestWithContext(
 		context.Background(),
 		method,

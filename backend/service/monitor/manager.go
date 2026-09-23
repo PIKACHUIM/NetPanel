@@ -70,8 +70,11 @@ func NewManagerWithDataDir(db *gorm.DB, dataDir string) *Manager {
 	}
 
 	m := &Manager{
-		DB:               db,
-		grpcAddr:         "0.0.0.0",
+		DB: db,
+		// 仅监听回环：该 gRPC 服务没有任何认证拦截器，绑定到 0.0.0.0 会
+		// 把未鉴权的管理面暴露到网络。Agent 通道尚未实现（服务未注册），
+		// 待实现鉴权后再放开监听范围。
+		grpcAddr:         "127.0.0.1",
 		grpcPort:         50051,
 		DataDir:          dataDir,
 		ctx:              ctx,
@@ -128,6 +131,12 @@ func (m *Manager) Stop() {
 	m.ProbeEngine.Stop()
 	m.TaskEngine.Stop()
 	m.AlertEngine.Stop()
+	
+	// 回收 SSH 连接池：Collector.CloseAll 此前无任何调用者，
+	// 停机时已建立的 SSH 连接不会被释放
+	if m.Collector != nil {
+		m.Collector.CloseAll()
+	}
 	
 	m.wg.Wait()
 	log.Println("[Monitor] 监控服务已停止")

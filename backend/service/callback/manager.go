@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -58,7 +57,10 @@ func (m *Manager) Start() {
 }
 
 func (m *Manager) Stop() {
-	close(m.stopCh)
+	// 与 Start 共用 once：重复调用 close(stopCh) 会 panic
+	m.once.Do(func() {
+		close(m.stopCh)
+	})
 }
 
 // Trigger 触发回调事件
@@ -281,23 +283,15 @@ func (m *Manager) executeAliESA(account *model.CallbackAccount, task *model.Call
 	}
 
 	// 调用阿里云 ESA OpenAPI 更新回源规则
-	// API: https://esa.aliyuncs.com/ UpdateOriginPool 或 UpdateRoutineRelatedRecord
-	// 使用阿里云 OpenAPI 签名 V4
-	apiURL := "https://esa.aliyuncs.com/"
-	params := map[string]string{
-		"Action":          "UpdateOriginPool",
-		"Version":         "2024-09-10",
-		"SiteId":          siteID,
-		"Format":          "JSON",
-		"AccessKeyId":     accessKeyID,
-		"SignatureMethod":  "HMAC-SHA1",
-		"SignatureVersion": "1.0",
-		"Timestamp":       time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-		"SignatureNonce":   fmt.Sprintf("%d", time.Now().UnixNano()),
-	}
-	if ruleID != "" {
-		params["Id"] = ruleID
-	}
+	// 端点：POST https://esa.aliyuncs.com/  Action=UpdateOriginPool  Version=2024-09-10
+	// 签名：阿里云 OpenAPI V3（ACS3-HMAC-SHA256）。
+	// 原实现只设置了 x-acs-* 头却没有任何签名，请求必然被阿里云拒绝。
+	const (
+		esaHost    = "esa.aliyuncs.com"
+		esaAction  = "UpdateOriginPool"
+		esaVersion = "2024-09-10"
+	)
+	apiURL := "https://" + esaHost + "/"
 
 	// 构建请求体
 	reqBody := map[string]interface{}{
@@ -308,20 +302,19 @@ func (m *Manager) executeAliESA(account *model.CallbackAccount, task *model.Call
 		reqBody["Id"] = ruleID
 	}
 
-	bodyBytes, _ := json.Marshal(reqBody)
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("序列化阿里云 ESA 请求体失败: %w", err)
+	}
 
-	// 使用简单的 POST 请求（实际生产中需要完整的阿里云签名）
 	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("创建阿里云 ESA 请求失败: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	for k, v := range params {
-		req.Header.Set("x-acs-"+strings.ToLower(k), v)
+	for k, v := range acs3Headers(accessKeyID, accessKeySecret, esaHost, esaAction, esaVersion, bodyBytes) {
+		req.Header.Set(k, v)
 	}
-	req.Header.Set("x-acs-accesskeyid", accessKeyID)
-	req.Header.Set("x-acs-action", "UpdateOriginPool")
-	req.Header.Set("x-acs-version", "2024-09-10")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -379,25 +372,27 @@ func (m *Manager) executeTencentEO(account *model.CallbackAccount, task *model.C
 		},
 	}
 
-	bodyBytes, _ := json.Marshal(reqBody)
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("序列化腾讯云 EO 请求体失败: %w", err)
+	}
 
 	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("创建腾讯云 EO 请求失败: %w", err)
 	}
 
-	// 腾讯云 API 3.0 签名
+	// 腾讯云 API 3.0（TC3-HMAC-SHA256）签名
+	const teoHost = "teo.tencentcloudapi.com"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-TC-Action", "ModifyOriginGroup")
 	req.Header.Set("X-TC-Version", "2022-09-01")
 	req.Header.Set("X-TC-Timestamp", fmt.Sprintf("%d", timestamp))
 	req.Header.Set("X-TC-Region", "")
-
-	// 简化签名（实际生产中需要完整的 TC3-HMAC-SHA256 签名）
-	authHeader := fmt.Sprintf("TC3-HMAC-SHA256 Credential=%s/%s/teo/tc3_request, SignedHeaders=content-type;host, Signature=placeholder",
-		secretID, time.Now().UTC().Format("2006-01-02"))
-	req.Header.Set("Authorization", authHeader)
-	_ = secretKey // 实际签名时使用
+	// 原实现把 Signature 写成字面量 "placeholder" 并丢弃 secretKey，
+	// 请求必然被腾讯云拒绝；此处按官方算法生成真实签名。
+	req.Header.Set("Authorization", tc3Authorization(
+		secretID, secretKey, "teo", teoHost, string(bodyBytes), time.Unix(timestamp, 0)))
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)

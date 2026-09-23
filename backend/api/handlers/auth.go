@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/ratelimit"
 	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -15,10 +17,20 @@ import (
 type AuthHandler struct {
 	db  *gorm.DB
 	log *logrus.Logger
+	// 登录失败限流：按「IP+用户名」维度，防止针对单一账号的在线暴力破解
+	loginLimiter *ratelimit.Limiter
+	// 纯 IP 维度限流：即使攻击者轮换用户名（或伪造 X-Forwarded-For 未被信任时
+	// 也仅剩真实 IP），也会在总失败次数上被拦截，避免「换用户名即重置配额」。
+	ipLimiter *ratelimit.Limiter
 }
 
 func NewAuthHandler(db *gorm.DB, log *logrus.Logger) *AuthHandler {
-	return &AuthHandler{db: db, log: log}
+	return &AuthHandler{
+		db:           db,
+		log:          log,
+		loginLimiter: ratelimit.New(5, time.Minute, 15*time.Minute),
+		ipLimiter:    ratelimit.New(20, 5*time.Minute, 15*time.Minute),
+	}
 }
 
 type LoginRequest struct {
@@ -35,10 +47,22 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// 登录失败限流：两层维度
+	//  1) 「IP+用户名」——防止针对单一账号的暴力破解
+	//  2) 「纯 IP」——防止轮换用户名绕过（每个新用户名都会获得全新配额）
+	// 注意 ClientIP 的可靠性取决于中间件配置的可信代理白名单（默认不信任任何代理）。
+	clientIP := c.ClientIP()
+	limiterKey := clientIP + "|" + req.Username
+	if !h.loginLimiter.Allowed(limiterKey) || !h.ipLimiter.Allowed(clientIP) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"code": 429, "message": "失败次数过多，请稍后再试"})
+		return
+	}
+
 	// 用户身份信息：随 JWT 下发，作为后续权限判定的依据
 	var (
-		userID  uint
-		isAdmin bool
+		userID       uint
+		isAdmin      bool
+		tokenVersion int
 	)
 
 	// 优先从 User 表查找用户
@@ -50,14 +74,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			return
 		}
 		if !utils.CheckPassword(req.Password, user.Password) {
+			h.loginLimiter.RecordFailure(limiterKey)
+			h.ipLimiter.RecordFailure(clientIP)
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
 			return
 		}
 		userID = user.ID
 		isAdmin = user.IsAdmin
+		tokenVersion = user.TokenVersion
 	} else {
 		// User 表中不存在，兼容旧版：仅允许 admin 用户通过 SystemConfig 验证
 		if req.Username != "admin" {
+			h.loginLimiter.RecordFailure(limiterKey)
+			h.ipLimiter.RecordFailure(clientIP)
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
 			return
 		}
@@ -67,6 +96,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			return
 		}
 		if !utils.CheckPassword(req.Password, cfg.Value) {
+			h.loginLimiter.RecordFailure(limiterKey)
+			h.ipLimiter.RecordFailure(clientIP)
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "用户名或密码错误"})
 			return
 		}
@@ -74,11 +105,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		isAdmin = true
 	}
 
-	token, err := middleware.GenerateToken(req.Username, userID, isAdmin)
+	token, err := middleware.GenerateToken(req.Username, userID, isAdmin, tokenVersion)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成 Token 失败"})
 		return
 	}
+
+	// 登录成功，清零该维度的失败计数（IP 维度保留，避免用正确账号冲抵失败计数）
+	h.loginLimiter.Reset(limiterKey)
 
 	// 设置平台访问控制 Cookie
 	middleware.SetSessionCookie(c, req.Username)
@@ -95,6 +129,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 // Logout 登出
+//
+// 除返回成功外，必须同时清除平台会话 Cookie：该 Cookie 是 Caddy page_login
+// 站点与面板自身的访问凭据，此前不清除导致登出后 24 小时内仍然有效。
 func (h *AuthHandler) Logout(c *gin.Context) {
+	middleware.ClearSessionCookie(c)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已登出"})
 }

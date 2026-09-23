@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api/authFetch';
 import {
   Card,
   Table,
@@ -73,7 +74,7 @@ const MonitorNotifications: React.FC = () => {
       // monitorApi 的响应拦截器已解包 data,运行时返回裸数组,此处仅修正 TS 类型
       const [channelsRes, accountsRes] = await Promise.all([
         monitorApi.listNotifications() as unknown as NotificationChannel[],
-        fetch('/api/v1/callback/accounts').then(res => res.json()),
+        authFetch('/api/v1/callback/accounts').then(res => res.json()),
       ]);
 
       // fetch 接口返回 {code, data} 包装,统一解包

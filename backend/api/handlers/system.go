@@ -166,8 +166,11 @@ func (h *SystemHandler) ChangePassword(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码加密失败"})
 			return
 		}
-		// 更新 User 表中的密码
-		if err := h.db.Model(&user).Update("password", hashed).Error; err != nil {
+		// 更新 User 表中的密码，并递增令牌版本使所有已签发 JWT 失效
+		if err := h.db.Model(&user).Updates(map[string]interface{}{
+			"password":      hashed,
+			"token_version": gorm.Expr("token_version + 1"),
+		}).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码更新失败"})
 			return
 		}

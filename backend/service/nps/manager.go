@@ -10,6 +10,7 @@ import (
 
 	npsClient "github.com/djylb/nps/client"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -184,9 +185,18 @@ func (m *Manager) writeServerConfig(cfg *model.NpsServerConfig) (string, error) 
 	if webUsername == "" {
 		webUsername = "admin"
 	}
+	// NPS 服务端 Web 控制台会暴露在 bindAddr 上，原实现在未配置口令时回退为
+	// 弱口令 "123456"，等于给内网开后门。现改为生成随机口令并回写数据库，
+	// 用户可在面板配置中查看/修改。
 	webPassword := cfg.WebPassword
 	if webPassword == "" {
-		webPassword = "123456"
+		webPassword = model.Secret(utils.GenerateKey(16))
+		cfg.WebPassword = webPassword
+		if err := m.db.Model(&model.NpsServerConfig{}).Where("id = ?", cfg.ID).
+			Update("web_password", webPassword).Error; err != nil {
+			m.log.Warnf("[NPS服务端][%d] 随机 Web 密码回写数据库失败: %v", cfg.ID, err)
+		}
+		m.log.Infof("[NPS服务端][%d] 未配置 Web 密码，已生成随机口令并保存到配置中", cfg.ID)
 	}
 
 	content := fmt.Sprintf(`appname = nps
@@ -226,7 +236,8 @@ disconnect_timeout=60
 	)
 
 	confPath := filepath.Join(confDir, "nps.conf")
-	if err := os.WriteFile(confPath, []byte(content), 0644); err != nil {
+	// 0600：配置文件含 Web 口令与 bridge 密钥，不应让同机其他用户读取
+	if err := os.WriteFile(confPath, []byte(content), 0600); err != nil {
 		return "", fmt.Errorf("写入配置文件失败: %w", err)
 	}
 	return confDir, nil

@@ -1,23 +1,17 @@
 package access
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
-	"time"
-
-	"github.com/netpanel/netpanel/pkg/secret"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/session"
 	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -69,6 +63,38 @@ func (m *Manager) SetExcludePaths(paths []string) {
 	m.mu.Unlock()
 }
 
+// ResolveIPs 解析规则中的 IP/CIDR 列表（手动输入 + 绑定的 IPDB 条目）。
+//
+// 面板侧 Gin 中间件与 Caddy 站点级 ACL 都需要这份列表，抽出来避免两处逻辑漂移。
+func ResolveIPs(db *gorm.DB, rule model.AccessRule) []string {
+	var manualIPs []string
+	if rule.IPList != "" {
+		json.Unmarshal([]byte(rule.IPList), &manualIPs)
+	}
+
+	var ipdbIPs []string
+	if rule.BindIPDBIDs != "" {
+		var ipdbIDs []uint
+		if err := json.Unmarshal([]byte(rule.BindIPDBIDs), &ipdbIDs); err == nil && len(ipdbIDs) > 0 {
+			var entries []model.IPDBEntry
+			db.Where("id IN ?", ipdbIDs).Find(&entries)
+			for _, e := range entries {
+				if e.CIDR == "" {
+					continue
+				}
+				// 一条记录可能包含逗号分隔的多个 IP/CIDR
+				for _, cidr := range strings.Split(e.CIDR, ",") {
+					if cidr = strings.TrimSpace(cidr); cidr != "" {
+						ipdbIPs = append(ipdbIPs, cidr)
+					}
+				}
+			}
+		}
+	}
+
+	return append(manualIPs, ipdbIPs...)
+}
+
 func (m *Manager) loadRules() {
 	var rules []model.AccessRule
 	m.db.Where("enable = ?", true).Find(&rules)
@@ -77,35 +103,8 @@ func (m *Manager) loadRules() {
 	for _, rule := range rules {
 		r := resolvedRule{AccessRule: rule}
 
-		// 1. 解析手动输入的 IP 列表
-		var manualIPs []string
-		if rule.IPList != "" {
-			json.Unmarshal([]byte(rule.IPList), &manualIPs)
-		}
-
-		// 2. 从 IPDB 条目获取 IP/CIDR（一条记录可能包含多个逗号分隔的 IP/CIDR）
-		var ipdbIPs []string
-		if rule.BindIPDBIDs != "" {
-			var ipdbIDs []uint
-			if err := json.Unmarshal([]byte(rule.BindIPDBIDs), &ipdbIDs); err == nil && len(ipdbIDs) > 0 {
-				var entries []model.IPDBEntry
-				m.db.Where("id IN ?", ipdbIDs).Find(&entries)
-				for _, e := range entries {
-					if e.CIDR != "" {
-						// 拆分逗号分隔的多个 IP/CIDR
-						for _, cidr := range strings.Split(e.CIDR, ",") {
-							cidr = strings.TrimSpace(cidr)
-							if cidr != "" {
-								ipdbIPs = append(ipdbIPs, cidr)
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// 3. 合并所有 IP
-		r.AllIPs = append(manualIPs, ipdbIPs...)
+		// 1~3. 解析手动输入与 IPDB 绑定的 IP 并合并（与 Caddy 站点级 ACL 共用同一实现）
+		r.AllIPs = ResolveIPs(m.db, rule)
 
 		// 4. 解析绑定的站点
 		if rule.BindSiteIDs != "" {
@@ -159,7 +158,11 @@ func (m *Manager) GinMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		clientIP := getClientIP(c.Request)
+		// 使用 gin 的 ClientIP：其是否采信 X-Forwarded-For 由
+		// engine.SetTrustedProxies 决定（本项目默认不信任任何代理）。
+		// 原先此处自实现并直接取 XFF 首个值，任何客户端都能伪造来源 IP，
+		// 使白名单形同虚设、黑名单可被绕过。
+		clientIP := c.ClientIP()
 		requestHost := c.Request.Host // 包含域名和端口
 
 		m.mu.RLock()
@@ -278,7 +281,7 @@ func (m *Manager) handleBasicAuth(c *gin.Context, rule resolvedRule) bool {
 // handlePageLogin 处理页面跳转登录认证
 func (m *Manager) handlePageLogin(c *gin.Context, rule resolvedRule) bool {
 	// 检查 session cookie
-	cookie, err := c.Cookie("netpanel_session")
+	cookie, err := c.Cookie(session.CookieName)
 	if err != nil || cookie == "" {
 		// 重定向到登录页面（带回跳地址）
 		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
@@ -288,7 +291,7 @@ func (m *Manager) handlePageLogin(c *gin.Context, rule resolvedRule) bool {
 	}
 
 	// 验证 session cookie（使用 HMAC 签名验证）
-	username, valid := validateSessionCookieForAccess(cookie)
+	username, valid := session.Validate(cookie)
 	if !valid {
 		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
 		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
@@ -328,49 +331,6 @@ func (m *Manager) isUserAllowed(userID uint, allowedIDs []uint) bool {
 	return false
 }
 
-// validateSessionCookieForAccess 验证 session cookie（复用 platform_auth 的逻辑）
-// 使用与 middleware/platform_auth.go 相同的 session 派生密钥签名
-func validateSessionCookieForAccess(cookie string) (string, bool) {
-	parts := strings.SplitN(cookie, ".", 2)
-	if len(parts) != 2 {
-		return "", false
-	}
-
-	payloadHex := parts[0]
-	signature := parts[1]
-
-	// 解码 hex payload
-	payload, err := hex.DecodeString(payloadHex)
-	if err != nil {
-		return "", false
-	}
-
-	// 验证 HMAC-SHA256 签名（与 middleware.signSession 使用同一 session 派生密钥）
-	mac := hmac.New(sha256.New, secret.SessionKey())
-	mac.Write(payload)
-	expectedSig := hex.EncodeToString(mac.Sum(nil))
-
-	if subtle.ConstantTimeCompare([]byte(signature), []byte(expectedSig)) != 1 {
-		return "", false
-	}
-
-	// 解析数据
-	var data struct {
-		Username  string `json:"u"`
-		ExpiresAt int64  `json:"e"`
-	}
-	if err := json.Unmarshal(payload, &data); err != nil {
-		return "", false
-	}
-
-	// 检查过期
-	if time.Now().Unix() > data.ExpiresAt {
-		return "", false
-	}
-
-	return data.Username, true
-}
-
 // matchRequestSite 检查请求的 Host 是否匹配绑定的站点列表
 func matchRequestSite(requestHost string, sites []siteMatch) bool {
 	// 解析请求的域名和端口
@@ -393,27 +353,6 @@ func matchRequestSite(requestHost string, sites []siteMatch) bool {
 		return true
 	}
 	return false
-}
-
-// getClientIP 获取客户端真实 IP
-func getClientIP(r *http.Request) string {
-	// 检查 X-Forwarded-For
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-	// 检查 X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// 使用 RemoteAddr
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 // matchIP 检查 IP 是否匹配列表（支持 CIDR）
