@@ -1,6 +1,7 @@
 package syslog
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -32,16 +33,52 @@ func (m *Manager) Write(level, service, message string) {
 	m.db.Create(entry)
 }
 
+// AuditParams 审计写入参数
+type AuditParams struct {
+	Actor        string // 操作者用户名
+	ActionType   string // CREATE/UPDATE/DELETE/ENABLE/DISABLE
+	ResourceType string // frp_proxy/caddy_site/...
+	ResourceID   uint
+	BeforeDiff   string // before JSON（脱敏）
+	AfterDiff    string // after JSON（脱敏）
+}
+
+// AuditWrite 写入审计条目（脱敏处理在调用侧完成）
+func (m *Manager) AuditWrite(params AuditParams) {
+	if params.ActionType == "" {
+		params.ActionType = "UNKNOWN"
+	}
+	if params.ResourceType == "" {
+		params.ResourceType = "unknown"
+	}
+	msg := fmt.Sprintf("[%s] %s %s#%d", params.ActionType, params.ResourceType, params.Actor, params.ResourceID)
+	entry := &model.SystemLog{
+		Level:        "audit",
+		Service:      "audit",
+		Message:      msg,
+		Actor:        params.Actor,
+		ActionType:   params.ActionType,
+		ResourceType: params.ResourceType,
+		ResourceID:   params.ResourceID,
+		Diff:         params.AfterDiff,
+		LogTime:      time.Now(),
+	}
+	m.db.Create(entry)
+}
+
 // QueryParams 日志查询参数
 type QueryParams struct {
-	Service  string    // 服务类型筛选，空表示全部
-	Level    string    // 日志级别筛选，空表示全部
-	Keyword  string    // 关键词搜索
-	StartAt  time.Time // 开始时间
-	EndAt    time.Time // 结束时间
-	Page     int       // 页码（从1开始）
-	PageSize int       // 每页数量
-	Order    string    // 排序：asc/desc（默认desc）
+	Service      string    // 服务类型筛选，空表示全部
+	Level        string    // 日志级别筛选，空表示全部
+	ActionType   string    // 审计 action 类型（CREATE/UPDATE/DELETE/ENABLE/DISABLE），空表示全部
+	ResourceType string    // 审计资源类型（frp_proxy/caddy_site/...），空表示全部
+	Actor        string    // 操作者用户名，空表示全部
+	Keyword      string    // 关键词搜索
+	StartAt      time.Time // 开始时间
+	EndAt        time.Time // 结束时间
+	Page         int       // 页码（从1开始）
+	PageSize     int       // 每页数量
+	Order        string    // 排序：asc/desc（默认desc）
 }
 
 // QueryResult 日志查询结果
@@ -73,8 +110,17 @@ func (m *Manager) Query(params QueryParams) (*QueryResult, error) {
 	if params.Level != "" {
 		query = query.Where("level = ?", params.Level)
 	}
+	if params.ActionType != "" {
+		query = query.Where("action_type = ?", params.ActionType)
+	}
+	if params.ResourceType != "" {
+		query = query.Where("resource_type = ?", params.ResourceType)
+	}
+	if params.Actor != "" {
+		query = query.Where("actor = ?", params.Actor)
+	}
 	if params.Keyword != "" {
-		query = query.Where("message LIKE ?", "%"+params.Keyword+"%")
+		query = query.Where("message LIKE ? OR diff LIKE ?", "%"+params.Keyword+"%", "%"+params.Keyword+"%")
 	}
 	if !params.StartAt.IsZero() {
 		query = query.Where("log_time >= ?", params.StartAt)
@@ -113,4 +159,18 @@ func (m *Manager) Cleanup(days int) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -days)
 	result := m.db.Where("log_time < ?", cutoff).Delete(&model.SystemLog{})
 	return result.RowsAffected, result.Error
+}
+
+// GetDistinctActor 返回审计日志中出现过的 actor 去重列表。
+func (m *Manager) GetDistinctActor(out *[]string) {
+	m.db.Model(&model.SystemLog{}).
+		Where("level = ?", "audit").
+		Distinct("actor").Pluck("actor", out)
+}
+
+// GetDistinctResourceType 返回审计日志中出现的 resource_type 去重列表。
+func (m *Manager) GetDistinctResourceType(out *[]string) {
+	m.db.Model(&model.SystemLog{}).
+		Where("level = ?", "audit").
+		Distinct("resource_type").Pluck("resource_type", out)
 }
