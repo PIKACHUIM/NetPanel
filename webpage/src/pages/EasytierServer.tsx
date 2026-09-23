@@ -15,7 +15,12 @@ import { useTranslation } from 'react-i18next'
 import { easytierServerApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
+import { ProtoPortList, PROTOCOL_OPTIONS } from '../components/FormListFields'
 import { useTableStyle } from '../hooks/useTableStyle'
+import {
+  genNetworkName, genNetworkPassword, genRpcPort,
+  parseListenPorts, parseListenPortsRaw, joinListenPorts,
+} from '../utils/networkParse'
 
 const { Text } = Typography
 
@@ -27,28 +32,6 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
     <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
   </div>
 )
-
-const PROTOCOL_OPTIONS = [
-  { label: 'TCP', value: 'tcp' },
-  { label: 'UDP', value: 'udp' },
-  { label: 'WS', value: 'ws' },
-  { label: 'WSS', value: 'wss' },
-  { label: 'WG', value: 'wg' },
-  { label: 'QUIC', value: 'quic' },
-]
-
-// 随机生成网络名称（8位字母数字）
-const genNetworkName = () => Math.random().toString(36).slice(2, 10)
-// 随机生成网络密码（16位字母数字）
-const genNetworkPassword = () => Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
-// 随机生成 RPC 门户端口（15000~25000，避免与常用端口冲突）
-const genRpcPort = () => String(Math.floor(Math.random() * 10000) + 15000)
-
-const parseListenPorts = (s: string): string[] => {
-  if (!s) return []
-  return s.split(',').map(p => p.trim()).filter(Boolean)
-}
-const joinListenPorts = (ports: string[]): string => (ports || []).filter(Boolean).join(',')
 
 const EasytierServer: React.FC = () => {
   const tunnelCtx = useTunnelApi()
@@ -231,10 +214,7 @@ const EasytierServer: React.FC = () => {
     setEditRecord(record)
     const mode = record.server_mode || 'standalone'
     setServerMode(mode)
-    const portsList = parseListenPorts(record.listen_ports).map(p => {
-      if (p.includes(':')) { const [proto, port] = p.split(':'); return { proto, port } }
-      return { proto: 'tcp', port: p }
-    })
+    const portsList = parseListenPorts(record.listen_ports)
     form.setFieldsValue({
       ...record,
       server_mode: mode,
@@ -300,7 +280,14 @@ const EasytierServer: React.FC = () => {
         if (r.server_mode === 'config-server') return <Text type="secondary" style={{ fontSize: 11 }}>{r.config_server_addr || '-'}</Text>
         const ports = parseListenPorts(r.listen_ports)
         if (ports.length === 0) return <Text type="secondary">未配置</Text>
-        return <Space size={4} wrap>{ports.map((p, i) => <Tag key={i} color="geekblue" style={{ fontSize: 11 }}>{p}</Tag>)}</Space>
+        // 与重构前保持一致：仅当原文带显式协议前缀时才显示 "proto:port"，
+        // 裸端口仍只显示端口号。用 raw 判断，避免把隐式补的 tcp 前缀显示出来。
+        const raws = parseListenPortsRaw(r.listen_ports)
+        return <Space size={4} wrap>{ports.map((p, i) => (
+          <Tag key={i} color="geekblue" style={{ fontSize: 11 }}>
+            {raws[i]?.includes(':') ? `${p.proto}:${p.port}` : p.port}
+          </Tag>
+        ))}</Space>
       },
     },
     {
@@ -489,37 +476,7 @@ const EasytierServer: React.FC = () => {
         required
         extra={<span style={{ fontSize: 11 }}>支持协议：<code>tcp</code> · <code>udp</code> · <code>ws</code> · <code>wss</code> · <code>wg</code> · <code>quic</code></span>}
       >
-        <Form.List name="listen_ports_list" rules={[{
-          validator: async (_, items) => {
-            if (!items || items.length === 0) throw new Error('至少添加一个监听端口')
-          }
-        }]}>
-          {(fields, { add, remove }, { errors }) => (
-            <>
-              {fields.map(({ key, name, ...rest }) => (
-                <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                  <Col span={7}>
-                    <Form.Item {...rest} name={[name, 'proto']} style={{ marginBottom: 0 }}>
-                      <Select options={PROTOCOL_OPTIONS} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={15}>
-                    <Form.Item {...rest} name={[name, 'port']} style={{ marginBottom: 0 }} rules={[{ required: true, message: '请填写端口' }]}>
-                      <Input placeholder="11010" style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={2} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {fields.length > 1 && (
-                      <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 16 }} />
-                    )}
-                  </Col>
-                </Row>
-              ))}
-              <Form.ErrorList errors={errors} />
-              <Button type="dashed" onClick={() => add({ proto: 'tcp', port: '' })} icon={<PlusOutlined />} block>添加端口</Button>
-            </>
-          )}
-        </Form.List>
+        <ProtoPortList fieldName="listen_ports_list" addText="添加端口" minOne />
       </Form.Item>
 
       <SectionTitle>RPC 管理</SectionTitle>
@@ -998,37 +955,7 @@ const EasytierServer: React.FC = () => {
             required
             extra={<span style={{ fontSize: 11 }}>可添加多个协议/端口组合</span>}
           >
-            <Form.List name="listeners" rules={[{
-              validator: async (_, items) => {
-                if (!items || items.length === 0) throw new Error('至少添加一个监听端口')
-              }
-            }]}>
-              {(fields, { add, remove }, { errors }) => (
-                <>
-                  {fields.map(({ key, name, ...rest }) => (
-                    <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                      <Col span={8}>
-                        <Form.Item {...rest} name={[name, 'proto']} style={{ marginBottom: 0 }}>
-                          <Select options={PROTOCOL_OPTIONS} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={14}>
-                        <Form.Item {...rest} name={[name, 'port']} style={{ marginBottom: 0 }} rules={[{ required: true, message: '请填写端口' }]}>
-                          <Input placeholder="11010" style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={2} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {fields.length > 1 && (
-                          <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 16 }} />
-                        )}
-                      </Col>
-                    </Row>
-                  ))}
-                  <Form.ErrorList errors={errors} />
-                  <Button type="dashed" onClick={() => add({ proto: 'tcp', port: '' })} icon={<PlusOutlined />} block>添加端口</Button>
-                </>
-              )}
-            </Form.List>
+            <ProtoPortList fieldName="listeners" addText="添加端口" minOne />
           </Form.Item>
 
           <Form.Item
