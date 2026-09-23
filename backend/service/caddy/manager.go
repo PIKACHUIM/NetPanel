@@ -512,6 +512,10 @@ func (m *Manager) buildRoutes(site *model.CaddySite, deps *routeDeps) ([]interfa
 		// 页面跳转登录：认证由 netpanel_session_auth 中间件完成
 		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, authRule), nil
 
+	case "oidc":
+		// OIDC 登录: 重定向到 OAuth 授权页
+		return m.buildOIDCRoutes(hostMatchers, mainHandlers, authRule), nil
+
 	default:
 		// 无认证
 		route := map[string]interface{}{"handle": mainHandlers}
@@ -921,4 +925,48 @@ func isLocalOrIP(domain string) bool {
 		return true
 	}
 	return false
+}
+
+// buildOIDCRoutes 构建 OIDC 认证路由
+func (m *Manager) buildOIDCRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
+	providerID := rule.OidcProviderID
+	if providerID == 0 {
+		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, nil)
+	}
+	var provider model.OAuthProviderConfig
+	if err := m.db.First(&provider, providerID).Error; err != nil {
+		m.log.Errorf("[access] OIDC provider #%d not found", providerID)
+		return []interface{}{map[string]interface{}{"handle": mainHandlers}}
+	}
+	redirectURL := fmt.Sprintf("{http.request.scheme}://{http.request.host}:%d/auth/oauth/%s/authorize?redirect={http.request.scheme}://{http.request.hostport}{http.request.uri}", m.panelPort, provider.Name)
+	redirectRoute := map[string]interface{}{
+		"match": []interface{}{
+			map[string]interface{}{
+				"not": []interface{}{
+					map[string]interface{}{
+						"header_regexp": map[string]interface{}{
+							"Cookie": map[string]interface{}{
+								"pattern": "netpanel_session=.+",
+							},
+						},
+					},
+				},
+			},
+		},
+		"handle": []interface{}{
+			map[string]interface{}{
+				"handler":     "static_response",
+				"status_code": "302",
+				"headers": map[string]interface{}{
+					"Location": []string{redirectURL},
+				},
+			},
+		},
+	}
+	proxyRoute := map[string]interface{}{"handle": mainHandlers}
+	if len(hostMatchers) > 0 {
+		redirectRoute["match"] = append(hostMatchers, redirectRoute["match"].([]interface{})...)
+		proxyRoute["match"] = hostMatchers
+	}
+	return []interface{}{redirectRoute, proxyRoute}
 }
