@@ -9,8 +9,8 @@ import (
 
 	"github.com/fatedier/frp/assets"
 	"github.com/fatedier/frp/client"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/types"
+	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/server"
 	frpsassets "github.com/netpanel/netpanel/assets/frps"
@@ -33,10 +33,25 @@ type serverEntry struct {
 
 // Manager FRP 管理器（客户端+服务端）
 type Manager struct {
-	db      *gorm.DB
-	log     *logrus.Logger
-	clients sync.Map // map[uint]*clientEntry
-	servers sync.Map // map[uint]*serverEntry
+	db       *gorm.DB
+	log      *logrus.Logger
+	mu       sync.Mutex
+	stopping bool     // StopAll 置位：关闭期间意外退出不自动重启
+	clients  sync.Map // map[uint]*clientEntry
+	servers  sync.Map // map[uint]*serverEntry
+}
+
+// setStopping 更新全局停止标志
+func (m *Manager) setStopping(v bool) {
+	m.mu.Lock()
+	m.stopping = v
+	m.mu.Unlock()
+}
+
+func (m *Manager) isStopping() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stopping
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
@@ -47,6 +62,7 @@ func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
 
 // StartAll 启动所有已启用的 FRP 实例
 func (m *Manager) StartAll() {
+	m.setStopping(false)
 	var clients []model.FrpcConfig
 	m.db.Where("enable = ?", true).Find(&clients)
 	for _, c := range clients {
@@ -66,6 +82,7 @@ func (m *Manager) StartAll() {
 
 // StopAll 停止所有 FRP 实例
 func (m *Manager) StopAll() {
+	m.setStopping(true)
 	m.clients.Range(func(key, value any) bool {
 		entry := value.(*clientEntry)
 		entry.cancel()
@@ -82,6 +99,7 @@ func (m *Manager) StopAll() {
 
 // StartClient 启动指定 FRP 客户端
 func (m *Manager) StartClient(id uint) error {
+	m.setStopping(false)
 	m.StopClient(id)
 
 	var cfg model.FrpcConfig
@@ -245,15 +263,10 @@ func (m *Manager) TailLogs(id uint, tail int) []string {
 	return result
 }
 
-// runClient 在 goroutine 中运行 FRP 客户端
+// runClient 在 goroutine 中运行 FRP 客户端；意外退出时延迟自动重启（与
+// easytier/cftunnel 行为对齐），避免隧道因 frps 短暂不可达而静默死亡。
 func (m *Manager) runClient(ctx context.Context, id uint, name string, svc *client.Service) {
-	defer func() {
-		m.clients.Delete(id)
-		m.db.Model(&model.FrpcConfig{}).Where("id = ?", id).Update("status", "stopped")
-		m.log.Infof("[FRP客户][%s] 已停止", name)
-	}()
-
-	doneCh := make(chan struct{}, 1)
+	doneCh := make(chan struct{})
 	go func() {
 		svc.Run(ctx)
 		close(doneCh)
@@ -261,11 +274,33 @@ func (m *Manager) runClient(ctx context.Context, id uint, name string, svc *clie
 
 	select {
 	case <-ctx.Done():
+		// 主动停止
 		svc.Close()
 		<-doneCh
+		m.clients.Delete(id)
+		m.db.Model(&model.FrpcConfig{}).Where("id = ?", id).Update("status", "stopped")
+		m.log.Infof("[FRP客户][%s] 已停止", name)
 	case <-doneCh:
-		if ctx.Err() == nil {
-			m.log.Warnf("[FRP客户][%s] 服务意外退出", name)
+		m.clients.Delete(id)
+		if ctx.Err() != nil {
+			m.db.Model(&model.FrpcConfig{}).Where("id = ?", id).Update("status", "stopped")
+			return
+		}
+		// 意外退出（含 login 失败退出）：标记错误并延迟重启，5 秒间隔避免快速循环崩溃
+		m.db.Model(&model.FrpcConfig{}).Where("id = ?", id).Updates(map[string]any{
+			"status":     "error",
+			"last_error": "进程意外退出，正在自动重启",
+		})
+		m.log.Warnf("[FRP客户][%s] 服务意外退出，5 秒后自动重启", name)
+		time.Sleep(5 * time.Second)
+		if m.isStopping() {
+			return
+		}
+		var cur model.FrpcConfig
+		if m.db.First(&cur, id).Error == nil && cur.Enable {
+			if err := m.StartClient(id); err != nil {
+				m.log.Errorf("[FRP客户][%s] 自动重启失败: %v", name, err)
+			}
 		}
 	}
 }
@@ -436,11 +471,11 @@ func buildProxyConfig(p *model.FrpcProxy) (v1.ProxyConfigurer, error) {
 	// 健康检查
 	if p.HealthCheckType != "" {
 		base.HealthCheck = v1.HealthCheckConfig{
-			Type:             p.HealthCheckType,
-			TimeoutSeconds:   p.HealthCheckTimeoutS,
-			MaxFailed:        p.HealthCheckMaxFailed,
-			IntervalSeconds:  p.HealthCheckIntervalS,
-			Path:             p.HealthCheckPath,
+			Type:            p.HealthCheckType,
+			TimeoutSeconds:  p.HealthCheckTimeoutS,
+			MaxFailed:       p.HealthCheckMaxFailed,
+			IntervalSeconds: p.HealthCheckIntervalS,
+			Path:            p.HealthCheckPath,
 		}
 	}
 
@@ -580,6 +615,7 @@ func buildProxyConfig(p *model.FrpcProxy) (v1.ProxyConfigurer, error) {
 
 // StartServer 启动指定 FRP 服务端
 func (m *Manager) StartServer(id uint) error {
+	m.setStopping(false)
 	m.StopServer(id)
 
 	var cfg model.FrpsConfig
@@ -644,15 +680,9 @@ func (m *Manager) GetServerStatus(id uint) string {
 	return "stopped"
 }
 
-// runServer 在 goroutine 中运行 FRP 服务端
+// runServer 在 goroutine 中运行 FRP 服务端；意外退出时延迟自动重启
 func (m *Manager) runServer(ctx context.Context, id uint, name string, svc *server.Service) {
-	defer func() {
-		m.servers.Delete(id)
-		m.db.Model(&model.FrpsConfig{}).Where("id = ?", id).Update("status", "stopped")
-		m.log.Infof("[FRP服务][%s] 已停止", name)
-	}()
-
-	doneCh := make(chan struct{}, 1)
+	doneCh := make(chan struct{})
 	go func() {
 		svc.Run(ctx)
 		close(doneCh)
@@ -660,11 +690,32 @@ func (m *Manager) runServer(ctx context.Context, id uint, name string, svc *serv
 
 	select {
 	case <-ctx.Done():
+		// 主动停止
 		svc.Close()
 		<-doneCh
+		m.servers.Delete(id)
+		m.db.Model(&model.FrpsConfig{}).Where("id = ?", id).Update("status", "stopped")
+		m.log.Infof("[FRP服务][%s] 已停止", name)
 	case <-doneCh:
-		if ctx.Err() == nil {
-			m.log.Warnf("[FRP服务][%s] 服务意外退出", name)
+		m.servers.Delete(id)
+		if ctx.Err() != nil {
+			m.db.Model(&model.FrpsConfig{}).Where("id = ?", id).Update("status", "stopped")
+			return
+		}
+		m.db.Model(&model.FrpsConfig{}).Where("id = ?", id).Updates(map[string]any{
+			"status":     "error",
+			"last_error": "进程意外退出，正在自动重启",
+		})
+		m.log.Warnf("[FRP服务][%s] 服务意外退出，5 秒后自动重启", name)
+		time.Sleep(5 * time.Second)
+		if m.isStopping() {
+			return
+		}
+		var cur model.FrpsConfig
+		if m.db.First(&cur, id).Error == nil && cur.Enable {
+			if err := m.StartServer(id); err != nil {
+				m.log.Errorf("[FRP服务][%s] 自动重启失败: %v", name, err)
+			}
 		}
 	}
 }

@@ -99,19 +99,9 @@ func (h *TunserviceHandler) Stop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
-// Candidates 返回可选线路列表（来自 selector，供服务关联线路时选择）
+// Candidates 返回可选线路列表（来自 selector 快照，供服务关联线路时选择）
 func (h *TunserviceHandler) Candidates(c *gin.Context) {
-	type item struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Tool    string `json:"tool"`
-		Layer   string `json:"layer"`
-		Address string `json:"address"`
-	}
-	items := []item{}
-	// 通过 linereg 的 selector 快照获取线路（tunservice 管理器不直接暴露，
-	// 由 List 内嵌线路即可，这里保持空列表兜底）。
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": items})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": h.mgr.Candidates()})
 }
 
 // History 返回服务关联线路的探测历史（延迟趋势）
