@@ -41,7 +41,7 @@ func (h *DDNSHandler) Create(c *gin.Context) {
 	}
 	task.Status = "stopped"
 	h.db.Create(&task)
-logger.WriteLog("info", "ddns", fmt.Sprintf("创建DDNS任务 [%d] %s", task.ID, task.Name))
+	logger.WriteLog("info", "ddns", fmt.Sprintf("创建DDNS任务 [%d] %s", task.ID, task.Name))
 	if task.Enable {
 		h.mgr.Start(task.ID)
 	}
@@ -57,8 +57,12 @@ func (h *DDNSHandler) Update(c *gin.Context) {
 	}
 	h.mgr.Stop(uint(id))
 	req.ID = uint(id)
+	var existing model.DDNSTask
+	if err := h.db.First(&existing, id).Error; err == nil {
+		model.PreserveSecrets(&req, &existing)
+	}
 	h.db.Save(&req)
-logger.WriteLog("info", "ddns", fmt.Sprintf("更新DDNS任务 [%d] %s", id, req.Name))
+	logger.WriteLog("info", "ddns", fmt.Sprintf("更新DDNS任务 [%d] %s", id, req.Name))
 	if req.Enable {
 		h.mgr.Start(uint(id))
 	}

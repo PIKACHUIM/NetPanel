@@ -9,8 +9,8 @@ import (
 
 	"github.com/fatedier/frp/assets"
 	"github.com/fatedier/frp/client"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/types"
+	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/server"
 	frpsassets "github.com/netpanel/netpanel/assets/frps"
@@ -161,24 +161,24 @@ func (m *Manager) GetClientStatus(id uint) string {
 
 // ClientDetail 客户端详细诊断信息
 type ClientDetail struct {
-	ID         uint     `json:"id"`
-	Name       string   `json:"name"`
-	Status     string   `json:"status"`
-	LastError  string   `json:"last_error"`
-	ServerAddr string   `json:"server_addr"`
-	ServerPort int      `json:"server_port"`
+	ID         uint        `json:"id"`
+	Name       string      `json:"name"`
+	Status     string      `json:"status"`
+	LastError  string      `json:"last_error"`
+	ServerAddr string      `json:"server_addr"`
+	ServerPort int         `json:"server_port"`
 	Proxies    []ProxyInfo `json:"proxies"`
-	RecentLogs []string `json:"recent_logs"`
+	RecentLogs []string    `json:"recent_logs"`
 }
 
 // ProxyInfo 代理信息
 type ProxyInfo struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	Enable    bool   `json:"enable"`
-	LocalAddr string `json:"local_addr"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Enable     bool   `json:"enable"`
+	LocalAddr  string `json:"local_addr"`
 	RemoteAddr string `json:"remote_addr"`
-	Status    string `json:"status"`
+	Status     string `json:"status"`
 }
 
 // GetClientDetail 获取客户端完整诊断信息（用于 AI 诊断）
@@ -302,7 +302,7 @@ func buildClientConfig(cfg *model.FrpcConfig) (*v1.ClientCommonConfig, []v1.Prox
 	if cfg.Token != "" {
 		common.Auth = v1.AuthClientConfig{
 			Method: authMethod,
-			Token:  cfg.Token,
+			Token:  cfg.Token.String(),
 		}
 	} else if cfg.AuthMethod != "" {
 		common.Auth.Method = authMethod
@@ -436,11 +436,11 @@ func buildProxyConfig(p *model.FrpcProxy) (v1.ProxyConfigurer, error) {
 	// 健康检查
 	if p.HealthCheckType != "" {
 		base.HealthCheck = v1.HealthCheckConfig{
-			Type:             p.HealthCheckType,
-			TimeoutSeconds:   p.HealthCheckTimeoutS,
-			MaxFailed:        p.HealthCheckMaxFailed,
-			IntervalSeconds:  p.HealthCheckIntervalS,
-			Path:             p.HealthCheckPath,
+			Type:            p.HealthCheckType,
+			TimeoutSeconds:  p.HealthCheckTimeoutS,
+			MaxFailed:       p.HealthCheckMaxFailed,
+			IntervalSeconds: p.HealthCheckIntervalS,
+			Path:            p.HealthCheckPath,
 		}
 	}
 
@@ -742,7 +742,7 @@ func buildServerConfig(cfg *model.FrpsConfig) (*v1.ServerConfig, error) {
 	if cfg.Token != "" {
 		frpCfg.Auth = v1.AuthServerConfig{
 			Method: v1.AuthMethodToken,
-			Token:  cfg.Token,
+			Token:  cfg.Token.String(),
 		}
 	}
 

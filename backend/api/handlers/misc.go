@@ -428,6 +428,10 @@ func (h *StorageHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
+	if err := storage.ValidateConfig(&cfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
 	cfg.Status = "stopped"
 	h.db.Create(&cfg)
 	logger.WriteLog("info", "storage", fmt.Sprintf("创建网络存储: ID=%d", cfg.ID))
@@ -443,10 +447,8 @@ func (h *StorageHandler) Create(c *gin.Context) {
 }
 
 func (h *StorageHandler) Update(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var existing model.StorageConfig
-	if err := h.db.First(&existing, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+	id, ok := parseUintParam(c, "id")
+	if !ok {
 		return
 	}
 	var req model.StorageConfig
@@ -454,34 +456,24 @@ func (h *StorageHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	// 密码回显为掩码时保留原值，避免「查看后保存」把密码清空
-	if strings.HasPrefix(req.Password, "****") {
-		req.Password = existing.Password
-	}
-	h.mgr.Stop(uint(id))
-	// 按字段更新，避免 Save 全量覆盖把未提交字段写为零值
-	updates := map[string]any{
-		"name":        req.Name,
-		"enable":      req.Enable,
-		"protocol":    req.Protocol,
-		"listen_addr": req.ListenAddr,
-		"listen_port": req.ListenPort,
-		"root_path":   req.RootPath,
-		"username":    req.Username,
-		"password":    req.Password,
-		"read_only":   req.ReadOnly,
-		"remark":      req.Remark,
-	}
-	if err := h.db.Model(&existing).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存失败: " + err.Error()})
+	if err := storage.ValidateConfig(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
+	// 前置存在性检查：db.Save 带 ID 是 upsert，更新不存在的 ID 会静默插入
+	var existing model.StorageConfig
+	if err := h.db.First(&existing, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "存储配置不存在"})
+		return
+	}
+	h.mgr.Stop(id)
+	req.ID = id
+	// StorageConfig.Password 为 Secret 类型：空值表示不修改，回填现值
+	model.PreserveSecrets(&req, &existing)
+	h.db.Save(&req)
 	logger.WriteLog("info", "storage", fmt.Sprintf("修改网络存储: ID=%d", id))
 	if req.Enable {
-		if err := h.mgr.Start(uint(id)); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
-			return
-		}
+		h.mgr.Start(id)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
