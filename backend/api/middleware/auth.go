@@ -8,25 +8,31 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/secret"
+	"gorm.io/gorm"
 )
 
 // Claims JWT 声明。
 // IsAdmin 随令牌下发，供 AdminOnly 中间件做权限判定；
-// UserID 作为稳定标识（用户名可被修改，不能作为身份依据）。
+// UserID 作为稳定标识（用户名可被修改，不能作为身份依据）；
+// TokenVersion 用于吊销：与 User 表中的当前版本比对，不一致即失效。
 type Claims struct {
-	Username string `json:"username"`
-	UserID   uint   `json:"user_id"`
-	IsAdmin  bool   `json:"is_admin"`
+	Username     string `json:"username"`
+	UserID       uint   `json:"user_id"`
+	IsAdmin      bool   `json:"is_admin"`
+	TokenVersion int    `json:"token_version"`
 	jwt.RegisteredClaims
 }
 
-// GenerateToken 生成 JWT token
-func GenerateToken(username string, userID uint, isAdmin bool) (string, error) {
+// GenerateToken 生成 JWT token。
+// tokenVersion 取自用户记录，改密/禁用/降权时递增以吊销旧令牌。
+func GenerateToken(username string, userID uint, isAdmin bool, tokenVersion int) (string, error) {
 	claims := Claims{
-		Username: username,
-		UserID:   userID,
-		IsAdmin:  isAdmin,
+		Username:     username,
+		UserID:       userID,
+		IsAdmin:      isAdmin,
+		TokenVersion: tokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -54,8 +60,12 @@ func ParseToken(tokenStr string) (*Claims, error) {
 	return nil, jwt.ErrSignatureInvalid
 }
 
-// JWTAuth JWT 认证中间件
-func JWTAuth() gin.HandlerFunc {
+// JWTAuth JWT 认证中间件。
+//
+// db 用于在每次请求时核对令牌版本与账号状态：仅校验签名无法让已签发的
+// 令牌在改密/禁用/降权后立即失效（令牌最长 24 小时有效）。db 为 nil 时
+// 跳过这一核对（保留给测试等场景）。
+func JWTAuth(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -76,6 +86,29 @@ func JWTAuth() gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "Token 无效或已过期"})
 			c.Abort()
 			return
+		}
+
+		// 有稳定用户 ID 时核对账号状态与令牌版本，实现即时吊销
+		if db != nil && claims.UserID != 0 {
+			var user model.User
+			if err := db.Select("id", "enable", "is_admin", "token_version").
+				First(&user, claims.UserID).Error; err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "账号不存在"})
+				c.Abort()
+				return
+			}
+			if !user.Enable {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "账号已被禁用"})
+				c.Abort()
+				return
+			}
+			if user.TokenVersion != claims.TokenVersion {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "登录已失效，请重新登录"})
+				c.Abort()
+				return
+			}
+			// 权限以数据库实时状态为准，防止降权后旧令牌仍带管理员标识
+			claims.IsAdmin = user.IsAdmin
 		}
 
 		c.Set("username", claims.Username)
@@ -126,6 +159,30 @@ func IsCurrentUserAdmin(c *gin.Context) bool {
 	}
 	admin, ok := v.(bool)
 	return ok && admin
+}
+
+// TrustedProxies 返回可信反向代理的地址列表，用于 gin SetTrustedProxies。
+//
+// 默认返回 nil（不信任任何代理），使 c.ClientIP() 直接取 RemoteAddr。
+// gin 的默认行为是信任所有代理（0.0.0.0/0），
+// 攻击者只需伪造 X-Forwarded-For 即可绕过登录失败限流与 IP 黑白名单，
+// 因此除非显式配置 NETPANEL_TRUSTED_PROXIES，否则一律不信任。
+func TrustedProxies() []string {
+	raw := os.Getenv("NETPANEL_TRUSTED_PROXIES")
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // allowedOrigins 允许的跨域来源，通过环境变量 NETPANEL_ALLOWED_ORIGINS 配置

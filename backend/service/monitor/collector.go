@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -532,11 +531,9 @@ func (c *Collector) ProbeICMP(addr string, timeout int) (bool, int64, error) {
 }
 
 // CloseSSHConnections 关闭所有 SSH 连接
+//
+// 并发安全：sshClients 会被探测引擎的并发 goroutine 访问，
+// 原实现无锁遍历并整体替换该 map，属确定的并发 map 读写。
 func (c *Collector) CloseSSHConnections() {
-	for id, client := range c.sshClients {
-		if err := client.Close(); err != nil {
-			log.Printf("[Collector] 关闭 SSH 连接失败 (server_id=%d): %v\n", id, err)
-		}
-	}
-	c.sshClients = make(map[uint]*ssh.Client)
+	c.CloseAll()
 }

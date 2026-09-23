@@ -543,7 +543,30 @@ func (h *MonitorHandler) HandleTerminal(c *gin.Context) {
 		c.String(http.StatusUnauthorized, "token 无效或已过期")
 		return
 	}
-	if !claims.IsAdmin {
+
+	// 仅校验签名与过期不足以让吊销生效：改密 / 禁用 / 降权后旧令牌最长仍有
+	// 24 小时有效期。这里按 JWTAuth 的口径复核账号实时状态与令牌版本，
+	// 否则被撤销的管理员仍可打开远程终端。
+	db := h.manager.DB
+	if db == nil || claims.UserID == 0 {
+		c.String(http.StatusForbidden, "需要管理员权限")
+		return
+	}
+	var operator model.User
+	if err := db.Select("id", "enable", "is_admin", "token_version").
+		First(&operator, claims.UserID).Error; err != nil {
+		c.String(http.StatusUnauthorized, "账号不存在")
+		return
+	}
+	if !operator.Enable {
+		c.String(http.StatusUnauthorized, "账号已被禁用")
+		return
+	}
+	if operator.TokenVersion != claims.TokenVersion {
+		c.String(http.StatusUnauthorized, "登录已失效，请重新登录")
+		return
+	}
+	if !operator.IsAdmin {
 		c.String(http.StatusForbidden, "需要管理员权限")
 		return
 	}

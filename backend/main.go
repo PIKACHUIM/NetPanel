@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -216,6 +217,9 @@ func startServer() *http.Server {
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
 	caddyMgr := caddy.NewManager(db, logCaddy, *dataDir)
+	// 静态站点根目录只允许落在数据目录下的 wwwroot 内，
+	// 否则用户可建一个 root_path=/ 的站点把整个磁盘暴露到公网
+	caddy.SetSiteRootWhitelist([]string{filepath.Join(*dataDir, "wwwroot")})
 	wolMgr := wol.NewManager(db, logWol)
 	certMgr := cert.NewManager(db, logCert, *dataDir)
 	cronMgr := cron.NewManager(db, logCron, certMgr, ddnsMgr, wolMgr)
@@ -289,6 +293,8 @@ func startServer() *http.Server {
 	meshNodeMgr.Start()
 	aiMgr.Start()
 	lineregMgr.Start()
+	// 系统防火墙规则定时同步（此前 StartAutoSync 无任何调用者，功能实际未生效）
+	firewallMgr.StartAutoSync()
 	
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
@@ -355,8 +361,9 @@ func startServer() *http.Server {
 		})
 	}
 
-	// 访问控制中间件注入
-	accessMgr.SetGinEngine(router)
+	// 访问控制中间件已在 api.NewRouter 内部、注册路由之前挂载。
+	// 注意：Gin 在注册路由时对中间件链做快照，路由注册完成后再调用
+	// Use/SetGinEngine 不会作用于已注册路由（曾因此导致访问控制整体失效）。
 
 	// 尝试绑定端口，若失败则自动寻找可用端口
 	listenPort := findAvailablePort(*port, log)
@@ -379,7 +386,7 @@ func startServer() *http.Server {
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
-		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, monitorMgr, mcpSrv)
+		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv)
 
 	return srv
 }
@@ -442,6 +449,8 @@ func registerStopHandlers(
 	meshNodeMgr interface{ Stop() },
 	lineregMgr interface{ Stop() },
 	cftunnelMgr interface{ StopAll() },
+	certMgr interface{ StopAll() },
+	aiMgr interface{ Stop() },
 	monitorMgr interface{ Stop() },
 	mcpSrv interface{ Stop() error },
 ) {
@@ -462,6 +471,8 @@ func registerStopHandlers(
 		meshNodeMgr.Stop()
 		lineregMgr.Stop()
 		cftunnelMgr.StopAll()
+		certMgr.StopAll()
+		aiMgr.Stop()
 		monitorMgr.Stop()
 		_ = mcpSrv.Stop()
 		log.Info("所有服务已停止")

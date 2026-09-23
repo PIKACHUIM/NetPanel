@@ -251,6 +251,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "只有管理员可以修改管理员权限"})
 		return
 	}
+	// 记录本次更新是否涉及会令已签发令牌失效的敏感字段
+	revoke := false
+
 	if req.Enable != nil {
 		// admin 用户不允许被禁用
 		if user.Username == "admin" && !*req.Enable {
@@ -258,9 +261,15 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 		updates["enable"] = *req.Enable
+		if !*req.Enable {
+			revoke = true
+		}
 	}
 	if req.IsAdmin != nil {
 		updates["is_admin"] = *req.IsAdmin
+		if !*req.IsAdmin {
+			revoke = true // 降权应立即让旧令牌失效，否则旧令牌仍带管理员标识
+		}
 	}
 	if req.Password != "" {
 		if len(req.Password) < 6 {
@@ -273,10 +282,16 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 		updates["password"] = hashed
+		revoke = true
 		// 同步更新 SystemConfig 中的 admin_password（兼容旧登录逻辑）
 		if user.Username == "admin" {
 			h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
 		}
+	}
+
+	// 敏感变更时递增令牌版本，使该账号所有已签发 JWT 立即失效
+	if revoke {
+		updates["token_version"] = gorm.Expr("token_version + 1")
 	}
 
 	if err := h.db.Model(&user).Updates(updates).Error; err != nil {

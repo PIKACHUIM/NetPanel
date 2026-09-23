@@ -1126,6 +1126,7 @@ type User struct {
 	Email         string `gorm:"size:255" json:"email"`
 	Enable        bool   `gorm:"default:true" json:"enable"`
 	IsAdmin       bool   `gorm:"default:false" json:"is_admin"`
+	TokenVersion  int    `gorm:"default:0" json:"-"` // 令牌版本：改密/禁用/降权时 +1，使已签发 JWT 失效
 	OAuthProvider string `gorm:"size:100" json:"oauth_provider"` // OAuth 来源标记（provider name），空表示本地用户
 	OAuthSub      string `gorm:"size:255" json:"oauth_sub"`      // OAuth 用户唯一标识（sub claim）
 	Remark        string `gorm:"size:500" json:"remark"`

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../api/authFetch';
 import {
   Card,
   Table,
@@ -77,7 +78,7 @@ const MonitorDDNS: React.FC = () => {
       const [bindingsRes, serversRes, tasksRes] = await Promise.all([
         monitorApi.listDDNSBindings() as unknown as DDNSBinding[],
         monitorApi.listServers() as unknown as Server[],
-        fetch('/api/v1/ddns').then(res => res.json()),
+        authFetch('/api/v1/ddns').then(res => res.json()),
       ]);
 
       // fetch 接口返回 {code, data} 包装,统一解包

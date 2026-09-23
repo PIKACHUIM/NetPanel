@@ -3,6 +3,7 @@ package storage
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -23,6 +24,11 @@ import (
 	"golang.org/x/net/webdav"
 	"gorm.io/gorm"
 )
+
+// constantTimeEqual 常量时间字符串比较，避免通过响应时间侧信道推断凭据。
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
 
 type storageEntry struct {
 	listener net.Listener
@@ -71,6 +77,25 @@ func (m *Manager) Start(id uint) error {
 		return fmt.Errorf("存储配置不存在: %w", err)
 	}
 
+	// 前置校验：网络存储以面板进程权限（通常 root/Administrator）读写目标目录，
+	// 因此必须确保根目录真实存在且为目录，并且配置了访问凭据。
+	// 校验放在 Start 这一唯一入口，保证 API 与开机恢复路径都受约束。
+	rootPath, err := ValidateRootPath(cfg.RootPath)
+	if err != nil {
+		return m.failStart(id, err)
+	}
+	if err := ValidateCredentials(cfg.Username, cfg.Password, cfg.Protocol); err != nil {
+		return m.failStart(id, err)
+	}
+	if err := ValidateListenAddr(cfg.ListenAddr); err != nil {
+		return m.failStart(id, err)
+	}
+	if err := ValidateListenPort(cfg.ListenPort); err != nil {
+		return m.failStart(id, err)
+	}
+	// 使用规范化（符号链接已解析）后的绝对路径
+	cfg.RootPath = rootPath
+
 	switch cfg.Protocol {
 	case "webdav":
 		return m.startWebDAV(id, &cfg)
@@ -83,6 +108,16 @@ func (m *Manager) Start(id uint) error {
 	}
 }
 
+// failStart 记录启动失败原因并同步到数据库状态，返回原始错误。
+func (m *Manager) failStart(id uint, err error) error {
+	m.db.Model(&model.StorageConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":     "error",
+		"last_error": err.Error(),
+	})
+	m.log.Warnf("[网络存储][%d] 启动被拒绝: %v", id, err)
+	return err
+}
+
 func (m *Manager) startWebDAV(id uint, cfg *model.StorageConfig) error {
 	handler := &webdav.Handler{
 		FileSystem: webdav.Dir(cfg.RootPath),
@@ -91,14 +126,13 @@ func (m *Manager) startWebDAV(id uint, cfg *model.StorageConfig) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// 基础认证
-		if cfg.Username != "" {
-			user, pass, ok := r.BasicAuth()
-			if !ok || user != cfg.Username || pass != cfg.Password {
-				w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
+		// 基础认证。凭据已由 ValidateCredentials 保证非空；
+		// 比较使用常量时间函数，避免通过响应时间侧信道逐字节推断口令。
+		user, pass, ok := r.BasicAuth()
+		if !ok || !constantTimeEqual(user, cfg.Username) || !constantTimeEqual(pass, cfg.Password) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
 		}
 		handler.ServeHTTP(w, r)
 	})
@@ -135,14 +169,12 @@ func (m *Manager) startSFTP(id uint, cfg *model.StorageConfig) error {
 		return fmt.Errorf("获取 SSH 主机密钥失败: %w", err)
 	}
 
-	// 配置 SSH 服务器
+	// 配置 SSH 服务器。
+	// 凭据已由 ValidateCredentials 保证非空；原实现在用户名为空时直接放行任意
+	// 登录（连口令都不校验），等于把共享目录以匿名 SFTP 暴露出去。
 	sshConfig := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			if cfg.Username == "" {
-				// 未设置用户名，允许任意登录
-				return nil, nil
-			}
-			if c.User() == cfg.Username && string(pass) == cfg.Password {
+			if constantTimeEqual(c.User(), cfg.Username) && constantTimeEqual(string(pass), cfg.Password) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("用户名或密码错误")
@@ -311,10 +343,29 @@ func (m *Manager) startSMB(id uint, cfg *model.StorageConfig) error {
 		return fmt.Errorf("%s", errMsg)
 	}
 
+	// 用户名会同时进入 smb.conf 和 useradd/smbpasswd 的参数列表：
+	// 含换行可注入任意 smb.conf 指令，以 '-' 开头会被 useradd 当作选项解析
+	if cfg.Username != "" {
+		if err := validateSystemUsername(cfg.Username); err != nil {
+			m.db.Model(&model.StorageConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+				"status":     "error",
+				"last_error": err.Error(),
+			})
+			return err
+		}
+	}
+
 	// 生成 Samba 配置文件
 	confPath := fmt.Sprintf("%s/smb_%d.conf", m.dataDir, id)
 	shareName := fmt.Sprintf("netpanel_%d", id)
 	if cfg.Name != "" {
+		if err := validateShareName(cfg.Name); err != nil {
+			m.db.Model(&model.StorageConfig{}).Where("id = ?", id).Updates(map[string]interface{}{
+				"status":     "error",
+				"last_error": err.Error(),
+			})
+			return err
+		}
 		shareName = cfg.Name
 	}
 
@@ -372,9 +423,10 @@ func (m *Manager) startSMB(id uint, cfg *model.StorageConfig) error {
 	// 如果设置了用户名密码，需要创建 Samba 用户
 	if cfg.Username != "" && cfg.Password != "" {
 		// 确保系统用户存在（忽略已存在的错误）
-		exec.Command("useradd", "-M", "-s", "/sbin/nologin", cfg.Username).Run()
+		// "--" 终止选项解析，确保用户名不会被当作命令行选项
+		exec.Command("useradd", "-M", "-s", "/sbin/nologin", "--", cfg.Username).Run()
 		// 设置 Samba 密码
-		cmd := exec.Command("smbpasswd", "-a", "-s", cfg.Username)
+		cmd := exec.Command("smbpasswd", "-a", "-s", "--", cfg.Username)
 		cmd.Stdin = strings.NewReader(cfg.Password + "\n" + cfg.Password + "\n")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			m.log.Warnf("[SMB] 设置 Samba 用户密码失败: %v, output: %s", err, string(out))
