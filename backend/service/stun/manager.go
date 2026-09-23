@@ -157,6 +157,42 @@ func (m *Manager) GetStunStatus(id uint) string {
 	return ""
 }
 
+// P2PScore 返回该 NAT 类型下 UDP 打洞（P2P 直连）的可行程度评分（0-100）。
+// 依据 EasyTier/Tailscale 实践总结的打洞矩阵：
+//   - 双方均为 Cone 类 NAT（1~3）可打洞；对称 NAT 之间基本失败
+//   - 评分仅描述"本端"条件，实际成功率还取决于对端 NAT 类型与运营商策略
+func P2PScore(t NATType) int {
+	switch t {
+	case NATTypeOpenInternet, NATTypeFullCone:
+		return 100
+	case NATTypeRestrictedCone:
+		return 85
+	case NATTypePortRestricted:
+		return 70
+	case NATTypeSymmetricFirewall:
+		return 40
+	case NATTypeSymmetric:
+		return 10
+	case NATTypeBlocked:
+		return 0
+	default:
+		return 50
+	}
+}
+
+// CheckNow 按需对指定 STUN 服务器执行一次 NAT 类型探测（不依赖已建规则）。
+// stunServer 为空时使用默认公共服务器。
+func (m *Manager) CheckNow(stunServer string) (*NATInfo, error) {
+	if stunServer == "" {
+		stunServer = "stun.miwifi.com:3478"
+	}
+	info, err := detectNATType(stunServer)
+	if err != nil && info == nil {
+		return nil, err
+	}
+	return info, err
+}
+
 // runLoop 主循环：定时检测 + 指数退避重试
 func (m *Manager) runLoop(ctx context.Context, id uint, entry *stunEntry) {
 	defer func() {
