@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -37,6 +38,14 @@ const (
 // quickURLRe 匹配 cloudflared quick 模式日志中的临时隧道地址，
 // 形如 https://<random>.trycloudflare.com
 var quickURLRe = regexp.MustCompile(`(?i)https://[a-z0-9-]+\.trycloudflare\.com(?:\s|$)`)
+
+// tunnelUUIDRe 匹配标准 8-4-4-4-12 格式 UUID（隧道公网入口要求 UUID）
+var tunnelUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// isTunnelUUID 判断字符串是否为合法隧道 UUID
+func isTunnelUUID(s string) bool {
+	return tunnelUUIDRe.MatchString(strings.TrimSpace(s))
+}
 
 // processEntry 单个 cloudflared 进程
 type processEntry struct {
@@ -84,10 +93,10 @@ func (r *ringBuffer) lines() []string {
 
 // Manager Cloudflare Tunnel 管理器
 type Manager struct {
-	db      *gorm.DB
-	log     *logrus.Logger
-	dataDir string
-	tunnels sync.Map // map[uint]*processEntry
+	db       *gorm.DB
+	log      *logrus.Logger
+	dataDir  string
+	tunnels  sync.Map // map[uint]*processEntry
 	stopping bool
 	mu       sync.Mutex
 }
@@ -179,6 +188,15 @@ func (m *Manager) Start(id uint) error {
 			"last_error": err.Error(),
 		})
 		return err
+	}
+
+	// named 模式：解析隧道 UUID 并写回数据库，供线路注册中心生成可探测的
+	// <UUID>.cfargotunnel.com 线路地址（隧道名称无法在本地解析为 UUID）
+	if cfg.Mode == "named" {
+		if uid := m.resolveTunnelUUID(&cfg); uid != "" && uid != cfg.TunnelID {
+			m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("tunnel_id", uid)
+			m.log.Infof("[CF隧道][%d] 已解析隧道 UUID: %s", id, uid)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -430,6 +448,45 @@ func (m *Manager) buildArgs(cfg *model.CftunnelConfig) (args []string, env []str
 	default:
 		return nil, nil, fmt.Errorf("未知模式: %q（可选 quick/named/token）", cfg.Mode)
 	}
+}
+
+// resolveTunnelUUID 解析 named 隧道的公网入口 UUID。公网入口固定为
+// <UUID>.cfargotunnel.com；隧道名称需要调 CF API 才能解析成 UUID，本地无法完成，
+// 因此仅在 TunnelName 本身是 UUID、或可从凭据文件中读取时返回。
+func (m *Manager) resolveTunnelUUID(cfg *model.CftunnelConfig) string {
+	if isTunnelUUID(cfg.TunnelName) {
+		return strings.TrimSpace(cfg.TunnelName)
+	}
+	if cfg.CredentialsFile != "" {
+		if id := readTunnelIDFromCredentials(cfg.CredentialsFile); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+// readTunnelIDFromCredentials 从 cloudflared 凭据 JSON 中解析隧道 UUID，
+// 兼容两种字段格式：完整命名 {"AccountTag","TunnelID","TunnelSecret"}
+// 与缩写 {"a","t","s"}。
+func readTunnelIDFromCredentials(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var cred struct {
+		TunnelID string `json:"TunnelID"`
+		T        string `json:"t"`
+	}
+	if json.Unmarshal(data, &cred) != nil {
+		return ""
+	}
+	if isTunnelUUID(cred.TunnelID) {
+		return cred.TunnelID
+	}
+	if isTunnelUUID(cred.T) {
+		return cred.T
+	}
+	return ""
 }
 
 // tunnelNameRe 隧道名称/UUID 白名单：字母数字开头，允许 . _ - ，长度 1-63。

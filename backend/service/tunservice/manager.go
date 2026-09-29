@@ -194,6 +194,32 @@ func (m *Manager) History(id uint, limit int) (map[string][]model.ProbeHistory, 
 	return result, nil
 }
 
+// Candidates 返回当前全部可选线路（来自 selector 快照），供服务关联
+// 线路时下拉选择。线路由 linereg 周期刷新注册；面板刚启动、首轮刷新
+// 完成前列表可能为空。
+func (m *Manager) Candidates() []LineInfo {
+	out := []LineInfo{}
+	if m.linereg == nil {
+		return out
+	}
+	st := m.linereg.Selector().Snapshot()
+	for _, l := range st.Lines {
+		info := LineInfo{
+			ID:      l.ID,
+			Name:    l.Name,
+			Tool:    l.Tool,
+			Address: l.Address,
+			Layer:   layerFor(l),
+			Status:  m.toolStatus(l.ID),
+		}
+		if r, ok := st.Results[l.ID]; ok && r.Err == nil {
+			info.Latency = int64(latencyOf(r))
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
 // buildView 组装服务视图：解析 LineRefs，逐条取线路信息并聚合状态。
 func (m *Manager) buildView(s *model.TunService) ServiceView {
 	v := ServiceView{TunService: *s, Lines: []LineInfo{}}
@@ -278,7 +304,7 @@ type SpeedtestLine struct {
 	Address string `json:"address"`
 	Layer   string `json:"layer"`
 	// Latency 有效延迟（ns）；探测失败为 0。
-	Latency int64  `json:"latency"`
+	Latency int64 `json:"latency"`
 	// Error 非空表示本次探测失败（超时/拒绝等）。
 	Error string `json:"error,omitempty"`
 }

@@ -64,6 +64,16 @@ const TunService: React.FC = () => {
     const [speedtestLoading, setSpeedtestLoading] = useState(false)
     const [speedtestRow, setSpeedtestRow] = useState<any>(null)
     const [speedtestData, setSpeedtestData] = useState<any[]>([])
+    const [candidateLines, setCandidateLines] = useState<any[]>([])
+
+    const loadCandidates = async () => {
+        try {
+            const res = await tunserviceApi.candidates(0)
+            setCandidateLines(res?.data || [])
+        } catch {
+            setCandidateLines([])
+        }
+    }
 
     const load = async () => {
         setLoading(true)
@@ -77,6 +87,7 @@ const TunService: React.FC = () => {
 
     useEffect(() => {
         load()
+        loadCandidates()
         const timer = setInterval(load, 5000)
         return () => clearInterval(timer)
     }, [])
@@ -84,30 +95,43 @@ const TunService: React.FC = () => {
     const openCreate = () => {
         setEditing(null)
         form.resetFields()
-        form.setFieldsValue({protocol: 'tcp', enable: false, line_refs: '[]'})
+        form.setFieldsValue({protocol: 'tcp', enable: false, line_refs: []})
         setModalOpen(true)
     }
 
     const openEdit = (row: any) => {
         setEditing(row)
         form.resetFields()
+        // line_refs 在模型里是 JSON 字符串，表单的多选框需要数组
+        let refs: string[] = []
+        try {
+            const parsed = JSON.parse(row.line_refs || '[]')
+            if (Array.isArray(parsed)) refs = parsed
+        } catch {
+            refs = []
+        }
         form.setFieldsValue({
             ...row,
-            line_refs: row.line_refs || '[]',
+            line_refs: refs,
         })
         setModalOpen(true)
     }
 
     const submit = async () => {
         const values = await form.validateFields()
-        // 归一化 line_refs：接受 JSON 字符串
-        if (typeof values.line_refs === 'string') {
+        // 归一化 line_refs：多选框产出数组，序列化为模型要求的 JSON 字符串；
+        // 兼容直接传入 JSON 字符串的旧用法
+        if (Array.isArray(values.line_refs)) {
+            values.line_refs = JSON.stringify(values.line_refs)
+        } else if (typeof values.line_refs === 'string') {
             try {
                 JSON.parse(values.line_refs)
             } catch {
                 message.error(t('tunservice.lineRefsInvalid'))
                 return
             }
+        } else {
+            values.line_refs = '[]'
         }
         try {
             if (editing) {
@@ -407,7 +431,15 @@ const TunService: React.FC = () => {
                         label={t('tunservice.lineRefs')}
                         tooltip={t('tunservice.lineRefsTip')}
                     >
-                        <Input.TextArea rows={3} placeholder='["frp:1","cftunnel:2"]'/>
+                        <Select
+                            mode="tags"
+                            allowClear
+                            placeholder={t('tunservice.lineRefsSelect')}
+                            options={candidateLines.map((l: any) => ({
+                                value: l.id,
+                                label: `${l.name || l.id} · ${l.tool}${l.address ? ` · ${l.address}` : ''}`,
+                            }))}
+                        />
                     </Form.Item>
                     <Form.Item name="locked_line" label={t('tunservice.lockLine')}>
                         <Select allowClear placeholder={t('tunservice.auto')}>
