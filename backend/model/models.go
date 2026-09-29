@@ -148,8 +148,9 @@ type FrpcConfig struct {
 	NatHoleStunServer string `gorm:"size:255" json:"nat_hole_stun_server"`
 	// 自定义 DNS 服务器地址
 	DNSServer string `gorm:"size:255" json:"dns_server"`
-	// 第一次登录失败后是否退出，默认 true
-	LoginFailExit bool `gorm:"default:true" json:"login_fail_exit"`
+	// LoginFailExit: frp 首次登录失败后是否退出进程。默认 false（持续重试），
+	// 避免服务端短暂不可达时隧道静默死亡（配合 manager 的自动重启兜底）
+	LoginFailExit bool `gorm:"default:false" json:"login_fail_exit"`
 	// UDP 最大包长度（字节），默认 1500
 	UDPPacketSize int `gorm:"default:1500" json:"udp_packet_size"`
 	// Web 管理端口
@@ -563,6 +564,10 @@ type CftunnelConfig struct {
 	LocalURL string `gorm:"size:500" json:"local_url"`
 	// named 模式：隧道名称或 UUID
 	TunnelName string `gorm:"size:255" json:"tunnel_name"`
+	// named 模式：隧道 UUID（公网入口为 <UUID>.cfargotunnel.com）。
+	// 用户填的是隧道名称时，启动时从凭据文件解析出 UUID 并写回此字段，
+	// 供线路注册中心生成可探测的线路地址
+	TunnelID string `gorm:"size:64" json:"tunnel_id"`
 	// named 模式：凭据文件路径（可选，默认 ~/.cloudflared/<uuid>.json）
 	CredentialsFile string `gorm:"size:500" json:"credentials_file"`
 	// named 模式：配置文件路径（可选，默认为临时生成的 config.yml）
