@@ -60,12 +60,14 @@ func seedData(db *gorm.DB) {
 	db.Model(&peerB).Update("enable", false)
 	db.Create(&model.WireguardPeer{WireguardID: wg.ID, Name: "无端点", Enable: true, PublicKey: "CCC", Endpoint: ""})
 
-	// CF 隧道：仅 named 模式注册为线路
-	db.Create(&model.CftunnelConfig{Name: "cf named", Enable: true, Mode: "named", TunnelName: "my-tunnel", LocalURL: "http://127.0.0.1:8080"})
+	// CF 隧道：仅 named 模式且能解析出隧道 UUID 的注册为线路
+	db.Create(&model.CftunnelConfig{Name: "cf named", Enable: true, Mode: "named", TunnelName: "d40b1a2c-3f4e-4a5b-8c6d-7e8f9a0b1c2d", LocalURL: "http://127.0.0.1:8080"})
 	db.Create(&model.CftunnelConfig{Name: "cf quick", Enable: true, Mode: "quick", LocalURL: "http://127.0.0.1:8081"})
 	db.Create(&model.CftunnelConfig{Name: "cf token", Enable: true, Mode: "token", Token: "eyJhIjoi"})
 	db.Create(&model.CftunnelConfig{Name: "cf 停用", Enable: false, Mode: "named", TunnelName: "off-tunnel"})
 	db.Create(&model.CftunnelConfig{Name: "cf 无名", Enable: true, Mode: "named", TunnelName: ""})
+	// 隧道名称无法本地解析为 UUID：不注册，等 cftunnel 启动时从凭据文件解析写回
+	db.Create(&model.CftunnelConfig{Name: "cf 名称未解析", Enable: true, Mode: "named", TunnelName: "my-tunnel"})
 }
 
 func TestBuildLines(t *testing.T) {
@@ -123,17 +125,17 @@ func TestBuildLines(t *testing.T) {
 		}
 	}
 
-	// cftunnel：仅 named 模式且有隧道名的注册为线路
+	// cftunnel：仅 named 模式且可解析出隧道 UUID 的注册为线路
 	if l, ok := byID["cftunnel:1"]; !ok {
 		t.Error("缺少 cftunnel:1")
-	} else if l.Address != "my-tunnel.cfargotunnel.com:443" || l.Tool != "cloudflare" {
+	} else if l.Address != "d40b1a2c-3f4e-4a5b-8c6d-7e8f9a0b1c2d.cfargotunnel.com:443" || l.Tool != "cloudflare" {
 		t.Errorf("cftunnel:1 地址/工具错误: %+v", l)
 	} else if l.Layer != "domain" {
 		t.Errorf("cftunnel:1 应为域名层(domain), got %q", l.Layer)
 	}
-	for _, id := range []string{"cftunnel:2", "cftunnel:3", "cftunnel:4", "cftunnel:5"} {
+	for _, id := range []string{"cftunnel:2", "cftunnel:3", "cftunnel:4", "cftunnel:5", "cftunnel:6"} {
 		if _, ok := byID[id]; ok {
-			t.Errorf("%s 不应被收集（quick/token/停用/无名）", id)
+			t.Errorf("%s 不应被收集（quick/token/停用/无名/名称未解析）", id)
 		}
 	}
 }
