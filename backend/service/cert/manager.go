@@ -854,7 +854,7 @@ func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domain
 		return nil, fmt.Errorf("finalize 订单失败: %w", err)
 	}
 
-	// 等待订单完成
+	// 等待订单完成（ACME 轮询，最长 30s）
 	for i := 0; i < 10; i++ {
 		if orderResp.Status == "valid" {
 			break
@@ -862,6 +862,8 @@ func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domain
 		if orderResp.Status == "invalid" {
 			return nil, fmt.Errorf("订单状态无效: %s", orderResp.Status)
 		}
+		// 注意：此循环在 HTTP 请求上下文中执行，中断等待无意义，
+		// 保持固定 3s 间隔轮询（ACME 服务端状态变化本身以分钟计）。
 		time.Sleep(3 * time.Second)
 		orderResp, err = core.Orders.Get(order.Location)
 		if err != nil {
