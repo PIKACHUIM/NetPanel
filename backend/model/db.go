@@ -48,6 +48,7 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 
 	// 历史遗留表数据迁移
 	migrateLegacyCloudflareTunnels(db)
+	migrateLegacyUserRoles(db)
 
 	// 初始化默认数据
 	initDefaultData(db)
@@ -233,4 +234,22 @@ func initDefaultData(db *gorm.DB) {
 	}
 	ensureConfig("language", "zh")
 	ensureConfig("theme", "light")
+}
+
+// migrateLegacyUserRoles 把旧 IsAdmin 字段语义迁移到新的 Roles 列。
+// 首次升级：roles 列已存在但全为空时，根据 is_admin 回填 "admin" 或 "viewer"。
+// 幂等：roles 非空时跳过。
+func migrateLegacyUserRoles(db *gorm.DB) {
+	var changed int64
+	result := db.Model(&User{}).Where("roles = '' OR roles IS NULL").Updates(map[string]interface{}{
+		"roles": gorm.Expr("CASE WHEN is_admin THEN ? ELSE ? END", RoleAdmin, RoleViewer),
+	})
+	if result.Error != nil {
+		return
+	}
+	changed = result.RowsAffected
+	if changed == 0 {
+		return
+	}
+	db.Exec("UPDATE users SET is_admin = roles LIKE '%admin%'")
 }

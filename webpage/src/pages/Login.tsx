@@ -150,7 +150,7 @@ const LoginPage: React.FC = () => {
   const tableStyle = useTableStyle()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { token, setToken, setUsername, uiMode, setUIMode, wallpaper, setWallpaper, language, setLanguage } = useAppStore()
+  const { token, setToken, setUsername, setRoles, uiMode, setUIMode, wallpaper, setWallpaper, language, setLanguage } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [providers, setProviders] = useState<OAuthProvider[]>([])
   const [visible, setVisible] = useState(false)
@@ -194,6 +194,7 @@ const LoginPage: React.FC = () => {
       }
       setToken(res.data?.token)
       setUsername(values.username)
+      setRoles(res.data?.roles || '')
       message.success(t('login.loginSuccess'))
       navigate(redirectUrl || '/dashboard')
     } catch {
