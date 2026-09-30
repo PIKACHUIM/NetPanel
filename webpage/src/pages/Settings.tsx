@@ -28,8 +28,10 @@ const Settings: React.FC = () => {
   // 测速弹窗开关（SystemConfig: speedtest_popup_enabled，默认开启）
   const [speedtestEnabled, setSpeedtestEnabled] = useState(true)
   const [speedtestLoaded, setSpeedtestLoaded] = useState(false)
+  // IPv6 状态卡片
+  const [ipv6, setIpv6] = useState<{ has_global: boolean; public_reachable: boolean; global_addresses: string[] } | null>(null)
 
-  // 读取系统配置中的测速弹窗开关
+  // 读取系统配置中的测速弹窗开关与 IPv6 状态
   const loadSpeedtestSwitch = async () => {
     try {
       const res = await systemApi.getConfig()
@@ -39,6 +41,12 @@ const Settings: React.FC = () => {
       }
     } catch {
       // 读取失败保持默认开启
+    }
+    try {
+      const res = await systemApi.getIPv6Info()
+      setIpv6(res?.data ?? null)
+    } catch {
+      // IPv6 检测失败不阻塞页面
     }
   }
   if (!speedtestLoaded) {
@@ -205,6 +213,54 @@ const Settings: React.FC = () => {
                 </div>
               </div>
             </div>
+          </Card>
+        </Col>
+        {/* IPv6 状态 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <GlobalOutlined style={{ color: '#0071e3' }} />
+                {t('settings.ipv6.title')}
+              </Space>
+            }
+            style={{ borderRadius: 8 }}
+          >
+            {!ipv6 ? (
+              <Text type="secondary">{t('settings.ipv6.checking')}</Text>
+            ) : (
+              <div style={{ lineHeight: 2 }}>
+                <div>
+                  <Text type="secondary">{t('settings.ipv6.globalAddr')}</Text>
+                  {ipv6.has_global ? (
+                    <Tag color="green">{t('settings.ipv6.yes')}</Tag>
+                  ) : (
+                    <Tag color="default">{t('settings.ipv6.none')}</Tag>
+                  )}
+                </div>
+                {ipv6.has_global && (
+                  <div>
+                    <Text type="secondary">{t('settings.ipv6.reachable')}</Text>
+                    {ipv6.public_reachable ? (
+                      <Tag color="green">{t('settings.ipv6.reachableOk')}</Tag>
+                    ) : (
+                      <Tag color="orange">{t('settings.ipv6.reachableFail')}</Tag>
+                    )}
+                  </div>
+                )}
+                {ipv6.has_global && (
+                  <div>
+                    <Text type="secondary">{t('settings.ipv6.addresses')}</Text>
+                    {ipv6.global_addresses.map((a) => (
+                      <Tag key={a} color="blue" style={{ fontFamily: 'monospace' }}>{a}</Tag>
+                    ))}
+                  </div>
+                )}
+                {!ipv6.has_global && (
+                  <Text type="secondary">{t('settings.ipv6.noGlobalTip')}</Text>
+                )}
+              </div>
+            )}
           </Card>
         </Col>
       </Row>

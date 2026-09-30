@@ -1607,6 +1607,18 @@ const en = {
     speedtestPopup: 'Speed Test Popup',
     speedtestPopupTip: 'Show ⚡ speed test button on TunService page for instant line probing',
     about: 'About',
+    ipv6: {
+      title: 'IPv6 Status',
+      checking: 'Checking…',
+      globalAddr: 'Global Address',
+      yes: 'Yes',
+      none: 'None',
+      reachable: 'Outbound Reachability',
+      reachableOk: 'Reachable',
+      reachableFail: 'Unreachable',
+      addresses: 'Addresses',
+      noGlobalTip: 'No global IPv6 address detected. Check whether your router assigns an IPv6 prefix.',
+    },
   },
   // Tunnel services
   tunservice: {

@@ -352,6 +352,7 @@ export const systemApi = {
   updateConfig: (data: any) => request.put('/v1/system/config', data),
   changePassword: (data: any) => request.post('/v1/system/change-password', data),
   getInterfaces: () => request.get('/v1/system/interfaces'),
+  getIPv6Info: () => request.get('/v1/system/ipv6'),
   login: (data: any) => request.post('/v1/auth/login', data),
 }
 
