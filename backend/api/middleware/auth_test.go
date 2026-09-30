@@ -20,9 +20,9 @@ func newTestRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	auth := r.Group("")
-	auth.Use(JWTAuth())
+	auth.Use(JWTAuth(nil))
 	admin := r.Group("")
-	admin.Use(JWTAuth(), AdminOnly())
+	admin.Use(JWTAuth(nil), AdminOnly())
 	auth.GET("/open", func(c *gin.Context) { c.String(200, "ok") })
 	admin.GET("/admin-only", func(c *gin.Context) { c.String(200, "ok") })
 	return r
@@ -30,7 +30,7 @@ func newTestRouter(t *testing.T) *gin.Engine {
 
 func tokenFor(t *testing.T, username string, userID uint, admin bool) string {
 	t.Helper()
-	tok, err := GenerateToken(username, userID, admin)
+	tok, err := GenerateToken(username, userID, admin, 1)
 	if err != nil {
 		t.Fatalf("生成 token 失败: %v", err)
 	}
