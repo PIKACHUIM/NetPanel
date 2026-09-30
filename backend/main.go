@@ -36,6 +36,7 @@ import (
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/frpmaster"
 	"github.com/netpanel/netpanel/service/linereg"
 	"github.com/netpanel/netpanel/service/mcp"
 	"github.com/netpanel/netpanel/service/meshnode"
@@ -221,6 +222,7 @@ func startServer() *http.Server {
 	portforwardMgr := portforward.NewManager(db, logPortforward)
 	stunMgr := stun.NewManager(db, logStun)
 	frpMgr := frp.NewManager(db, logFrp)
+	frpMasterMgr := frpmaster.NewManager(db, log)
 	npsMgr := nps.NewManager(db, logNps, *dataDir)
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
@@ -246,7 +248,7 @@ func startServer() *http.Server {
 	// AI 管理器
 	logAi := logger.NewDBLogger(log, "ai")
 	aiMgr := ai.NewManager(db, logAi)
-	
+
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
@@ -260,6 +262,8 @@ func startServer() *http.Server {
 	// 切换落地：选线结果变化时热加载 Caddy 反代目标（域名层）与 DNS 解析（DNS 层）
 	lineregMgr.SetCaddyUpdater(caddyMgr.UpdateUpstream)
 	lineregMgr.SetDNSUpdater(dnsmasqMgr.SetRecord)
+	// 远程线路合并：frpc Master 在线节点作为候选线路参与自动测速选线
+	lineregMgr.SetRemoteLineProvider(frpMasterMgr.Lines)
 
 	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
 	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,
@@ -306,7 +310,7 @@ func startServer() *http.Server {
 	lineregMgr.Start()
 	// 系统防火墙规则定时同步（此前 StartAutoSync 无任何调用者，功能实际未生效）
 	firewallMgr.StartAutoSync()
-	
+
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
 		log.Errorf("监控服务启动失败: %v", err)
@@ -327,6 +331,7 @@ func startServer() *http.Server {
 		PortForwardMgr: portforwardMgr,
 		StunMgr:        stunMgr,
 		FrpMgr:         frpMgr,
+		FrpMasterMgr:   frpMasterMgr,
 		NpsMgr:         npsMgr,
 		EasytierMgr:    easytierMgr,
 		CftunnelMgr:    cftunnelMgr,
