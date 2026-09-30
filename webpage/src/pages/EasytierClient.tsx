@@ -15,6 +15,8 @@ import { useTranslation } from 'react-i18next'
 import { easytierClientApi } from '../api'
 import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
+import SectionTitle from '../components/SectionTitle'
+import { CheckboxGrid, FieldRow } from '../components/ConfigFields'
 import { SimpleList, AddrList, ProtoPortList } from '../components/FormListFields'
 import { useTableStyle } from '../hooks/useTableStyle'
 import {
@@ -24,14 +26,15 @@ import {
 
 const { Text } = Typography
 
-// 分组标题
-const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
-    <div style={{ width: 3, height: 14, background: '#0071e3', borderRadius: 2, flexShrink: 0 }} />
-    <span style={{ fontSize: 12, fontWeight: 600, color: '#595959', letterSpacing: '0.02em' }}>{children}</span>
-    <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
-  </div>
-)
+// 日志级别选项（控制台与文件日志共用）
+const LOG_LEVEL_OPTIONS = [
+  { label: 'trace', value: 'trace' },
+  { label: 'debug', value: 'debug' },
+  { label: 'info', value: 'info' },
+  { label: 'warn', value: 'warn' },
+  { label: 'error', value: 'error' },
+  { label: 'off', value: 'off' },
+]
 
 const PROTOCOL_OPTIONS = [
   { label: 'TCP', value: 'tcp' },
@@ -360,74 +363,36 @@ const EasytierClient: React.FC = () => {
   // ===== Tab 1: 基本配置 =====
   const tabBasic = (
     <>
-      <Row gutter={16}>
-        <Col span={20}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请填写名称' }]}>
-            <Input placeholder="节点名称" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={4}>
-          <Form.Item name="enable" label="启用" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="network_name" label="网络名称" rules={[{ required: true, message: '请填写网络名称' }]}>
-            <Input placeholder="my-network" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="network_password" label="网络密码">
-            <Input.Password placeholder="留空不设密码" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={10}>
-          <Form.Item
-            name="virtual_ip_addr"
-            label="虚拟 IPv4"
-            extra={<span style={{ fontSize: 11 }}>如 <code>10.144.144.1</code>，DHCP 时无效</span>}
-          >
-            <Input placeholder="10.144.144.1" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={6}>
-          <Form.Item
-            name="virtual_ip_prefix"
-            label="前缀长度"
-            extra={<span style={{ fontSize: 11 }}>子网掩码位数</span>}
-          >
-            <InputNumber min={0} max={32} placeholder="24" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={8}>
-          <Form.Item name="enable_dhcp" label="DHCP 自动分配" valuePropName="checked" extra={<span style={{ fontSize: 11 }}>自动分配虚拟 IP，忽略上方 IP</span>}>
-            <Switch />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="ipv6" label="虚拟 IPv6" extra={<span style={{ fontSize: 11 }}>可与 IPv4 同时使用（双栈）</span>}>
-            <Input placeholder="可选，如 fd00::1" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="hostname" label="主机名" extra={<span style={{ fontSize: 11 }}>留空使用系统主机名</span>}>
-            <Input placeholder="自定义主机名（可选）" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="instance_name" label="实例名称" extra={<span style={{ fontSize: 11 }}>同机多节点时用于区分，留空使用默认</span>}>
-            <Input placeholder="可选，如 node1" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
+      <FieldRow
+        fields={[
+          { name: 'name', label: '名称', span: 20, placeholder: '节点名称', rules: [{ required: true, message: '请填写名称' }] },
+          { name: 'enable', label: '启用', type: 'switch', span: 4 },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'network_name', label: '网络名称', placeholder: 'my-network', rules: [{ required: true, message: '请填写网络名称' }] },
+          { name: 'network_password', label: '网络密码', type: 'password', placeholder: '留空不设密码' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'virtual_ip_addr', label: '虚拟 IPv4', span: 10, placeholder: '10.144.144.1', hint: <>如 <code>10.144.144.1</code>，DHCP 时无效</> },
+          { name: 'virtual_ip_prefix', label: '前缀长度', type: 'number', span: 6, min: 0, max: 32, placeholder: '24', hint: '子网掩码位数' },
+          { name: 'enable_dhcp', label: 'DHCP 自动分配', type: 'switch', span: 8, hint: '自动分配虚拟 IP，忽略上方 IP' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'ipv6', label: '虚拟 IPv6', placeholder: '可选，如 fd00::1', hint: '可与 IPv4 同时使用（双栈）' },
+          { name: 'hostname', label: '主机名', placeholder: '自定义主机名（可选）', hint: '留空使用系统主机名' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'instance_name', label: '实例名称', placeholder: '可选，如 node1', hint: '同机多节点时用于区分，留空使用默认' },
+        ]}
+      />
       <Form.Item name="remark" label="备注">
         <Input.TextArea rows={2} placeholder="备注（可选）" style={{ width: '100%' }} />
       </Form.Item>
@@ -477,35 +442,33 @@ const EasytierClient: React.FC = () => {
       </Form.Item>
 
       <SectionTitle>RPC 管理</SectionTitle>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="rpc_portal" label="RPC 门户地址"
-            extra={<span style={{ fontSize: 11 }}>如 <code>0</code>（随机）、<code>15888</code>、<code>0.0.0.0:15888</code></span>}
-          >
-            <Input placeholder="0（随机端口）" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="rpc_portal_whitelist" label="RPC 白名单"
-            extra={<span style={{ fontSize: 11 }}>如 <code>127.0.0.1/32,127.0.0.0/8</code></span>}
-          >
-            <Input placeholder="127.0.0.1/32,::1/128" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
+      <FieldRow
+        fields={[
+          {
+            name: 'rpc_portal', label: 'RPC 门户地址', placeholder: '0（随机端口）',
+            hint: <>如 <code>0</code>（随机）、<code>15888</code>、<code>0.0.0.0:15888</code></>,
+          },
+          {
+            name: 'rpc_portal_whitelist', label: 'RPC 白名单', placeholder: '127.0.0.1/32,::1/128',
+            hint: <>如 <code>127.0.0.1/32,127.0.0.0/8</code></>,
+          },
+        ]}
+      />
     </>
   )
 
   // ===== Tab 3: 路由与代理 =====
   const tabRouting = (
     <>
-      <Form.Item
-        name="relay_network_whitelist"
-        label="中继网络白名单"
-        extra={<span style={{ fontSize: 11 }}>允许为哪些网络提供中继，填 <code>*</code> 允许所有，留空不提供中继</span>}
-      >
-        <Input placeholder="留空不提供中继，填 * 允许所有" style={{ width: '100%' }} />
-      </Form.Item>
+      <FieldRow
+        fields={[
+          {
+            name: 'relay_network_whitelist', label: '中继网络白名单',
+            placeholder: '留空不提供中继，填 * 允许所有',
+            hint: <>允许为哪些网络提供中继，填 <code>*</code> 允许所有，留空不提供中继</>,
+          },
+        ]}
+      />
 
       <SectionTitle>出口节点</SectionTitle>
       <Form.Item extra={<span style={{ fontSize: 11 }}>使用指定节点的 IP 作为出口，如 <code>10.0.0.1</code></span>}>
@@ -576,27 +539,17 @@ const EasytierClient: React.FC = () => {
       </Form.List>
 
       <SectionTitle>TUN / 网卡</SectionTitle>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="dev_name" label="TUN 设备名" extra={<span style={{ fontSize: 11 }}>留空使用默认（如 tun0）</span>}>
-            <Input placeholder="tun0" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="mtu" label="MTU">
-            <InputNumber min={576} max={9000} placeholder="默认 1380" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="bind_device" label="绑定物理设备"
-            extra={<span style={{ fontSize: 11 }}>将套接字绑定到指定物理网卡，避免路由问题</span>}
-          >
-            <Input placeholder="如 eth0（可选）" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
+      <FieldRow
+        fields={[
+          { name: 'dev_name', label: 'TUN 设备名', placeholder: 'tun0', hint: '留空使用默认（如 tun0）' },
+          { name: 'mtu', label: 'MTU', type: 'number', min: 576, max: 9000, placeholder: '默认 1380' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'bind_device', label: '绑定物理设备', placeholder: '如 eth0（可选）', hint: '将套接字绑定到指定物理网卡，避免路由问题' },
+        ]}
+      />
     </>
   )
 
@@ -604,154 +557,64 @@ const EasytierClient: React.FC = () => {
   const tabFeatures = (
     <>
       <SectionTitle>网络模式</SectionTitle>
-      <Row gutter={[0, 4]}>
-        <Col span={12}>
-          <Form.Item name="latency_first" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>延迟优先模式 <Text type="secondary" style={{ fontSize: 11 }}>（--latency-first）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="use_smoltcp" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>用户态协议栈 <Text type="secondary" style={{ fontSize: 11 }}>（smoltcp）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="disable_ipv6" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁用 IPv6</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="accept_dns" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>启用 Magic DNS <Text type="secondary" style={{ fontSize: 11 }}>（--accept-dns）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="proxy_forward_by_system" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>系统内核转发子网代理 <Text type="secondary" style={{ fontSize: 11 }}>（--proxy-forward-by-system）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16} style={{ marginTop: 4 }}>
-        <Col span={12}>
-          <Form.Item name="tld_dns_zone" label="Magic DNS 顶级域名"
-            extra={<span style={{ fontSize: 11 }}>仅 accept-dns 启用时有效，默认 et.net.</span>}
-          >
-            <Input placeholder="et.net." style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="default_protocol" label="默认连接协议"
-            extra={<span style={{ fontSize: 11 }}>连接对等节点时使用的默认协议</span>}
-          >
-            <Select allowClear placeholder="默认自动" options={PROTOCOL_OPTIONS} style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
+      <CheckboxGrid
+        items={[
+          { name: 'latency_first', label: '延迟优先模式', hint: '（--latency-first）' },
+          { name: 'use_smoltcp', label: '用户态协议栈', hint: '（smoltcp）' },
+          { name: 'disable_ipv6', label: '禁用 IPv6' },
+          { name: 'accept_dns', label: '启用 Magic DNS', hint: '（--accept-dns）' },
+          { name: 'proxy_forward_by_system', label: '系统内核转发子网代理', hint: '（--proxy-forward-by-system）' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'tld_dns_zone', label: 'Magic DNS 顶级域名', placeholder: 'et.net.', hint: '仅 accept-dns 启用时有效，默认 et.net.' },
+          { name: 'default_protocol', label: '默认连接协议', type: 'select', allowClear: true, placeholder: '默认自动', options: PROTOCOL_OPTIONS, hint: '连接对等节点时使用的默认协议' },
+        ]}
+      />
 
       <SectionTitle>P2P 与打洞</SectionTitle>
-      <Row gutter={[0, 4]}>
-        <Col span={12}>
-          <Form.Item name="disable_p2p" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁用 P2P（强制中继）</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="p2p_only" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>仅 P2P（禁用中继）</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="relay_all_peer_rpc" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>中继所有对等 RPC</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="disable_tcp_hole_punching" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁用 TCP 打洞</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="disable_udp_hole_punching" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁用 UDP 打洞</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="disable_sym_hole_punching" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁用对称 NAT 打洞 <Text type="secondary" style={{ fontSize: 11 }}>（防运营商封锁）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-      </Row>
+      <CheckboxGrid
+        items={[
+          { name: 'disable_p2p', label: '禁用 P2P（强制中继）' },
+          { name: 'p2p_only', label: '仅 P2P（禁用中继）' },
+          { name: 'relay_all_peer_rpc', label: '中继所有对等 RPC' },
+          { name: 'disable_tcp_hole_punching', label: '禁用 TCP 打洞' },
+          { name: 'disable_udp_hole_punching', label: '禁用 UDP 打洞' },
+          { name: 'disable_sym_hole_punching', label: '禁用对称 NAT 打洞', hint: '（防运营商封锁）' },
+        ]}
+      />
 
       <SectionTitle>协议加速</SectionTitle>
-      <Row gutter={[0, 4]}>
-        <Col span={12}>
-          <Form.Item name="enable_kcp_proxy" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>启用 KCP 加速 <Text type="secondary" style={{ fontSize: 11 }}>（提升 UDP 丢包网络性能）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="disable_kcp_input" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁止其他节点 KCP 代理到本节点</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="enable_quic_proxy" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>启用 QUIC 加速 <Text type="secondary" style={{ fontSize: 11 }}>（提升 UDP 丢包网络性能）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="disable_quic_input" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁止其他节点 QUIC 代理到本节点</Checkbox>
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16} style={{ marginTop: 4 }}>
-        <Col span={12}>
-          <Form.Item name="quic_listen_port" label="QUIC 监听端口"
-            extra={<span style={{ fontSize: 11 }}>0 为随机端口</span>}
-          >
-            <InputNumber min={0} max={65535} placeholder="0（随机）" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
+      <CheckboxGrid
+        items={[
+          { name: 'enable_kcp_proxy', label: '启用 KCP 加速', hint: '（提升 UDP 丢包网络性能）' },
+          { name: 'disable_kcp_input', label: '禁止其他节点 KCP 代理到本节点' },
+          { name: 'enable_quic_proxy', label: '启用 QUIC 加速', hint: '（提升 UDP 丢包网络性能）' },
+          { name: 'disable_quic_input', label: '禁止其他节点 QUIC 代理到本节点' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'quic_listen_port', label: 'QUIC 监听端口', type: 'number', min: 0, max: 65535, placeholder: '0（随机）', hint: '0 为随机端口' },
+        ]}
+      />
 
       <SectionTitle>节点行为</SectionTitle>
-      <Row gutter={[0, 4]}>
-        <Col span={12}>
-          <Form.Item name="no_tun" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>No TUN 模式 <Text type="secondary" style={{ fontSize: 11 }}>（无需 Npcap）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="enable_exit_node" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>允许作为出口节点</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="multi_thread" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>多线程模式</Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="disable_relay_kcp" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>禁止转发 KCP 数据包 <Text type="secondary" style={{ fontSize: 11 }}>（防过度消耗流量）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="enable_relay_foreign_network_kcp" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>作为共享节点时转发其他网络 KCP</Checkbox>
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16} style={{ marginTop: 4 }}>
-        <Col span={12}>
-          <Form.Item name="multi_thread_count" label="多线程数量"
-            extra={<span style={{ fontSize: 11 }}>仅多线程模式有效，需大于 2，0 使用默认值 2</span>}
-          >
-            <InputNumber min={0} max={64} placeholder="0（默认2）" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
+      <CheckboxGrid
+        items={[
+          { name: 'no_tun', label: 'No TUN 模式', hint: '（无需 Npcap）' },
+          { name: 'enable_exit_node', label: '允许作为出口节点' },
+          { name: 'multi_thread', label: '多线程模式' },
+          { name: 'disable_relay_kcp', label: '禁止转发 KCP 数据包', hint: '（防过度消耗流量）' },
+          { name: 'enable_relay_foreign_network_kcp', label: '作为共享节点时转发其他网络 KCP' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'multi_thread_count', label: '多线程数量', type: 'number', min: 0, max: 64, placeholder: '0（默认2）', hint: '仅多线程模式有效，需大于 2，0 使用默认值 2' },
+        ]}
+      />
     </>
   )
 
@@ -759,24 +622,18 @@ const EasytierClient: React.FC = () => {
   const tabOther = (
     <>
       <SectionTitle>安全</SectionTitle>
-      <Row gutter={[0, 4]}>
-        <Col span={12}>
-          <Form.Item name="disable_encryption" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox><Text type="danger">禁用加密</Text> <Text type="secondary" style={{ fontSize: 11 }}>（不推荐）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="private_mode" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>私有模式 <Text type="secondary" style={{ fontSize: 11 }}>（仅允许已知节点握手/中转）</Text></Checkbox>
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16} style={{ marginTop: 4 }}>
-        <Col span={12}>
-          <Form.Item name="encryption_algorithm" label="加密算法"
-            extra={<span style={{ fontSize: 11 }}>留空使用默认（aes-gcm）</span>}
-          >
-            <Select allowClear placeholder="默认 aes-gcm" style={{ width: '100%' }} options={[
+      <CheckboxGrid
+        items={[
+          { name: 'disable_encryption', label: <Text type="danger">禁用加密</Text>, hint: '（不推荐）' },
+          { name: 'private_mode', label: '私有模式', hint: '（仅允许已知节点握手/中转）' },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          {
+            name: 'encryption_algorithm', label: '加密算法', type: 'select', allowClear: true,
+            placeholder: '默认 aes-gcm', hint: '留空使用默认（aes-gcm）',
+            options: [
               { label: '默认（aes-gcm）', value: '' },
               { label: 'AES-GCM', value: 'aes-gcm' },
               { label: 'AES-GCM-256', value: 'aes-gcm-256' },
@@ -785,10 +642,10 @@ const EasytierClient: React.FC = () => {
               { label: 'OpenSSL AES-128-GCM', value: 'openssl-aes128-gcm' },
               { label: 'OpenSSL AES-256-GCM', value: 'openssl-aes256-gcm' },
               { label: 'OpenSSL ChaCha20', value: 'openssl-chacha20' },
-            ]} />
-          </Form.Item>
-        </Col>
-      </Row>
+            ],
+          },
+        ]}
+      />
 
       <SectionTitle>节点密钥对</SectionTitle>
       <Row gutter={16}>
@@ -962,64 +819,26 @@ const EasytierClient: React.FC = () => {
       </Row>
 
       <SectionTitle>日志设置</SectionTitle>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="console_log_level" label="控制台日志级别">
-            <Select allowClear placeholder="默认" style={{ width: '100%' }} options={[
-              { label: 'trace', value: 'trace' },
-              { label: 'debug', value: 'debug' },
-              { label: 'info', value: 'info' },
-              { label: 'warn', value: 'warn' },
-              { label: 'error', value: 'error' },
-              { label: 'off', value: 'off' },
-            ]} />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="file_log_level" label="文件日志级别">
-            <Select allowClear placeholder="默认" style={{ width: '100%' }} options={[
-              { label: 'trace', value: 'trace' },
-              { label: 'debug', value: 'debug' },
-              { label: 'info', value: 'info' },
-              { label: 'warn', value: 'warn' },
-              { label: 'error', value: 'error' },
-              { label: 'off', value: 'off' },
-            ]} />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="file_log_dir" label="日志文件目录"
-            extra={<span style={{ fontSize: 11 }}>留空不写入文件日志</span>}
-          >
-            <Input placeholder="如 /var/log/easytier" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={6}>
-          <Form.Item name="file_log_size" label="单文件大小（MB）"
-            extra={<span style={{ fontSize: 11 }}>0 使用默认 100MB</span>}
-          >
-            <InputNumber min={0} placeholder="100" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-        <Col span={6}>
-          <Form.Item name="file_log_count" label="最大文件数量"
-            extra={<span style={{ fontSize: 11 }}>0 使用默认 10</span>}
-          >
-            <InputNumber min={0} placeholder="10" style={{ width: '100%' }} />
-          </Form.Item>
-        </Col>
-      </Row>
+      <FieldRow
+        fields={[
+          { name: 'console_log_level', label: '控制台日志级别', type: 'select', allowClear: true, placeholder: '默认', options: LOG_LEVEL_OPTIONS },
+          { name: 'file_log_level', label: '文件日志级别', type: 'select', allowClear: true, placeholder: '默认', options: LOG_LEVEL_OPTIONS },
+        ]}
+      />
+      <FieldRow
+        fields={[
+          { name: 'file_log_dir', label: '日志文件目录', placeholder: '如 /var/log/easytier', hint: '留空不写入文件日志' },
+          { name: 'file_log_size', label: '单文件大小（MB）', type: 'number', min: 0, placeholder: '100', hint: '0 使用默认 100MB' },
+          { name: 'file_log_count', label: '最大文件数量', type: 'number', min: 0, placeholder: '10', hint: '0 使用默认 10' },
+        ]}
+      />
 
       <SectionTitle>其他参数</SectionTitle>
-      <Form.Item
-        name="extra_args"
-        label="额外命令行参数"
-        extra={<span style={{ fontSize: 11 }}>其他不常用的参数，直接追加到命令行（兜底用）</span>}
-      >
-        <Input.TextArea rows={3} placeholder="--some-flag value" style={{ width: '100%' }} />
-      </Form.Item>
+      <FieldRow
+        fields={[
+          { name: 'extra_args', label: '额外命令行参数', type: 'textarea', rows: 3, placeholder: '--some-flag value', hint: '其他不常用的参数，直接追加到命令行（兜底用）' },
+        ]}
+      />
     </>
   )
 
