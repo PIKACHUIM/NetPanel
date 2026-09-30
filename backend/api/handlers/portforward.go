@@ -6,22 +6,42 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/portforward"
+	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 // PortForwardHandler 端口转发处理器
 type PortForwardHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
-	mgr *portforward.Manager
+	db       *gorm.DB
+	log      *logrus.Logger
+	mgr      *portforward.Manager
+	syslogMgr *syslog.Manager
 }
 
-func NewPortForwardHandler(db *gorm.DB, log *logrus.Logger, mgr *portforward.Manager) *PortForwardHandler {
-	return &PortForwardHandler{db: db, log: log, mgr: mgr}
+func NewPortForwardHandler(db *gorm.DB, log *logrus.Logger, mgr *portforward.Manager, syslogMgr *syslog.Manager) *PortForwardHandler {
+	return &PortForwardHandler{db: db, log: log, mgr: mgr, syslogMgr: syslogMgr}
+}
+
+// auditAudit 写入审计条目（脱敏：不暴露 token/cert）
+func (h *PortForwardHandler) auditAudit(c *gin.Context, action, msg string, id uint, before, after interface{}) {
+	if h.syslogMgr == nil {
+		return
+	}
+	actor := middleware.CurrentUserNameOrDefault(c, "")
+	// 简单脱敏：只保留基础字段，去掉敏感 token/cert
+	diff := diffJSON(before, after)
+	h.syslogMgr.AuditWrite(syslog.AuditParams{
+		Actor:        actor,
+		ActionType:   action,
+		ResourceType: "portforward",
+		ResourceID:   id,
+		AfterDiff:    diff,
+	})
 }
 
 // List 获取端口转发列表
@@ -56,7 +76,8 @@ func (h *PortForwardHandler) Create(c *gin.Context) {
 		}
 	}
 logger.WriteLog("info", "portforward", fmt.Sprintf("创建端口转发规则 [%d] %s:%d -> %s:%d", rule.ID, rule.ListenIP, rule.ListenPort, rule.TargetAddress, rule.TargetPort))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
+h.auditAudit(c, "CREATE", fmt.Sprintf("创建端口转发规则 [%d]", rule.ID), rule.ID, nil, rule)
+c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
 }
 
 // Update 更新端口转发规则
@@ -90,18 +111,28 @@ func (h *PortForwardHandler) Update(c *gin.Context) {
 	}
 
 	logger.WriteLog("info", "portforward", fmt.Sprintf("修改端口转发规则 [%d]", id))
+	h.auditAudit(c, "UPDATE", fmt.Sprintf("修改端口转发规则 [%d]", id), uint(id), &rule, &req)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 // Delete 删除端口转发规则
 func (h *PortForwardHandler) Delete(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.mgr.Stop(uint(id))
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	var rule model.PortForwardRule
+	if err := h.db.First(&rule, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "规则不存在"})
+		return
+	}
+	h.mgr.Stop(id)
 	if err := h.db.Delete(&model.PortForwardRule{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 	logger.WriteLog("info", "portforward", fmt.Sprintf("删除端口转发规则 [%d]", id))
+	h.auditAudit(c, "DELETE", fmt.Sprintf("删除端口转发规则 [%d]", id), uint(id), &rule, nil)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
