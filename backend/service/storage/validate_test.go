@@ -13,8 +13,16 @@ func TestValidateRootPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("合法目录应通过: %v", err)
 	}
-	if got != filepath.Clean(dir) {
-		t.Fatalf("应返回规范化绝对路径，got=%s want=%s", got, dir)
+	// ValidateRootPath 会调 filepath.EvalSymlinks 解析软链（用于防止用软链
+	// 绕过目录校验）。macOS 的 t.TempDir() 返回 /var/folders/...，
+	// 而它是指向 /private/var/folders/... 的符号链接，因此期望值必须
+	// 同样先解析软链，否则该断言只在没有软链的系统（如 Linux CI）上成立。
+	want := dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		want = resolved
+	}
+	if got != filepath.Clean(want) {
+		t.Fatalf("应返回规范化绝对路径，got=%s want=%s", got, filepath.Clean(want))
 	}
 
 	if _, err := ValidateRootPath(filepath.Join(dir, "not-exist")); err == nil {
@@ -34,6 +42,36 @@ func TestValidateRootPath(t *testing.T) {
 	}
 	if _, err := ValidateRootPath(dir + "\npath = /etc"); err == nil {
 		t.Error("含换行的路径应被拒绝（smb.conf 注入）")
+	}
+}
+
+// TestValidateRootPathResolvesSymlink 覆盖该函数防绕过的核心语义：
+// 传入指向别处的软链时，必须返回软链解析后的真实路径，
+// 否则攻击者可用软链把共享根目录指到 smb.conf 等敏感文件上。
+func TestValidateRootPathResolvesSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "real")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("当前环境不支持创建符号链接: %v", err)
+	}
+
+	got, err := ValidateRootPath(link)
+	if err != nil {
+		t.Fatalf("指向合法目录的软链应通过: %v", err)
+	}
+	if got == link {
+		t.Fatalf("应返回软链解析后的路径而非原软链路径 %s", got)
+	}
+	want := target
+	if resolved, err := filepath.EvalSymlinks(target); err == nil {
+		want = resolved
+	}
+	if got != filepath.Clean(want) {
+		t.Fatalf("软链应解析为目标目录，got=%s want=%s", got, filepath.Clean(want))
 	}
 }
 
