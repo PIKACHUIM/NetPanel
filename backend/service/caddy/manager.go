@@ -368,14 +368,22 @@ func (m *Manager) ensureCaddyRunning() error {
 		return fmt.Errorf("启动 Caddy 引擎失败: %w", err)
 	}
 
-	// 等待 Admin API 就绪
+	// 等待 Admin API 就绪（最多 10 × 200ms = 2s）
+	// 注意：最后一次探测失败后不再 sleep，否则会白白多等 200ms。
+	adminReady := false
 	for i := 0; i < 10; i++ {
 		resp, err := m.adminHTTP.Get(m.admin.baseURL + "/config/")
 		if err == nil {
 			resp.Body.Close()
+			adminReady = true
 			break
 		}
-		time.Sleep(200 * time.Millisecond)
+		if i < 9 {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	if !adminReady {
+		m.log.Warn("[Caddy] Admin API 在 2s 内未就绪，配置可能需要手动 reload")
 	}
 
 	m.started = true

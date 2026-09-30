@@ -5,7 +5,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/beego/beego"
 	"github.com/djylb/nps/lib/common"
@@ -71,8 +70,8 @@ func RunServerProcess(confDir string) {
 	// 启动服务端（StartNewServer 会阻塞）
 	go server.StartNewServer(bridgePort, task, bridgeType, timeout)
 
-	// 等待初始化完成
-	time.Sleep(200 * time.Millisecond)
+	// 无需等待初始化：StartNewServer 自行完成初始化，后续直接等待退出信号。
+	// 原先此处 200ms sleep 既不保证初始化完成，也不参与任何状态判定。
 
 	// 等待退出信号
 	quit := make(chan os.Signal, 1)

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -166,6 +167,14 @@ func (m *Manager) StartAll() {
 	}()
 }
 
+// isStopping 报告管理器是否已进入关闭流程。
+// watcher goroutine 用它中断崩溃重启前的延迟等待，避免关闭时白等 5 秒。
+func (m *Manager) isStopping() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stopping
+}
+
 func (m *Manager) StopAll() {
 	// 设置关闭标志，阻止自动重启
 	m.mu.Lock()
@@ -290,13 +299,8 @@ func (m *Manager) StartClient(id uint) error {
 				"status":     "error",
 				"last_error": errMsg,
 			})
-			// 自动重启（延迟5秒，避免快速循环崩溃）
-			time.Sleep(5 * time.Second)
-			// 关闭期间不自动重启
-			m.mu.Lock()
-			isStopping := m.stopping
-			m.mu.Unlock()
-			if isStopping {
+			// 自动重启（延迟 5 秒避免快速循环崩溃）；关闭期间立即中断等待
+			if svcutil.Delay(5*time.Second, m.isStopping) {
 				return
 			}
 			var cur model.EasytierClient
@@ -733,13 +737,8 @@ func (m *Manager) StartServer(id uint) error {
 				"status":     "error",
 				"last_error": errMsg,
 			})
-			// 自动重启（延迟5秒，避免快速循环崩溃）
-			time.Sleep(5 * time.Second)
-			// 关闭期间不自动重启
-			m.mu.Lock()
-			isStopping := m.stopping
-			m.mu.Unlock()
-			if isStopping {
+			// 自动重启（延迟 5 秒避免快速循环崩溃）；关闭期间立即中断等待
+			if svcutil.Delay(5*time.Second, m.isStopping) {
 				return
 			}
 			var cur model.EasytierServer
