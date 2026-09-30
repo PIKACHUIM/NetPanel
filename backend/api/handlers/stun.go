@@ -99,6 +99,31 @@ func (h *StunHandler) Stop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
+// DetectNAT 按需探测 NAT 类型（不依赖已配置的 STUN 规则），返回结果并附打洞可行性提示
+func (h *StunHandler) DetectNAT(c *gin.Context) {
+	server := c.Query("server")
+	info, err := h.mgr.CheckNow(server)
+	if info == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{
+		"ip":        info.IP,
+		"port":      info.Port,
+		"nat_type":  string(info.NATType),
+		"p2p_score": stun.P2PScore(info.NATType),
+		"error":     errMessage(err),
+	}})
+}
+
+// errMessage 探测过程中的非致命错误说明（如 UDP 被封锁）
+func errMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 func (h *StunHandler) GetStatus(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	status := h.mgr.GetStatus(uint(id))
