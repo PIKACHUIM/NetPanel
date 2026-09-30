@@ -3,14 +3,17 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 )
 
 // ProbeEngine 服务探测引擎
@@ -99,7 +102,7 @@ func (p *ProbeEngine) StartProbe(probe model.MonitorProbe) {
 	p.mu.Unlock()
 
 	p.wg.Add(1)
-	go func(probe model.MonitorProbe, ctx context.Context) {
+	svcutil.SafeGo(logrus.StandardLogger(), "monitor.probe."+fmt.Sprint(probe.ID), true, func() {
 		defer p.wg.Done()
 
 		ticker := time.NewTicker(time.Duration(interval) * time.Second)
@@ -113,10 +116,11 @@ func (p *ProbeEngine) StartProbe(probe model.MonitorProbe) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				svcutil.BeatEngineHeartbeat("probe")
 				p.executeProbe(ctx, probe)
 			}
 		}
-	}(probe, ctx)
+	})
 
 	log.Printf("[ProbeEngine] 启动探测任务: %s (间隔 %d 秒)\n", probe.Name, interval)
 }

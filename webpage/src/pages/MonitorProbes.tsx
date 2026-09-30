@@ -3,7 +3,9 @@ import { Card, Table, Button, Modal, Form, Input, Select, Switch, Space, App, Ta
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { monitorApi } from '../api'
 import { useTranslation } from 'react-i18next'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from 'echarts-for-react/lib/core'
+// 按需引入 echarts（与 MonitorDashboard 共用共享注册模块，含 LegendComponent）
+import echarts from '../lib/echarts'
 
 const { Option } = Select
 
@@ -336,7 +338,7 @@ const MonitorProbes: React.FC = () => {
         footer={null}
         width={900}
       >
-        <ReactECharts option={getResultsChartOption()} style={{ height: '400px' }} />
+        <ReactECharts echarts={echarts} option={getResultsChartOption()} style={{ height: '400px' }} />
       </Modal>
     </div>
   )
