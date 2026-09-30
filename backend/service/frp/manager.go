@@ -9,6 +9,7 @@ import (
 
 	"github.com/fatedier/frp/assets"
 	"github.com/fatedier/frp/client"
+	"github.com/fatedier/frp/pkg/config/source"
 	"github.com/fatedier/frp/pkg/config/types"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
@@ -123,12 +124,17 @@ func (m *Manager) StartClient(id uint) error {
 		return fmt.Errorf("FRP 客户端配置验证失败: %w", err)
 	}
 
-	// 创建服务
+	// 创建服务（frp v0.70+ 不再直接接收 ProxyCfgs/VisitorCfgs，
+	// 代理配置须经 ConfigSourceAggregator 传入内存配置源）
+	cfgSource := source.NewConfigSource()
+	if err := cfgSource.ReplaceAll(proxyCfgs, nil); err != nil {
+		m.setClientError(id, err.Error())
+		return fmt.Errorf("加载 FRP 代理配置失败: %w", err)
+	}
 	svc, err := client.NewService(client.ServiceOptions{
-		Common:         frpCfg,
-		ProxyCfgs:      proxyCfgs,
-		VisitorCfgs:    nil,
-		ConfigFilePath: "",
+		Common:                 frpCfg,
+		ConfigSourceAggregator: source.NewAggregator(cfgSource),
+		ConfigFilePath:         "",
 	})
 	if err != nil {
 		m.setClientError(id, err.Error())
