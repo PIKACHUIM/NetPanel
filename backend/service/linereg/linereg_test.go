@@ -494,17 +494,235 @@ func TestApplyPortSwitch(t *testing.T) {
 		t.Fatalf("未关联线路不应触发重绑, got %d calls", len(calls))
 	}
 
-	// 重绑失败写入 last_error，成功清空
-	m.SetPortRebinder(func(svcID uint, lineID string) error {
+	// 重绑失败写入 last_error。
+	// 注意用未落过地的新 Manager：m 上一行已把 frp:1 成功落地，按去重语义
+	// 对同一目标的重复调用会被跳过（见 TestApplyPortSwitchSkipsUnchangedTarget），
+	// 因此失败路径要在「首次落到该目标」的前提下才成立。
+	mFail := NewManager(db, nil, 0)
+	mFail.SetPortRebinder(func(svcID uint, lineID string) error {
 		return fmt.Errorf("模拟重绑失败")
 	})
-	m.applyPortSwitch("frp:1")
+	mFail.applyPortSwitch("frp:1")
 	var got model.TunService
 	if err := db.First(&got, portSvc.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if got.LastError == "" {
 		t.Fatal("重绑失败应写入 last_error")
+	}
+}
+
+// TestApplyPortSwitchSkipsUnchangedTarget 端口层落地去重：
+// 目标线路未变化时不重复重绑（重绑是先停后起，重复执行等于每分钟打断隧道）；
+// 目标变化时必须重绑；线路定义变化（签名失效）时必须重新落地一次。
+func TestApplyPortSwitchSkipsUnchangedTarget(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	portSvc := model.TunService{
+		Name:          "SSH 服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.10",
+		TargetPort:    22,
+		Protocol:      "tcp",
+		LineRefs:      `["frp:1","nps:1"]`,
+	}
+	db.Create(&portSvc)
+
+	m := NewManager(db, nil, 0)
+	var calls []string
+	m.SetPortRebinder(func(svcID uint, lineID string) error {
+		calls = append(calls, lineID)
+		return nil
+	})
+
+	m.applyPortSwitch("frp:1")
+	m.applyPortSwitch("frp:1")
+	m.applyPortSwitch("frp:1")
+	if len(calls) != 1 {
+		t.Fatalf("同一目标重复调用应只落地一次, got %v", calls)
+	}
+
+	m.applyPortSwitch("nps:1")
+	if len(calls) != 2 || calls[1] != "nps:1" {
+		t.Fatalf("目标变化应重新落地, got %v", calls)
+	}
+
+	// 端口层落地记录失效后（线路定义变更的场景），即使目标线路未变也应重新落地一次
+	m.invalidatePortLanding()
+	m.applyPortSwitch("nps:1")
+	if len(calls) != 3 {
+		t.Fatalf("失效后应重新落地, got %v", calls)
+	}
+}
+
+// TestLinesSignatureChanged 线路集合签名：稳态不变、线路定义变更即变。
+// 它是落地去重「不掩盖配置变更」的保证。
+func TestLinesSignatureChanged(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	m := NewManager(db, nil, 0)
+
+	if !m.linesSignatureChanged(BuildLines(db)) {
+		t.Fatal("首次记录应判定为变化（此前无签名）")
+	}
+	if m.linesSignatureChanged(BuildLines(db)) {
+		t.Fatal("线路未做任何修改时不应判定为变化")
+	}
+
+	db.Model(&model.NpsClientConfig{}).Where("server_addr = ?", "5.6.7.8").Update("server_port", 8025)
+	if !m.linesSignatureChanged(BuildLines(db)) {
+		t.Fatal("线路端口变更应使签名变化")
+	}
+}
+
+// TestApplyCaddySwitchSkipsUnchangedUpstream Caddy 层落地去重：
+// 上游目标未变化时不重复热加载（会重建站点路由并打断已建立的反代连接）。
+func TestApplyCaddySwitchSkipsUnchangedUpstream(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	db.Create(&model.TunService{
+		Name:          "Web 服务",
+		Enable:        true,
+		TargetAddress: "127.0.0.1",
+		TargetPort:    80,
+		LineRefs:      `["frp:1","nps:1"]`,
+		CaddySiteID:   9,
+	})
+
+	m := NewManager(db, nil, 0)
+	var applied []string
+	m.SetCaddyUpdater(func(siteID uint, upstream string) error {
+		applied = append(applied, upstream)
+		return nil
+	})
+	// 直接调 applyCaddySwitch 需先注册线路集合（refresh 内部会做这件事）
+	m.selector.SetLines(BuildLines(db))
+
+	m.applyCaddySwitch("frp:1")
+	m.applyCaddySwitch("frp:1")
+	if len(applied) != 1 {
+		t.Fatalf("同一上游目标应只热加载一次, got %v", applied)
+	}
+
+	m.applyCaddySwitch("nps:1")
+	if len(applied) != 2 || applied[1] != "5.6.7.8:8024" {
+		t.Fatalf("上游目标变化应重新热加载, got %v", applied)
+	}
+}
+
+// TestApplyDNSSwitchSkipsUnchangedIP DNS 层落地去重：解析目标 IP 未变化时不重复写记录。
+func TestApplyDNSSwitchSkipsUnchangedIP(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	db.Create(&model.TunService{
+		Name:          "NAS 服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.20",
+		TargetPort:    5000,
+		Domain:        "nas.example.com",
+		LineRefs:      `["frp:1","nps:1"]`,
+	})
+
+	m := NewManager(db, nil, 0)
+	var written []string
+	m.SetDNSUpdater(func(domain, ip string) error {
+		written = append(written, domain+"="+ip)
+		return nil
+	})
+	// 直接调 applyDNSSwitch 需先注册线路集合（refresh 内部会做这件事）
+	m.selector.SetLines(BuildLines(db))
+
+	m.applyDNSSwitch("frp:1")
+	m.applyDNSSwitch("frp:1")
+	if len(written) != 1 {
+		t.Fatalf("同一解析目标应只写一次, got %v", written)
+	}
+
+	m.applyDNSSwitch("nps:1")
+	if len(written) != 2 || written[1] != "nas.example.com=5.6.7.8" {
+		t.Fatalf("解析目标变化应重新写入, got %v", written)
+	}
+}
+
+// TestApplyDNSSwitchWritesNewDomain DNS 层去重键必须是域名而非服务 ID：
+// 同一服务改了绑定域名、解析 IP 不变时，新域名仍然需要写入解析记录。
+func TestApplyDNSSwitchWritesNewDomain(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	svc := model.TunService{
+		Name:          "NAS 服务",
+		Enable:        true,
+		TargetAddress: "192.168.1.20",
+		TargetPort:    5000,
+		Domain:        "old.example.com",
+		LineRefs:      `["frp:1"]`,
+	}
+	db.Create(&svc)
+
+	m := NewManager(db, nil, 0)
+	m.selector.SetLines(BuildLines(db))
+	var written []string
+	m.SetDNSUpdater(func(domain, ip string) error {
+		written = append(written, domain+"="+ip)
+		return nil
+	})
+
+	m.applyDNSSwitch("frp:1")
+	if len(written) != 1 {
+		t.Fatalf("首轮应写入一次, got %v", written)
+	}
+
+	// 域名变更、线路与解析 IP 都不变
+	db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("domain", "new.example.com")
+	m.applyDNSSwitch("frp:1")
+	if len(written) != 2 || written[1] != "new.example.com=1.2.3.4" {
+		t.Fatalf("域名变更后新域名应重新写入, got %v", written)
+	}
+}
+
+// TestRefreshSkipsLandingWhenSteady 端到端：选线结果没变化的稳态下，
+// refresh 不得对 Caddy / 端口 / DNS 任一层重复落地。
+// 这是修复前最严重的行为——每周期无条件重建，端口层等于每分钟停起一次。
+func TestRefreshSkipsLandingWhenSteady(t *testing.T) {
+	db := newTestDB(t)
+	seedData(db)
+	refs := `["frp:1","nps:1"]`
+	db.Create(&model.TunService{Name: "端口层", Enable: true, TargetAddress: "10.0.0.5", TargetPort: 22, Protocol: "tcp", LineRefs: refs})
+	db.Create(&model.TunService{Name: "域名层", Enable: true, TargetAddress: "10.0.0.6", TargetPort: 80, LineRefs: refs, CaddySiteID: 9})
+	db.Create(&model.TunService{Name: "DNS 层", Enable: true, TargetAddress: "10.0.0.7", TargetPort: 5000, LineRefs: refs, Domain: "nas.example.com"})
+
+	prober := &fakeProber{latencies: map[string]time.Duration{
+		"frp:1": 1 * time.Millisecond,
+		"nps:1": 50 * time.Millisecond,
+	}}
+	m := NewManager(db, nil, 0)
+	m.selector = selector.NewSelector(prober, 0)
+
+	var caddyCalls, portCalls, dnsCalls int
+	m.SetCaddyUpdater(func(siteID uint, upstream string) error { caddyCalls++; return nil })
+	m.SetPortRebinder(func(svcID uint, lineID string) error { portCalls++; return nil })
+	m.SetDNSUpdater(func(domain, ip string) error { dnsCalls++; return nil })
+
+	m.refresh(context.Background())
+	if caddyCalls != 1 || portCalls != 1 || dnsCalls != 1 {
+		t.Fatalf("首轮各层应各落地一次, got caddy=%d port=%d dns=%d", caddyCalls, portCalls, dnsCalls)
+	}
+
+	// 稳态：连续两轮不产生任何外部副作用
+	m.refresh(context.Background())
+	m.refresh(context.Background())
+	if caddyCalls != 1 || portCalls != 1 || dnsCalls != 1 {
+		t.Fatalf("选线未变化时不得重复落地, got caddy=%d port=%d dns=%d", caddyCalls, portCalls, dnsCalls)
+	}
+
+	// 选线真的变了：必须落地
+	prober.latencies = map[string]time.Duration{
+		"frp:1": 300 * time.Millisecond,
+		"nps:1": 5 * time.Millisecond,
+	}
+	m.refresh(context.Background())
+	if caddyCalls != 2 || portCalls != 2 || dnsCalls != 2 {
+		t.Fatalf("选线变化后应重新落地, got caddy=%d port=%d dns=%d", caddyCalls, portCalls, dnsCalls)
 	}
 }
 

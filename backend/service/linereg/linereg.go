@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,8 +75,22 @@ type Manager struct {
 
 	// lastUpstream 记录每个 Caddy 站点最近一次成功切换的上游目标（siteID -> upstream）。
 	// 切换失败时回滚到该值，避免 Caddy 反代目标与选中线路不一致。
+	// 它同时是 Caddy 层的去重键：键值本身就是上游地址，线路地址变更会让
+	// 比较不相等而自动重新落地，因此无需随线路签名失效（失效反而会丢掉回滚基线）。
 	lastUpstream map[uint]string
-	lastMu       sync.Mutex
+	// lastDNSByDomain DNS 层去重键（domain -> 最近一次成功落地的入口 IP）。
+	// 以域名为键而非服务 ID：服务改了绑定域名但解析 IP 未变时，
+	// 新域名仍需写一条记录，用 ID 做键会漏掉。
+	lastDNSByDomain map[string]string
+	// lastPortLine 端口层去重键（svcID -> 最近一次成功落地的线路 ID）。
+	// 端口层重绑是「先停后起」，重复执行会打断已建立的穿透连接。
+	// 与其他两层不同，它的键只有线路 ID、不含线路地址，因此线路定义
+	// （地址/端口）变更时必须显式失效，否则会用同一个 lineID 跳过重绑、
+	// 把隧道留在旧入口上。
+	lastPortLine map[uint]string
+	// linesSig 上一轮刷新时线路集合的签名，用于驱动 lastPortLine 失效。
+	linesSig string
+	lastMu   sync.Mutex
 
 	// rebindMode 端口层重绑模式："auto"（选线变化自动重绑，默认）/
 	// "manual"（半自动：只记录待重绑清单，由用户手动触发）/ "off"（关闭重绑）。
@@ -100,14 +115,16 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 		log = logrus.New()
 	}
 	return &Manager{
-		db:             db,
-		log:            log,
-		interval:       DefaultInterval,
-		selector:       selector.NewSelector(nil, tolerance),
-		lastUpstream:   make(map[uint]string),
-		rebindMode:     RebindModeAuto,
-		pendingRebinds: make(map[uint]string),
-		reload:         make(chan struct{}, 1),
+		db:              db,
+		log:             log,
+		interval:        DefaultInterval,
+		selector:        selector.NewSelector(nil, tolerance),
+		lastUpstream:    make(map[uint]string),
+		lastPortLine:    make(map[uint]string),
+		lastDNSByDomain: make(map[string]string),
+		rebindMode:      RebindModeAuto,
+		pendingRebinds:  make(map[uint]string),
+		reload:          make(chan struct{}, 1),
 	}
 }
 
@@ -164,6 +181,10 @@ func (m *Manager) ApplyPendingRebinds() (int, error) {
 			continue
 		}
 		m.db.Model(&model.TunService{}).Where("id = ?", svcID).Update("last_error", "")
+		// 记录为已落地，否则下一轮 refresh 会把它重新列入待重绑清单。
+		m.lastMu.Lock()
+		m.lastPortLine[svcID] = lineID
+		m.lastMu.Unlock()
 		m.log.Infof("[线路选择] 手动重绑端口层服务 %d 到线路 %s 成功", svcID, lineID)
 		applied++
 	}
@@ -391,6 +412,11 @@ func (m *Manager) run(ctx context.Context) {
 func (m *Manager) refresh(ctx context.Context) {
 	lines := BuildLines(m.db)
 	m.selector.SetLines(lines)
+	// 线路定义（地址/端口等）变化时使端口层落地记录失效，保证下一轮重新重绑
+	// 一次；稳态（无任何变化）则靠去重跳过重复的 Caddy 热加载、端口停起与 DNS 写入。
+	if m.linesSignatureChanged(lines) {
+		m.invalidatePortLanding()
+	}
 	if len(lines) == 0 {
 		return
 	}
@@ -420,6 +446,46 @@ func (m *Manager) effectiveLine(svc model.TunService, globalLineID string) strin
 		}
 	}
 	return globalLineID
+}
+
+// linesSignatureChanged 计算线路集合签名并与上一轮比较，变化时更新签名并
+// 返回 true。签名按线路 ID 排序后序列化，避免 BuildLines 的分段顺序或数据库
+// 返回顺序变化被误判成配置变更。
+func (m *Manager) linesSignatureChanged(lines []selector.Line) bool {
+	ordered := append([]selector.Line(nil), lines...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	payload, err := json.Marshal(ordered)
+	if err != nil {
+		// 序列化失败按「可能已变」处理：宁可多落地一次，也不能漏掉配置变更。
+		return true
+	}
+	sig := string(payload)
+	m.lastMu.Lock()
+	defer m.lastMu.Unlock()
+	if sig == m.linesSig {
+		return false
+	}
+	m.linesSig = sig
+	return true
+}
+
+// invalidatePortLanding 清空端口层落地记录，使下一轮对每个端口层服务重新重绑一次。
+// 仅端口层需要：Caddy / DNS 两层的去重键本身就是落地目标地址，线路地址变更会
+// 自然让比较不相等并重新落地；端口层键只有线路 ID，不随线路地址变化。
+func (m *Manager) invalidatePortLanding() {
+	m.lastMu.Lock()
+	defer m.lastMu.Unlock()
+	m.lastPortLine = make(map[uint]string)
+}
+
+// clearStaleError 在「目标本就未变化」的跳过路径上清掉残留的 last_error。
+// 场景：上一轮切换失败后已回滚到旧目标，而本轮选线又指回该旧目标——此时
+// 落地状态是正确的，错误信息已过期，不写就永远红着。
+func (m *Manager) clearStaleError(svc model.TunService) {
+	if svc.LastError == "" {
+		return
+	}
+	m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
 }
 
 // applyCaddySwitch 将当前选中线路的入口地址同步到绑定了该线路的 Caddy 站点。
@@ -464,6 +530,15 @@ func (m *Manager) applyCaddySwitch(lineID string) {
 			}
 		}
 		if !found {
+			continue
+		}
+		// 落地去重：上游目标与最近一次成功落地一致时跳过。Caddy 热加载会重建
+		// 该站点的反代路由并打断已建立的连接，稳态下每周期重复执行没有收益。
+		m.lastMu.Lock()
+		landedCaddy := m.lastUpstream[svc.CaddySiteID]
+		m.lastMu.Unlock()
+		if landedCaddy == line.Address {
+			m.clearStaleError(svc)
 			continue
 		}
 		if err := m.caddyUpdater(svc.CaddySiteID, line.Address); err != nil {
@@ -537,11 +612,23 @@ func (m *Manager) applyDNSSwitch(lineID string) {
 		if !found {
 			continue
 		}
+		// 落地去重：写 dnsmasq 解析记录属于外部副作用，该域名已有的解析目标
+		// 未变化时重复写会白白产生一次配置更新与生效延迟。
+		m.lastMu.Lock()
+		landedDNS := m.lastDNSByDomain[svc.Domain]
+		m.lastMu.Unlock()
+		if landedDNS == host {
+			m.clearStaleError(svc)
+			continue
+		}
 		if err := m.dnsUpdater(svc.Domain, host); err != nil {
 			m.log.Warnf("[线路选择] 更新 DNS 解析 %s -> %s 失败: %v", svc.Domain, host, err)
 			// 记录错误供 UI 排查
 			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
 		} else {
+			m.lastMu.Lock()
+			m.lastDNSByDomain[svc.Domain] = host
+			m.lastMu.Unlock()
 			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
 			m.log.Infof("[线路选择] DNS 解析 %s -> %s 已切换", svc.Domain, host)
 		}
@@ -587,6 +674,15 @@ func (m *Manager) applyPortSwitch(lineID string) {
 		if !found {
 			continue
 		}
+		// 落地去重：端口层重绑会「先停后起」该服务的穿透规则，短暂抖动可接受
+		// 但不能无端发生——稳态下每周期重建一次等于把隧道每分钟打断一次。
+		m.lastMu.Lock()
+		landedPort := m.lastPortLine[svc.ID]
+		m.lastMu.Unlock()
+		if landedPort == effLineID {
+			m.clearStaleError(svc)
+			continue
+		}
 		// manual 模式：只记录待重绑清单（svcID -> 目标线路），不自动停起；
 		// 由用户通过 ApplyPendingRebinds 手动触发（避免自动重建带来抖动）。
 		if m.RebindMode() == RebindModeManual {
@@ -601,6 +697,9 @@ func (m *Manager) applyPortSwitch(lineID string) {
 			// 记录错误供 UI 排查
 			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
 		} else {
+			m.lastMu.Lock()
+			m.lastPortLine[svc.ID] = effLineID
+			m.lastMu.Unlock()
 			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
 			m.log.Infof("[线路选择] 端口层服务 %d 已重绑到线路 %s", svc.ID, effLineID)
 		}
