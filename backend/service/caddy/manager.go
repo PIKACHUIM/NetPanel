@@ -909,7 +909,8 @@ func isLocalOrIP(domain string) bool {
 func (m *Manager) buildOIDCRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
 	providerID := rule.OidcProviderID
 	if providerID == 0 {
-		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, nil)
+		// 未配置 OIDC provider，回退到页面登录；沿用同一条 rule，保留 AllowedUserIDs 限制。
+		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, rule)
 	}
 	var provider model.OAuthProviderConfig
 	if err := m.db.First(&provider, providerID).Error; err != nil {
