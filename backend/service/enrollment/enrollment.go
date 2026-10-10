@@ -1,8 +1,10 @@
 package enrollment
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"net"
 	"sync"
 	"time"
@@ -14,11 +16,13 @@ import (
 
 // Token 一次性enrollment token
 type Token struct {
-	ID        string    `json:"id"`
-	NodeName  string    `json:"node_name"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Used      bool      `json:"used"`
-	UsedAt    time.Time `json:"used_at,omitempty"`
+	ID          string    `json:"id"`
+	NodeName    string    `json:"node_name"`
+	DNSNames    []string  `json:"dns_names,omitempty"`    // 签发时锁定的 SAN，兑换时不可更改
+	IPAddresses []net.IP  `json:"ip_addresses,omitempty"` // 同上
+	ExpiresAt   time.Time `json:"expires_at"`
+	Used        bool      `json:"used"`
+	UsedAt      time.Time `json:"used_at,omitempty"`
 }
 
 // Manager enrollment管理器
@@ -33,9 +37,9 @@ type Manager struct {
 // NewManager 创建enrollment管理器
 func NewManager(db *gorm.DB, log *logrus.Logger, caSigner *ca.Signer) *Manager {
 	return &Manager{
-		db:   db,
-		log:  log,
-		ca:   caSigner,
+		db:     db,
+		log:    log,
+		ca:     caSigner,
 		tokens: make(map[string]*Token),
 	}
 }
@@ -46,9 +50,11 @@ func (m *Manager) GenerateToken(nodeName string, dnsNames []string, ipAddresses 
 	tokenID := generateTokenID()
 
 	token := &Token{
-		ID:        tokenID,
-		NodeName:  nodeName,
-		ExpiresAt: time.Now().Add(24 * time.Hour),
+		ID:          tokenID,
+		NodeName:    nodeName,
+		DNSNames:    dnsNames,
+		IPAddresses: ipAddresses,
+		ExpiresAt:   time.Now().Add(24 * time.Hour),
 	}
 	m.mu.Lock()
 	m.tokens[tokenID] = token
@@ -80,8 +86,8 @@ func (m *Manager) ExchangeCertificate(tokenID string, dnsNames []string, ipAddre
 	token.UsedAt = time.Now()
 	m.mu.Unlock()
 
-	// 签发证书
-	certPEM, keyPEM, err = m.ca.SignNodeCert(token.NodeName, dnsNames, ipAddresses)
+	// 签发证书：SAN 使用签发 token 时锁定的值，不采信兑换请求方提交的值（P0：防止持 token 者伪造任意 SAN）
+	certPEM, keyPEM, err = m.ca.SignNodeCert(token.NodeName, token.DNSNames, token.IPAddresses)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign certificate: %w", err)
 	}
@@ -109,11 +115,18 @@ func (m *Manager) ListTokens() []*Token {
 	return tokens
 }
 
-// generateTokenID 生成随机token ID
+// generateTokenID 生成随机 token ID（crypto/rand，128 位熵；P0 修复：原实现为确定性伪随机可预测）
 func generateTokenID() string {
 	b := make([]byte, 16)
-	for i := range b {
-		b[i] = byte(0x30 + (i * 7) % 36) // 0-9, a-z
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand 失败属系统级异常，直接 panic 而非退化为可预测 token
+		panic(fmt.Errorf("crypto/rand 不可用，无法生成安全 token: %w", err))
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// randomSerial 生成随机证书序列号（P1 修复：原实现用 time.Now().Unix()，可预测且同秒并发撞号）
+func randomSerial() (*big.Int, error) {
+	limit := new(big.Int).Lsh(big.NewInt(1), 128)
+	return rand.Int(rand.Reader, limit)
 }
