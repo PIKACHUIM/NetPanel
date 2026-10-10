@@ -49,7 +49,7 @@ func (s *Signer) generateNewCA() error {
 	s.caKey = caKey
 
 	caCert := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().Unix()),
+		SerialNumber: randomSerial(),
 		Subject: pkix.Name{
 			CommonName:   "NetPanel CA",
 			Organization: []string{"NetPanel"},
@@ -73,9 +73,13 @@ func (s *Signer) generateNewCA() error {
 	}
 	s.caCert = certParsed
 
+	caKeyDER, err := toPKCS8PrivKey(caKey)
+	if err != nil {
+		return err
+	}
 	ca := model.CACert{
 		CACertPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})),
-		CAKeyPEM:  model.Secret(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: toPKCS8PrivKey(caKey)})),
+		CAKeyPEM:  model.Secret(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: caKeyDER})),
 		ExpiresAt: caCert.NotAfter,
 		Status:    "active",
 	}
@@ -120,7 +124,7 @@ func (s *Signer) SignNodeCert(nodeID string, dnsNames []string, ipAddresses []ne
 	}
 
 	nodeCert := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().Unix()),
+		SerialNumber: randomSerial(),
 		Subject: pkix.Name{
 			CommonName:   nodeID,
 			Organization: []string{"NetPanel Nodes"},
@@ -138,8 +142,12 @@ func (s *Signer) SignNodeCert(nodeID string, dnsNames []string, ipAddresses []ne
 		return nil, nil, err
 	}
 
+	nodeKeyDER, err := toPKCS8PrivKey(nodeKey)
+	if err != nil {
+		return nil, nil, err
+	}
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: toPKCS8PrivKey(nodeKey)})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: nodeKeyDER})
 	return
 }
 
@@ -148,13 +156,25 @@ func (s *Signer) GetCACert() []byte {
 	return s.caChain
 }
 
+// randomSerial 生成随机 128 位证书序列号（P1 修复：原用 time.Now().Unix()，可预测且同秒并发撞号）
+func randomSerial() *big.Int {
+	limit := new(big.Int).Lsh(big.NewInt(1), 128)
+	n, err := rand.Int(rand.Reader, limit)
+	if err != nil {
+		// crypto/rand 失败属系统级异常，绝不能退化为可预测序列号
+		panic(fmt.Errorf("crypto/rand 不可用，无法生成证书序列号: %w", err))
+	}
+	return n
+}
+
 // toPKCS8PrivKey 转换 ECDSA 私钥为 PKCS#8 DER 格式。
 // 原实现手工拼接 DER：补了公钥位串却把私钥写成裸整数，且长度字节写死，
 // 生成的密钥无法被 x509.ParsePKCS8PrivateKey 解析（CA 完全不可用）。
-func toPKCS8PrivKey(key *ecdsa.PrivateKey) []byte {
+// 序列化失败必须上抛（原实现返回 nil 会让调用方把空私钥成功写库，CA 悄悄不可用）。
+func toPKCS8PrivKey(key *ecdsa.PrivateKey) ([]byte, error) {
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("PKCS#8 序列化失败: %w", err)
 	}
-	return der
+	return der, nil
 }

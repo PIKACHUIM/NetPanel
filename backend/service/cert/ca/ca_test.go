@@ -35,9 +35,9 @@ func TestCAKeyPKCS8RoundTrip(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 
-	der := toPKCS8PrivKey(key)
-	if der == nil {
-		t.Fatal("toPKCS8PrivKey 返回 nil，MarshalPKCS8PrivateKey 失败")
+	der, err := toPKCS8PrivKey(key)
+	if err != nil {
+		t.Fatalf("toPKCS8PrivKey 失败: %v", err)
 	}
 	parsed, err := x509.ParsePKCS8PrivateKey(der)
 	if err != nil {
