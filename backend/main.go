@@ -27,6 +27,7 @@ import (
 	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
+	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
@@ -132,7 +133,9 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log := logger.Init()
+	// 注意：此处必须用 Get() 复用 startServer 初始化的全局 logger——
+	// 再调 Init() 会创建新 logger 覆盖全局实例，导致关闭阶段日志丢失 DBHook
+	log := logger.Get()
 	log.Info("正在关闭 NetPanel...")
 
 	// 停止所有子服务
@@ -183,6 +186,13 @@ func startServer() *http.Server {
 
 	// 初始化系统日志管理器，并注入全局日志写入器
 	// 必须在各服务 logger 创建之前完成，确保 DBHook 能正常写入
+	// 初始化加密模块（敏感配置 AES-256-GCM 加密存储）
+	if err := crypto.InitKey(); err != nil {
+		log.Warnf("[init] %v，敏感配置将以明文存储", err)
+	} else {
+		log.Infof("[init] 加密模块已初始化")
+	}
+
 	syslogMgr := syslog.NewManager(db, log)
 	logger.SetDBWriter(syslogMgr)
 
@@ -229,6 +239,9 @@ func startServer() *http.Server {
 	accessMgr := access.NewManager(db, logAccess)
 	dnsmasqMgr := dnsmasq.NewManager(db, logDnsmasq)
 	callbackMgr := callback.NewManager(db, logCallback)
+	// 注入 STUN 回调通知器：STUN 探测到公网地址变化时触发其绑定的回调任务
+	// （更新 CF 回源 / 阿里 ESA / 腾讯 EO / WebHook）
+	stunMgr.SetCallbackNotifier(callbackMgr)
 	firewallMgr := firewall.NewManager(db, logFirewall)
 	wireguardMgr := wireguard.NewManager(db, logWireguard, *dataDir)
 	meshNodeMgr := meshnode.NewManager(db, logMeshNode)
@@ -243,8 +256,11 @@ func startServer() *http.Server {
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
 	_ = logMonitor // 暂时不使用，预留给未来的日志集成
 
-	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）
-	waf.SetDefault(waf.NewManager(db))
+	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）；
+	// 同时启动攻击日志保留清理（7 天）
+	wafMgr := waf.NewManager(db)
+	waf.SetDefault(wafMgr)
+	wafMgr.StartRetention()
 
 	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
 	lineregMgr := linereg.NewManager(db, log, 0)
@@ -391,7 +407,9 @@ func startServer() *http.Server {
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
-		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv)
+		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv,
+		syslogMgr, wafMgr)
+
 
 	return srv
 }
@@ -458,6 +476,9 @@ func registerStopHandlers(
 	aiMgr interface{ Stop() },
 	monitorMgr interface{ Stop() },
 	mcpSrv interface{ Stop() error },
+	// 以下为此前漏注册的服务：日志写入器（需排空队列）、WAF 数据保留策略
+	syslogMgr interface{ Stop() },
+	wafMgr interface{ StopRetention() },
 ) {
 	stopAllFn = func() {
 		log.Info("正在停止所有服务...")
@@ -479,7 +500,9 @@ func registerStopHandlers(
 		certMgr.StopAll()
 		aiMgr.Stop()
 		monitorMgr.Stop()
-		_ = mcpSrv.Stop()
+		mcpSrv.Stop()
+		syslogMgr.Stop() // 最后停：排空剩余日志队列
+		wafMgr.StopRetention()
 		log.Info("所有服务已停止")
 	}
 }

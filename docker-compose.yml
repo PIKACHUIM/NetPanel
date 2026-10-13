@@ -1,6 +1,14 @@
+# NetPanel Docker Compose（默认完整版）
+#
+# 🟢 只需 Web 面板和基础功能？用精简版，零额外权限：
+#    docker compose -f docker-compose.minimal.yml up -d
+#
+# 🔵 需要 TUN/组网（EasyTier/WireGuard/Mesh）？用完整版：
+#    docker compose -f docker-compose.full.yml up -d
+
 services:
   netpanel:
-    image: ghcr.io/netpanel/netpanel:latest
+    image: ghcr.io/pikachuim/netpanel:latest
     container_name: netpanel
     restart: unless-stopped
     ports:
