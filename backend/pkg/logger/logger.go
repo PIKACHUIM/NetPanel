@@ -117,7 +117,9 @@ func (h *DBHook) Fire(entry *logrus.Entry) error {
 			msg += fmt.Sprintf(" %s=%v", k, v)
 		}
 	}
-	go w.Write(level, h.Service, msg)
+	// 写入器侧为非阻塞入队（syslog Manager 内部攒批落库），同步调用即可；
+	// 此前每条日志 go 一个 goroutine，叠加 SQLite 单连接会在日志突发时无界堆积
+	w.Write(level, h.Service, msg)
 	return nil
 }
 

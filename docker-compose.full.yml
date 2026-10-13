@@ -1,0 +1,34 @@
+# NetPanel 完整部署（含 TUN/组网能力）
+# 适用场景：需要 EasyTier 异地组网、WireGuard VPN、Mesh 节点等网络功能
+#
+# 启动方式：
+#   docker compose -f docker-compose.full.yml up -d
+#
+# 仅需 Web 面板和基础功能？改用 docker-compose.minimal.yml（无需 TUN 和特权）
+
+services:
+  netpanel:
+    image: ghcr.io/pikachuim/netpanel:latest
+    container_name: netpanel
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+    # TUN 设备和组网功能需要以下权限
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    networks:
+      - netpanel-net
+
+networks:
+  netpanel-net:
+    driver: bridge

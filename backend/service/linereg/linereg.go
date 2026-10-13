@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,9 @@ import (
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/service/selector"
 )
+
+// tunnelUUIDRe 匹配标准 8-4-4-4-12 格式 UUID（cftunnel 公网入口要求 UUID）
+var tunnelUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // DefaultInterval 默认的线路刷新与测速间隔。
 const DefaultInterval = 60 * time.Second
@@ -755,11 +759,17 @@ func BuildLines(db *gorm.DB) []selector.Line {
 
 	// ---- Cloudflare Tunnel（named 模式入口固定，可探测）----
 	// quick/token 模式无固定外部入口（trycloudflare 随机域名 / 远程配置），
-	// 不注册为线路；named 模式用 {tunnel_name}.cfargotunnel.com:443 探测。
+	// 不注册为线路。named 模式公网入口为 <UUID>.cfargotunnel.com；隧道名称
+	// 无法本地解析为 UUID（需调 CF API），未解析出 UUID 前不注册线路，
+	// 避免生成恒失败的探测（cftunnel manager 启动时会解析并写回 tunnel_id）。
 	var cfts []model.CftunnelConfig
 	if err := db.Where("enable = ? AND mode = ?", true, "named").Find(&cfts).Error; err == nil {
 		for _, c := range cfts {
-			if c.TunnelName == "" {
+			entry := strings.TrimSpace(c.TunnelID)
+			if entry == "" && tunnelUUIDRe.MatchString(c.TunnelName) {
+				entry = c.TunnelName
+			}
+			if entry == "" {
 				continue
 			}
 			lines = append(lines, selector.Line{
@@ -767,7 +777,7 @@ func BuildLines(db *gorm.DB) []selector.Line {
 				Name:    c.Name,
 				Tool:    "cloudflare",
 				Layer:   "domain",
-				Address: c.TunnelName + ".cfargotunnel.com:443",
+				Address: entry + ".cfargotunnel.com:443",
 			})
 		}
 	}
