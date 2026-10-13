@@ -138,6 +138,11 @@ func (h *SystemHandler) GetInterfaces(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": interfaces})
 }
 
+// GetIPv6Info 获取本机 IPv6 状态（全局地址 + 出站可达性）
+func (h *SystemHandler) GetIPv6Info(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": utils.GetIPv6Info()})
+}
+
 // ChangePassword 修改管理员密码
 func (h *SystemHandler) ChangePassword(c *gin.Context) {
 	var req struct {

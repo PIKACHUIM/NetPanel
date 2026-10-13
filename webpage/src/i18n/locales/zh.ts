@@ -1646,6 +1646,18 @@ const zh = {
     speedtestPopup: '测速弹窗',
     speedtestPopupTip: '开启后 TunService 页面显示 ⚡ 测速按钮，可手动触发线路即时测速',
     about: '关于',
+    ipv6: {
+      title: 'IPv6 状态',
+      checking: '检测中…',
+      globalAddr: '全局 IPv6 地址：',
+      yes: '有',
+      none: '无',
+      reachable: '公网可达性：',
+      reachableOk: '出站正常',
+      reachableFail: '不可达',
+      addresses: '地址列表：',
+      noGlobalTip: '未检测到全局 IPv6 地址。若有公网 IPv6 需求，请检查路由器是否开启 IPv6 前缀分配。',
+    },
   },
   // 内网穿透管理
   tunservice: {
