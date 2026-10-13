@@ -931,7 +931,11 @@ func isLocalOrIP(domain string) bool {
 func (m *Manager) buildOIDCRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
 	providerID := rule.OidcProviderID
 	if providerID == 0 {
-		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, nil)
+		// 未绑定 OIDC provider 时退回页面跳转登录。
+		// 传空的 AccessRule 而非 nil：buildPageLoginRoutes 的形参是值类型，
+		// 且 AllowedUserIDs 为空正好表示"不限定可登录用户"，
+		// 与该分支的语义一致（provider 缺失时无法按 provider 限定用户）。
+		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, model.AccessRule{})
 	}
 	var provider model.OAuthProviderConfig
 	if err := m.db.First(&provider, providerID).Error; err != nil {
