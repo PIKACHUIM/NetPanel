@@ -1608,6 +1608,16 @@ const en = {
     speedtestPopupTip: 'Show ⚡ speed test button on TunService page for instant line probing',
     about: 'About',
   },
+  // Topbar health badge (/system/health)
+  health: {
+    checking: 'Checking…',
+    normal: 'Normal',
+    abnormal: 'Issues:',
+    allOk: 'System healthy',
+    abnormalUnknown: 'Self-check failed (details unavailable)',
+    selfCheckFailed: 'Self-check failed, see server logs or health check details',
+    unreachable: 'Health check unreachable (backend error or network issue)',
+  },
   // Tunnel services
   tunservice: {
     target: 'Target',
