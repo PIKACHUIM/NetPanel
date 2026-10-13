@@ -3,10 +3,12 @@ package waf
 import (
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/corazawaf/coraza/v3"
 	"gorm.io/gorm"
@@ -19,6 +21,9 @@ type Manager struct {
 	db      *gorm.DB
 	mu      sync.RWMutex
 	engines map[uint]*engine
+
+	retentionMu   sync.Once
+	retentionStop chan struct{}
 }
 
 type engine struct {
@@ -49,6 +54,44 @@ func buildDirectives(cfg model.WafConfig) string {
 		directives += cfg.CustomRules + "\n"
 	}
 	return directives
+}
+
+// StartRetention 启动日志保留清理循环（每日）：WafLog 高频写入（每次命中
+// 记录一条），此前仅在删除父配置时顺带清理，长期运行会无界膨胀。保留 7 天。
+func (m *Manager) StartRetention() {
+	m.retentionMu.Do(func() {
+		m.retentionStop = make(chan struct{})
+		go func(stop chan struct{}) {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			run := func() {
+				cutoff := time.Now().AddDate(0, 0, -7)
+				if res := m.db.Where("created_at < ?", cutoff).Delete(&model.WafLog{}); res.Error == nil && res.RowsAffected > 0 {
+					log.Printf("[WAF] 已清理 %d 条过期攻击日志", res.RowsAffected)
+				}
+			}
+			run()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					run()
+				}
+			}
+		}(m.retentionStop)
+	})
+}
+
+// StopRetention 停止日志清理循环
+func (m *Manager) StopRetention() {
+	if m.retentionStop != nil {
+		select {
+		case <-m.retentionStop:
+		default:
+			close(m.retentionStop)
+		}
+	}
 }
 
 // Start 启动指定配置的 WAF 引擎
