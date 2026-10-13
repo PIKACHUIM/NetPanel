@@ -146,18 +146,44 @@ cd netpanel-linux-amd64
 
 ### 方式二：Docker 部署
 
-```bash
-# 使用 docker-compose
-docker-compose up -d
+提供两种配置，按需选择：
 
-# 或直接运行
+```bash
+# 🟢 最小化部署（仅 Web 面板，无需额外权限）
+# 适用：端口转发、DDNS、反向代理等基础功能
+docker compose -f docker-compose.minimal.yml up -d
+
+# 🔵 完整部署（含 TUN/组网能力）
+# 适用：需要 EasyTier/WireGuard/Mesh 等网络功能
+docker compose -f docker-compose.full.yml up -d
+```
+
+<details>
+<summary>手动运行 docker run</summary>
+
+```bash
+# 最小化
 docker run -d \
   --name netpanel \
   -p 8080:8080 \
   -v ./data:/app/data \
   --restart unless-stopped \
-  netpanel:latest
+  ghcr.io/pikachuim/netpanel:latest
+
+# 完整（含 TUN）
+docker run -d \
+  --name netpanel \
+  -p 8080:8080 \
+  -v ./data:/app/data \
+  --cap-add NET_ADMIN --cap-add SYS_MODULE \
+  --device /dev/net/tun:/dev/net/tun \
+  --sysctl net.ipv4.ip_forward=1 \
+  --sysctl net.ipv6.conf.all.forwarding=1 \
+  --restart unless-stopped \
+  ghcr.io/pikachuim/netpanel:latest
 ```
+
+</details>
 
 ### 方式三：安装为系统服务
 
