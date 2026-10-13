@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -17,6 +18,20 @@ const (
 	// downloadBaseURL GitHub Release 下载基础 URL
 	downloadBaseURL = "https://github.com/cloudflare/cloudflared/releases/download"
 )
+
+// ghProxyEnv GitHub 加速镜像环境变量（如 https://ghfast.top、https://gh-proxy.com）。
+// 国内网络直连 GitHub Releases 下载 cloudflared 常年卡死；配置后下载地址
+// 变为 <mirror>/<原始URL>。留空则直连。
+const ghProxyEnv = "NETPANEL_GH_MIRROR"
+
+// applyGHProxy 为 GitHub 下载地址拼接加速镜像前缀（已配置时）
+func applyGHProxy(rawURL string) string {
+	mirror := strings.TrimRight(strings.TrimSpace(os.Getenv(ghProxyEnv)), "/")
+	if mirror == "" || !strings.HasPrefix(rawURL, "https://github.com/") {
+		return rawURL
+	}
+	return mirror + "/" + rawURL
+}
 
 // getDownloadURL 根据当前系统获取 cloudflared 下载 URL
 func getDownloadURL() (string, string, error) {
@@ -61,7 +76,7 @@ func getDownloadURL() (string, string, error) {
 	}
 
 	url = fmt.Sprintf("%s/%s/%s", downloadBaseURL, version, filename)
-	return url, filename, nil
+	return applyGHProxy(url), filename, nil
 }
 
 // DownloadBinary 下载 cloudflared 二进制到指定目录
@@ -167,7 +182,7 @@ func GetDownloadInfo() map[string]interface{} {
 		"version":   cloudflaredVersion,
 		"os":        runtime.GOOS,
 		"arch":      runtime.GOARCH,
-		"error":     func() string {
+		"error": func() string {
 			if err != nil {
 				return err.Error()
 			}
