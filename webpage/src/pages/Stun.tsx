@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react'
+import SectionTitle from '../components/SectionTitle'
 import {
     AutoComplete,
     Button,
@@ -308,13 +309,6 @@ const STUN_SERVER_LIST = [
 const STUN_SERVER_OPTIONS = STUN_SERVER_LIST.map(v => ({value: v, label: v}))
 
 // 分组标题（与 EasyTier 保持一致）
-const SectionTitle = ({children}: { children: React.ReactNode }) => (
-    <div style={{display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px'}}>
-        <div style={{width: 3, height: 14, background: '#0071e3', borderRadius: 2, flexShrink: 0}}/>
-        <span style={{fontSize: 12, fontWeight: 600, color: '#595959', letterSpacing: '0.02em'}}>{children}</span>
-        <div style={{flex: 1, height: 1, background: '#f0f0f0'}}/>
-    </div>
-)
 
 const Stun: React.FC = () => {
     const {t} = useTranslation()
