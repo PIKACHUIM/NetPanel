@@ -176,6 +176,13 @@ const zh = {
     currentIP: '当前公网IP',
     currentPort: '当前端口',
     natType: 'NAT类型',
+    natCheckTitle: 'NAT 类型探测',
+    natCheckDesc: '通过 STUN 探测当前网络的 NAT 类型，评估 P2P 打洞可行性',
+    natCheckRun: '立即探测',
+    p2pScore: '打洞可行性',
+    p2pGood: '良好',
+    p2pFair: '一般',
+    p2pPoor: '较差',
     callbackTask: '触发回调',
   },
   // FRP

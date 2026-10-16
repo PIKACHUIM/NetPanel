@@ -149,6 +149,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.DELETE("/stun/:id", stunHandler.Delete)
 	admin.POST("/stun/:id/start", stunHandler.Start)
 	admin.POST("/stun/:id/stop", stunHandler.Stop)
+	auth.GET("/stun/nat-check", stunHandler.DetectNAT)
 
 	// FRP 客户端
 	frpcHandler := handlers.NewFrpcHandler(opts.DB, opts.Log, opts.FrpMgr)
