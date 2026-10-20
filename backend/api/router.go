@@ -6,8 +6,8 @@ import (
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
-	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
@@ -15,21 +15,21 @@ import (
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/enrollment"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/netpanel/netpanel/service/linereg"
+	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
-	"github.com/netpanel/netpanel/service/ai"
-	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-	"github.com/netpanel/netpanel/service/enrollment"
 )
 
 // RouterOptions 路由选项
@@ -53,7 +53,7 @@ type RouterOptions struct {
 	WolMgr         *wol.Manager
 	CertMgr        *cert.Manager
 	CallbackMgr    *callback.Manager
-	EnrollmentMgr *enrollment.Manager
+	EnrollmentMgr  *enrollment.Manager
 	SyslogMgr      *syslog.Manager
 	WireguardMgr   *wireguard.Manager
 	MeshNodeMgr    *meshnode.Manager
@@ -238,17 +238,11 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// 线路探测策略（参数化配置）
 	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
 	auth.GET("/linereg/config", lineHandler.GetConfig)
+	auth.PUT("/linereg/config", lineHandler.UpdateConfig)
 	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
 	auth.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 	// 线路探测历史（延迟趋势图）
 	auth.GET("/linereg/line/:line_id/history", lineHandler.LineHistory)
-
-	// 线路探测策略（参数化配置）
-	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
-	auth.GET("/linereg/config", lineHandler.GetConfig)
-	auth.PUT("/linereg/config", lineHandler.UpdateConfig)
-	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
-	auth.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)

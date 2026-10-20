@@ -298,29 +298,6 @@ func (m *Manager) LoadProbeConfig() error {
 	toolFilter := loadConfigStr(m.db, cfgKeyToolFilter, "")
 	rebindMode := loadConfigStr(m.db, cfgKeyRebindMode, RebindModeAuto)
 
-	intervalSec := loadConfigInt(m.db, cfgKeyIntervalSec, defaultIntervalSec)
-	failureThreshold := loadConfigInt(m.db, cfgKeyFailureThreshold, defaultFailureThreshold)
-	toleranceMs := loadConfigInt(m.db, cfgKeyToleranceMs, defaultToleranceMs)
-	maxConcurrent := loadConfigInt(m.db, cfgKeyMaxConcurrent, defaultMaxConcurrent)
-
-	// 下限校验：interval 为 0 或负数会导致 time.NewTimer panic；
-	// 其余参数非正数会使探测行为异常
-	if intervalSec < minIntervalSec {
-		m.log.Warnf("[线路选择] 探测间隔 %ds 过小，已修正为 %ds", intervalSec, minIntervalSec)
-		intervalSec = minIntervalSec
-	}
-	if failureThreshold <= 0 {
-		failureThreshold = defaultFailureThreshold
-	}
-	if toleranceMs < 0 {
-		toleranceMs = defaultToleranceMs
-	}
-	if maxConcurrent <= 0 {
-		maxConcurrent = defaultMaxConcurrent
-	}
-	toolFilter := loadConfigStr(m.db, cfgKeyToolFilter, "")
-	rebindMode := loadConfigStr(m.db, cfgKeyRebindMode, RebindModeAuto)
-
 	m.SetInterval(time.Duration(intervalSec) * time.Second)
 	m.SetFailureThreshold(failureThreshold)
 	m.SetTolerance(time.Duration(toleranceMs) * time.Millisecond)
