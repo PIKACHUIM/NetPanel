@@ -37,6 +37,7 @@ func ServerKey(port int) string {
 	}
 	return key
 }
+
 type Manager struct {
 	db        *gorm.DB
 	log       *logrus.Logger
@@ -73,6 +74,50 @@ func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 // SetPanelPort 设置 NetPanel 面板的实际监听端口（用于 page_login 重定向）
 func (m *Manager) SetPanelPort(port int) {
 	m.panelPort = port
+}
+
+// findEnabledWafForSite 查找绑定到指定站点且已启用的 WAF 配置 ID,未找到返回 0
+func (m *Manager) findEnabledWafForSite(siteID uint) uint {
+	var configs []model.WafConfig
+	m.db.Where("enable = ?", true).Find(&configs)
+
+	for _, cfg := range configs {
+		if cfg.BindSiteIDs == "" {
+			continue
+		}
+		var siteIDs []uint
+		if err := json.Unmarshal([]byte(cfg.BindSiteIDs), &siteIDs); err != nil {
+			continue
+		}
+		for _, id := range siteIDs {
+			if id == siteID {
+				return cfg.ID
+			}
+		}
+	}
+	return 0
+}
+
+// findAuthRule 查找绑定到指定站点的认证规则
+func (m *Manager) findAuthRule(siteID uint) (string, model.AccessRule) {
+	var rules []model.AccessRule
+	m.db.Where("enable = ? AND auth_mode != ''", true).Find(&rules)
+
+	for _, rule := range rules {
+		if rule.BindSiteIDs == "" {
+			continue
+		}
+		var siteIDs []uint
+		if err := json.Unmarshal([]byte(rule.BindSiteIDs), &siteIDs); err != nil {
+			continue
+		}
+		for _, id := range siteIDs {
+			if id == siteID {
+				return rule.AuthMode, rule
+			}
+		}
+	}
+	return "", model.AccessRule{}
 }
 
 // StartAll 启动 Caddy 引擎并加载所有已启用站点（异步，不阻塞主进程）。
@@ -168,8 +213,13 @@ func (m *Manager) Stop(id uint) {
 	)
 	m.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("status", "stopped")
 
-	if err := m.syncPort(port); err != nil {
-		m.log.Errorf("[Caddy] 站点 [%s] 停止后同步端口 %d 失败: %v", site.Name, port, err)
+	// 同端口还有其他启用站点时，重新聚合部署，恢复该端口的整体服务
+	var remaining []model.CaddySite
+	m.db.Where("port = ? AND enable = ?", site.Port, true).Find(&remaining)
+	if len(remaining) > 0 {
+		if err := m.DeployServer(site.Port, remaining); err != nil {
+			m.log.Errorf("[Caddy] 站点 [%s] 停止后同步端口 %d 失败: %v", site.Name, site.Port, err)
+		}
 	}
 }
 
@@ -283,8 +333,8 @@ func (m *Manager) ensureCaddyRunning() error {
 func (m *Manager) buildServerConfig(site *model.CaddySite, routes []interface{}) map[string]interface{} {
 	listenAddr := fmt.Sprintf(":%d", site.Port)
 	serverCfg := map[string]interface{}{
-		"listen": []string{listenAddr},
-		"routes": routes,
+		"listen":          []string{listenAddr},
+		"routes":          routes,
 		"automatic_https": map[string]interface{}{"disable": true},
 		"logs": map[string]interface{}{
 			"default_logger_name": fmt.Sprintf("netpanel_%d", site.ID),
@@ -321,8 +371,8 @@ func (m *Manager) DeployServer(port int, sites []model.CaddySite) error {
 	}
 	// 日志名称使用端口而非单站点 ID（多站点共享日志）
 	serverCfg := map[string]interface{}{
-		"listen": []string{fmt.Sprintf(":%d", port)},
-		"routes": allRoutes,
+		"listen":          []string{fmt.Sprintf(":%d", port)},
+		"routes":          allRoutes,
 		"automatic_https": map[string]interface{}{"disable": true},
 		"logs": map[string]interface{}{
 			"default_logger_name": key,
@@ -441,37 +491,15 @@ func (m *Manager) buildRoutes(site *model.CaddySite) ([]interface{}, error) {
 	}
 
 	// WAF:站点绑定启用的 WAF 配置时,在 handler 链最前插入 WAF 检查中间件
-	if deps != nil {
-		if wafCfgID := deps.waf[site.ID]; wafCfgID != 0 {
-			mainHandlers = append([]interface{}{map[string]interface{}{
-				"handler":   "netpanel_waf",
-				"config_id": wafCfgID,
-			}}, mainHandlers...)
-		}
-	}
-
-	// 站点级 IP 黑白名单：绑定了网站的反代站点由 Caddy 直接对外服务，
-	// 请求不经过面板的 Gin 中间件，因此必须在 Caddy 侧判定。
-	// 放在 handler 链最前，使拒绝尽早发生。
-	if deps != nil {
-		if b, ok := deps.acl[site.ID]; ok && len(b.ips) > 0 {
-			mainHandlers = append([]interface{}{map[string]interface{}{
-				"handler": "netpanel_ip_acl",
-				"mode":    b.mode,
-				"ranges":  b.ips,
-			}}, mainHandlers...)
-		}
+	if wafCfgID := m.findEnabledWafForSite(site.ID); wafCfgID != 0 {
+		mainHandlers = append([]interface{}{map[string]interface{}{
+			"handler":   "netpanel_waf",
+			"config_id": wafCfgID,
+		}}, mainHandlers...)
 	}
 
 	// 查询认证规则
-	var authMode string
-	var authRule model.AccessRule
-	if deps != nil {
-		if b, ok := deps.auth[site.ID]; ok {
-			authMode = b.mode
-			authRule = b.rule
-		}
-	}
+	authMode, authRule := m.findAuthRule(site.ID)
 
 	switch authMode {
 	case "basic_auth":

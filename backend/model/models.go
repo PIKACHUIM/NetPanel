@@ -242,7 +242,7 @@ type FrpsConfig struct {
 	// 自定义 404 错误页面地址
 	Custom404Page string `gorm:"size:500" json:"custom_404_page"`
 	// 认证 Token
-	Token      Secret `gorm:"size:255" json:"token"`
+	Token Secret `gorm:"size:255" json:"token"`
 	// Dashboard（WebServer）配置
 	DashboardAddr     string `gorm:"size:100" json:"dashboard_addr"`
 	DashboardPort     int    `json:"dashboard_port"`
@@ -297,13 +297,8 @@ type NpsServerConfig struct {
 	WebPort     int    `gorm:"default:8080" json:"web_port"`    // Web 管理端口
 	WebUsername string `gorm:"size:100;default:'admin'" json:"web_username"`
 	// 移除弱默认值 '123456'：默认口令会随新建配置自动生效，等同于公开后门
-<<<<<<< HEAD
 	WebPassword Secret `gorm:"size:255" json:"web_password"` // 响应中脱敏
 	AuthKey     Secret `gorm:"size:255" json:"auth_key"`     // 连接认证密钥（响应中脱敏）
-=======
-	WebPassword Secret `gorm:"size:255" json:"web_password"`             // 响应中脱敏
-	AuthKey     Secret `gorm:"size:255" json:"auth_key"`                // 连接认证密钥（响应中脱敏）
->>>>>>> 585e284 (Fix/security review batch (#49))
 	LogLevel    string `gorm:"size:20;default:'info'" json:"log_level"`
 	Status      string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError   string `gorm:"type:text" json:"last_error"`
@@ -647,7 +642,7 @@ type DDNSTask struct {
 	Provider        string     `gorm:"size:50;not null" json:"provider"`        // alidns/cloudflare/dnspod/...
 	DomainAccountID uint       `json:"domain_account_id"`                       // 关联域名账号（可选）
 	AccessID        string     `gorm:"size:255" json:"access_id"`
-	AccessSecret    Secret `gorm:"size:500" json:"access_secret"`
+	AccessSecret    Secret     `gorm:"size:500" json:"access_secret"`
 	Domains         string     `gorm:"type:text" json:"domains"`                 // JSON 数组
 	IPGetType       string     `gorm:"size:20;default:'url'" json:"ip_get_type"` // url/interface/custom
 	IPGetURLs       string     `gorm:"type:text" json:"ip_get_urls"`             // JSON 数组
@@ -994,7 +989,7 @@ type AccessRule struct {
 	// 用户认证策略
 	AuthMode       string `gorm:"size:20;default:''" json:"auth_mode"` // 空=不要求登录, basic_auth=Basic Auth, page_login=页面跳转, oidc=OIDC 登录
 	AllowedUserIDs string `gorm:"type:text" json:"allowed_user_ids"`   // JSON 数组，允许访问的用户 ID 列表（空数组=所有已登录用户）
-	OidcProviderID uint  `gorm:"default:0" json:"oidc_provider_id"` // OIDC 认证绑定的 Provider ID（0=不要求）
+	OidcProviderID uint   `gorm:"default:0" json:"oidc_provider_id"`   // OIDC 认证绑定的 Provider ID（0=不要求）
 	Remark         string `gorm:"size:500" json:"remark"`
 }
 
@@ -1137,7 +1132,7 @@ type User struct {
 	Email         string `gorm:"size:255" json:"email"`
 	Enable        bool   `gorm:"default:true" json:"enable"`
 	IsAdmin       bool   `gorm:"default:false" json:"is_admin"`
-	TokenVersion  int    `gorm:"default:0" json:"-"` // 令牌版本：改密/禁用/降权时 +1，使已签发 JWT 失效
+	TokenVersion  int    `gorm:"default:0" json:"-"`             // 令牌版本：改密/禁用/降权时 +1，使已签发 JWT 失效
 	OAuthProvider string `gorm:"size:100" json:"oauth_provider"` // OAuth 来源标记（provider name），空表示本地用户
 	OAuthSub      string `gorm:"size:255" json:"oauth_sub"`      // OAuth 用户唯一标识（sub claim）
 	Remark        string `gorm:"size:500" json:"remark"`
@@ -1238,13 +1233,8 @@ type AiProvider struct {
 	BaseModel
 	Name     string `gorm:"size:100;not null" json:"name"`
 	BaseURL  string `gorm:"size:500;not null" json:"base_url"` // e.g. https://api.openai.com
-<<<<<<< HEAD
 	ApiKey   Secret `gorm:"size:500" json:"api_key"`           // 响应中脱敏
 	Models   string `gorm:"type:text" json:"models"`           // JSON array: ["gpt-4","gpt-3.5-turbo"]
-=======
-	ApiKey   Secret `gorm:"size:500" json:"api_key"` // 响应中脱敏
-	Models   string `gorm:"type:text" json:"models"`    // JSON array: ["gpt-4","gpt-3.5-turbo"]
->>>>>>> 585e284 (Fix/security review batch (#49))
 	IsActive bool   `gorm:"default:true" json:"is_active"`
 	Remark   string `gorm:"size:500" json:"remark"`
 }

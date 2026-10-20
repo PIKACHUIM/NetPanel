@@ -243,17 +243,11 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// 线路探测策略（参数化配置）
 	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
 	auth.GET("/linereg/config", lineHandler.GetConfig)
+	auth.PUT("/linereg/config", lineHandler.UpdateConfig)
 	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
 	auth.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 	// 线路探测历史（延迟趋势图）
 	auth.GET("/linereg/line/:line_id/history", lineHandler.LineHistory)
-
-	// 线路探测策略（参数化配置）
-	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
-	auth.GET("/linereg/config", lineHandler.GetConfig)
-	auth.PUT("/linereg/config", lineHandler.UpdateConfig)
-	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
-	auth.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)
