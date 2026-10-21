@@ -21,6 +21,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/pkg/pprof"
 	"github.com/netpanel/netpanel/pkg/secret"
 	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/pkg/sysutil"
@@ -424,7 +425,36 @@ func startServer() *http.Server {
 		stopAllFn = func() { prev(); retentionStop() }
 	}
 
+	// pprof 性能剖析：默认关闭，仅 NETPANEL_PPROF=1 时启用。
+	// 独立监听 127.0.0.1:6060，不复用上面暴露公网的 router，
+	// 避免堆栈/goroutine/cmdline 等信息被外网读取。
+	if pprof.Enabled() {
+		pprofSrv, err := pprof.Start("", log)
+		if err != nil {
+			log.Errorf("[pprof] 启动失败（不影响面板主服务）: %v", err)
+		} else {
+			stopAllFn = wrapStopWith(pprofSrv, log)
+		}
+	} else {
+		log.Debug("[pprof] 未启用（如需性能剖析请设置 NETPANEL_PPROF=1）")
+	}
+
 	return srv
+}
+
+// wrapStopWith 包装 stopAllFn，在原有停止逻辑之后追加 pprof 服务关闭。
+func wrapStopWith(p *pprof.Server, log *logrus.Logger) func() {
+	prev := stopAllFn
+	return func() {
+		if prev != nil {
+			prev()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.Shutdown(ctx); err != nil {
+			log.Warnf("[pprof] 关闭超时: %v", err)
+		}
+	}
 }
 
 // findAvailablePort 尝试绑定指定端口，若失败则在 preferredPort+1 ~ preferredPort+100 范围内
