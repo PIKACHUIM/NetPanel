@@ -32,12 +32,15 @@ func NewSyslogHandler(db *gorm.DB, log *logrus.Logger, svcMgr *syslog.Manager) *
 // GET /api/v1/admin/logs?service=frp&level=error&keyword=xxx&start_at=2024-01-01T00:00:00Z&end_at=...&page=1&page_size=50&order=desc
 func (h *SyslogHandler) QueryLogs(c *gin.Context) {
 	params := syslog.QueryParams{
-		Service:  c.Query("service"),
-		Level:    c.Query("level"),
-		Keyword:  c.Query("keyword"),
-		Order:    c.DefaultQuery("order", "desc"),
-		Page:     1,
-		PageSize: 50,
+		Service:      c.Query("service"),
+		Level:        c.Query("level"),
+		ActionType:   c.Query("action_type"),
+		ResourceType: c.Query("resource_type"),
+		Actor:        c.Query("actor"),
+		Keyword:      c.Query("keyword"),
+		Order:        c.DefaultQuery("order", "desc"),
+		Page:         1,
+		PageSize:     50,
 	}
 
 	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
@@ -70,6 +73,22 @@ func (h *SyslogHandler) QueryLogs(c *gin.Context) {
 func (h *SyslogHandler) GetLogServices(c *gin.Context) {
 	services := h.svcMgr.GetServices()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": services})
+}
+
+// GetAuditActors 获取审计日志中出现过的操作者列表
+// GET /api/v1/admin/audit/actors
+func (h *SyslogHandler) GetAuditActors(c *gin.Context) {
+	var actors []string
+	h.svcMgr.GetDistinctActor(&actors)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": actors})
+}
+
+// GetAuditResourceTypes 获取审计日志中出现的资源类型列表
+// GET /api/v1/admin/audit/resource-types
+func (h *SyslogHandler) GetAuditResourceTypes(c *gin.Context) {
+	var types []string
+	h.svcMgr.GetDistinctResourceType(&types)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": types})
 }
 
 // CleanupLogs 清理旧日志
