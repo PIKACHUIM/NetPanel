@@ -24,6 +24,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 )
 
 const (
@@ -152,6 +153,13 @@ func (m *Manager) StartAll() {
 }
 
 // StopAll 停止所有隧道
+// isStopping 报告管理器是否已进入关闭流程，用于中断崩溃重启前的延迟等待。
+func (m *Manager) isStopping() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stopping
+}
+
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	m.stopping = true
@@ -274,12 +282,8 @@ func (m *Manager) Start(id uint) error {
 				"last_error": errMsg,
 				"quick_url":  "",
 			})
-			// 自动重启（延迟 5 秒，关闭期间不重启）
-			time.Sleep(5 * time.Second)
-			m.mu.Lock()
-			isStopping := m.stopping
-			m.mu.Unlock()
-			if isStopping {
+			// 自动重启（延迟 5 秒，关闭期间立即中断等待）
+			if svcutil.Delay(5*time.Second, m.isStopping) {
 				return
 			}
 			var cur model.CftunnelConfig

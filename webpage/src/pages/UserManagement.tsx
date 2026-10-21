@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import {
   Card, Table, Button, Space, Tag, Switch, Modal, Form,
   Input, message, Popconfirm, Typography, Badge, Tooltip,
-  Avatar, Row, Col,
+  Avatar, Row, Col, Select,
 } from 'antd'
 import {
   UserAddOutlined, EditOutlined, DeleteOutlined,
@@ -23,13 +23,20 @@ interface UserItem {
   email: string
   enable: boolean
   is_admin: boolean
+  roles: string
   remark: string
   created_at: string
   updated_at: string
 }
 
+const ROLE_OPTIONS = [
+  { label: '查看者（只读）', value: 'viewer' },
+  { label: '编辑者（可管理穿透规则）', value: 'editor' },
+  { label: '管理员（全量权限）', value: 'admin' },
+]
+
 const UserManagement: React.FC = () => {
-  const { username: currentUsername } = useAppStore()
+  const { username: currentUsername, roles: currentRoles } = useAppStore()
   const tableStyle = useTableStyle()
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserItem[]>([])
@@ -38,7 +45,7 @@ const UserManagement: React.FC = () => {
   const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm()
 
-  const isCurrentAdmin = currentUsername === 'admin'
+  const isCurrentAdmin = currentUsername === 'admin' || currentRoles?.split(',').includes('admin')
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -59,7 +66,7 @@ const UserManagement: React.FC = () => {
   const openCreate = () => {
     setEditingUser(null)
     form.resetFields()
-    form.setFieldsValue({ enable: true, is_admin: false })
+    form.setFieldsValue({ enable: true, roles: 'viewer' })
     setModalOpen(true)
   }
 
@@ -69,7 +76,7 @@ const UserManagement: React.FC = () => {
       username: user.username,
       email: user.email,
       enable: user.enable,
-      is_admin: user.is_admin,
+      roles: user.roles || 'viewer',
       remark: user.remark,
       password: '',
     })
@@ -85,7 +92,7 @@ const UserManagement: React.FC = () => {
         const payload: any = {
           email: values.email,
           enable: values.enable,
-          is_admin: values.is_admin,
+          roles: values.roles || 'viewer',
           remark: values.remark,
         }
         // 改名（非内置 admin 且发生变化时提交）
@@ -96,7 +103,7 @@ const UserManagement: React.FC = () => {
         await adminApi.updateUser(editingUser.id, payload)
         message.success('更新成功')
       } else {
-        await adminApi.createUser(values)
+        await adminApi.createUser({ ...values, roles: values.roles || 'viewer' })
         message.success('创建成功')
       }
       setModalOpen(false)
@@ -129,8 +136,8 @@ const UserManagement: React.FC = () => {
   }
 
   // 最后一个启用管理员不可删除（前端保护，后端同样校验）
-  const enabledAdminCount = users.filter(u => u.is_admin && u.enable).length
-  const isLastAdmin = (record: UserItem) => record.is_admin && record.enable && enabledAdminCount <= 1
+  const enabledAdminCount = users.filter(u => u.roles?.includes('admin') && u.enable).length
+  const isLastAdmin = (record: UserItem) => record.roles?.includes('admin') && record.enable && enabledAdminCount <= 1
 
   const columns: ColumnsType<UserItem> = [
     {
@@ -142,12 +149,14 @@ const UserManagement: React.FC = () => {
           <Avatar
             size={32}
             style={{
-              background: record.is_admin
+              background: record.roles?.includes('admin')
                 ? 'linear-gradient(135deg, #f5a623, #f76b1c)'
+                : record.roles?.includes('editor')
+                ? 'linear-gradient(135deg, #7c3aed, #6d28d9)'
                 : 'linear-gradient(135deg, #0071e3, #0958d9)',
               flexShrink: 0,
             }}
-            icon={record.is_admin ? <CrownOutlined /> : <UserOutlined />}
+            icon={record.roles?.includes('admin') ? <CrownOutlined /> : <UserOutlined />}
           />
           <div>
             <div style={{ fontWeight: 600, fontSize: 13 }}>
@@ -167,17 +176,25 @@ const UserManagement: React.FC = () => {
     },
     {
       title: '角色',
-      dataIndex: 'is_admin',
-      key: 'is_admin',
-      width: 100,
-      render: (v: boolean) => (
-        <Tag
-          color={v ? 'gold' : 'default'}
-          icon={v ? <CrownOutlined /> : <UserOutlined />}
-        >
-          {v ? '管理员' : '普通用户'}
-        </Tag>
-      ),
+      dataIndex: 'roles',
+      key: 'roles',
+      width: 140,
+      render: (roles: string) => {
+        const list = roles ? roles.split(',').filter(Boolean) : ['viewer']
+        return (
+          <Space size={4} wrap>
+            {list.includes('admin') && (
+              <Tag color="gold" icon={<CrownOutlined />}>管理员</Tag>
+            )}
+            {list.includes('editor') && (
+              <Tag color="purple">编辑者</Tag>
+            )}
+            {list.includes('viewer') && !list.includes('editor') && !list.includes('admin') && (
+              <Tag>查看者</Tag>
+            )}
+          </Space>
+        )
+      },
     },
     {
       title: '状态',
@@ -355,11 +372,16 @@ const UserManagement: React.FC = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="is_admin" label="管理员权限" valuePropName="checked">
-                <Switch
-                  checkedChildren="管理员"
-                  unCheckedChildren="普通用户"
+              <Form.Item
+                name="roles"
+                label="角色"
+                rules={[{ required: true, message: '请选择角色' }]}
+              >
+                <Select
+                  options={ROLE_OPTIONS}
                   disabled={editingUser?.username === 'admin' || !isCurrentAdmin}
+                  allowClear
+                  placeholder="选择角色"
                 />
               </Form.Item>
             </Col>
@@ -370,7 +392,7 @@ const UserManagement: React.FC = () => {
               fontSize: 12, color: '#999',
               marginTop: -8, marginBottom: 8,
             }}>
-              * 只有 admin 可以修改管理员权限
+              * 只有管理员可以修改角色
             </div>
           )}
 

@@ -15,6 +15,8 @@ import (
 
 	"github.com/netpanel/netpanel/model"
 	"github.com/sirupsen/logrus"
+
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"gorm.io/gorm"
 )
 
@@ -45,7 +47,7 @@ func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
 
 // Start 启动定期心跳检测
 func (m *Manager) Start() {
-	go m.heartbeatLoop()
+	svcutil.SafeGo(m.log, "meshnode.heartbeat", true, m.heartbeatLoop)
 	m.log.Info("[组网节点] 心跳检测已启动")
 }
 
