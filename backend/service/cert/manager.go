@@ -75,6 +75,8 @@ type Manager struct {
 	// ctx/stop 控制定时循环的生命周期（此前为裸 for-range，进程内无法优雅关闭）
 	ctx    context.Context
 	cancel context.CancelFunc
+	// stopCh 用于终止后台续期与 ACME 流程轮询 goroutine
+	stopCh chan struct{}
 	// startOnce/stopOnce 保证 StartAll/StopAll 幂等，可被 API 与开机恢复路径重复调用
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -95,6 +97,7 @@ func (m *Manager) Stop() {
 // 不再拖垮整个面板进程。
 func (m *Manager) StartAll() {
 	m.startOnce.Do(func() {
+		m.stopCh = make(chan struct{})
 		svcutil.SafeGo(m.log, "cert.autorenew", true, m.autoRenewLoop)
 		svcutil.SafeGo(m.log, "cert.acmeflow", true, m.acmeFlowLoop)
 	})
@@ -980,4 +983,6 @@ type noopDNSProvider struct{}
 
 func (p *noopDNSProvider) Present(domain, token, keyAuth string) error { return nil }
 func (p *noopDNSProvider) CleanUp(domain, token, keyAuth string) error { return nil }
-func (p *noopDNSProvider) Timeout() (timeout, interval time.Duration)  { return 1 * time.Second, 1 * time.Second }
+func (p *noopDNSProvider) Timeout() (timeout, interval time.Duration) {
+	return 1 * time.Second, 1 * time.Second
+}
