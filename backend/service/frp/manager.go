@@ -15,6 +15,7 @@ import (
 	"github.com/fatedier/frp/server"
 	frpsassets "github.com/netpanel/netpanel/assets/frps"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -292,8 +293,7 @@ func (m *Manager) runClient(ctx context.Context, id uint, name string, svc *clie
 			"last_error": "进程意外退出，正在自动重启",
 		})
 		m.log.Warnf("[FRP客户][%s] 服务意外退出，5 秒后自动重启", name)
-		time.Sleep(5 * time.Second)
-		if m.isStopping() {
+		if svcutil.Delay(5*time.Second, m.isStopping) {
 			return
 		}
 		var cur model.FrpcConfig
@@ -707,8 +707,7 @@ func (m *Manager) runServer(ctx context.Context, id uint, name string, svc *serv
 			"last_error": "进程意外退出，正在自动重启",
 		})
 		m.log.Warnf("[FRP服务][%s] 服务意外退出，5 秒后自动重启", name)
-		time.Sleep(5 * time.Second)
-		if m.isStopping() {
+		if svcutil.Delay(5*time.Second, m.isStopping) {
 			return
 		}
 		var cur model.FrpsConfig
