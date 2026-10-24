@@ -283,7 +283,12 @@ const DomainCert: React.FC = () => {
     if (Array.isArray(values.domains) && values.domains[0] && typeof values.domains[0] === 'object' && 'base' in values.domains[0]) {
       values.domains = JSON.stringify(entriesToDomains(values.domains as DomainEntry[]))
     } else if (typeof values.domains === 'string') {
-      values.domains = JSON.stringify(values.domains.split('\n').filter(Boolean))
+      values.domains = JSON.stringify(values.domains.split('\n').map((s: string) => s.trim()).filter(Boolean))
+    }
+    if (values.cert_type === 'acme-ip') {
+      // IP 证书：固定 Let's Encrypt + shortlived profile，仅 HTTP-01 验证
+      values.ca = 'letsencrypt'
+      values.challenge_type = 'http'
     }
     if (editRecord) {
       await domainCertApi.update(editRecord.id, values)
@@ -798,6 +803,7 @@ const DomainCert: React.FC = () => {
           <Form.Item name="cert_type" label={t('domainCert.certType')}>
             <Radio.Group onChange={() => { setDnsWarnings([]) }}>
               <Radio value="acme">{t('domainCert.certTypeAcme')}</Radio>
+              <Radio value="acme-ip">{t('domainCert.certTypeIp')}</Radio>
               <Radio value="manual">{t('domainCert.certTypeManual')}</Radio>
             </Radio.Group>
           </Form.Item>
@@ -839,6 +845,44 @@ const DomainCert: React.FC = () => {
                   extra={t('domainCert.keyContentHint')}
                 >
                   <Input.TextArea rows={5} placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" />
+                </Form.Item>
+              </>
+            ) : getFieldValue('cert_type') === 'acme-ip' ? (
+              /* ===== IP 证书模式 ===== */
+              <>
+                <Form.Item
+                  name="cert_account_id"
+                  label={t('domainCert.certAccount')}
+                  rules={[{ required: true, message: t('domainCert.certAccountRequired') }]}
+                  extra={t('domainCert.certAccountHint')}
+                >
+                  <Select placeholder={t('domainCert.certAccountPlaceholder')}>
+                    {certAccounts.map(a => (
+                      <Option key={a.id} value={a.id}>
+                        <Space size={4}>
+                          <Tag color={CA_COLOR[a.type] || 'default'} style={{ margin: 0 }}>{a.type}</Tag>
+                          {a.name}
+                          {a.email && <Text type="secondary" style={{ fontSize: 11 }}>({a.email})</Text>}
+                        </Space>
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+
+                <Form.Item
+                  name="domains"
+                  label={t('domainCert.ipDomains')}
+                  rules={[{
+                    validator: (_, val: string) => {
+                      const ips = (val || '').split('\n').map((s: string) => s.trim()).filter(Boolean)
+                      if (ips.length === 0) return Promise.reject(t('domainCert.ipDomainsRequired'))
+                      const bad = ips.find((ip: string) => !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) && !/^[0-9a-fA-F:]+$/.test(ip))
+                      return bad ? Promise.reject(t('domainCert.ipInvalid').replace('%s', bad)) : Promise.resolve()
+                    }
+                  }]}
+                  extra={t('domainCert.ipHint')}
+                >
+                  <Input.TextArea rows={3} placeholder={'203.0.113.10\n2001:db8::10'} />
                 </Form.Item>
               </>
             ) : (
