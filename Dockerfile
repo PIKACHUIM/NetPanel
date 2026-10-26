@@ -18,7 +18,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 # ─────────────────────────────────────────────
 # 阶段 2：构建后端（支持交叉编译到目标架构）
 # ─────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
 
 # 接收目标平台参数
 ARG TARGETPLATFORM
