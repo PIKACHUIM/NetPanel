@@ -63,6 +63,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		userID       uint
 		isAdmin      bool
 		tokenVersion int
+		roles        string
 	)
 
 	// 优先从 User 表查找用户
@@ -80,8 +81,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			return
 		}
 		userID = user.ID
-		isAdmin = user.IsAdmin
+		isAdmin = user.IsAdminLegacy()
 		tokenVersion = user.TokenVersion
+		roles = user.Roles
 	} else {
 		// User 表中不存在，兼容旧版：仅允许 admin 用户通过 SystemConfig 验证
 		if req.Username != "admin" {
@@ -103,9 +105,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		}
 		// 旧版引导账号视为管理员（此路径无对应 User 记录，userID 保持 0）
 		isAdmin = true
+		roles = model.RoleAdmin
 	}
 
-	token, err := middleware.GenerateToken(req.Username, userID, isAdmin, tokenVersion)
+	token, err := middleware.GenerateTokenWithRoles(req.Username, userID, isAdmin, roles, tokenVersion)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成 Token 失败"})
 		return
@@ -124,6 +127,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			"token":    token,
 			"username": req.Username,
 			"is_admin": isAdmin,
+			"roles":    roles,
 		},
 	})
 }

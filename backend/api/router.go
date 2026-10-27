@@ -104,6 +104,10 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	apiV1.GET("/init/status", initHandler.Status)
 	apiV1.POST("/init/setup", initHandler.Setup)
 
+	// 首次向导：网络环境探测
+	initNetHandler := handlers.NewInitNetworkHandler(opts.Log)
+	apiV1.GET("/init/network-info", initNetHandler.NetworkInfo)
+
 	// OAuth2/OIDC 公开路由
 	oauthHandler := handlers.NewOAuthHandler(opts.DB, opts.Log)
 	apiV1.GET("/auth/oauth/providers", oauthHandler.ListPublicProviders)
@@ -126,12 +130,15 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/system/stats", sysHandler.GetStats)
 	auth.GET("/system/interfaces", sysHandler.GetInterfaces)
 	auth.GET("/system/ipv6", sysHandler.GetIPv6Info)
+	auth.GET("/system/health", sysHandler.GetHealth)
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 	admin.GET("/system/config", sysHandler.GetConfig)
 	admin.PUT("/system/config", sysHandler.UpdateConfig)
 
 	// 端口转发（创建规则即可暴露任意内网目标，属高危能力）
 	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr)
+	dockerHandler := handlers.NewDockerHandler()
+	auth.GET("/docker/containers", dockerHandler.ListContainers)
 	auth.GET("/port-forward", pfHandler.List)
 	auth.GET("/port-forward/:id/logs", pfHandler.GetLogs)
 	auth.GET("/port-forward/certs", pfHandler.ListCerts)
@@ -150,6 +157,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.DELETE("/stun/:id", stunHandler.Delete)
 	admin.POST("/stun/:id/start", stunHandler.Start)
 	admin.POST("/stun/:id/stop", stunHandler.Stop)
+	auth.GET("/stun/nat-check", stunHandler.DetectNAT)
 
 	// FRP 客户端
 	frpcHandler := handlers.NewFrpcHandler(opts.DB, opts.Log, opts.FrpMgr)
@@ -240,6 +248,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
 	admin.PUT("/linereg/config", lineHandler.UpdateConfig)
 	admin.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
+	// 线路探测历史（延迟趋势图）
+	auth.GET("/linereg/line/:line_id/history", lineHandler.LineHistory)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)
