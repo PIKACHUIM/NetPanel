@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/crud"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/sirupsen/logrus"
@@ -15,18 +16,23 @@ import (
 )
 
 type DDNSHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
-	mgr *ddns.Manager
+	// repo 承载纯 CRUD 访问；db 保留给 Start/Stop 等直接 Update 单列的路径。
+	repo crud.Store[model.DDNSTask]
+	db   *gorm.DB
+	log  *logrus.Logger
+	mgr  *ddns.Manager
 }
 
 func NewDDNSHandler(db *gorm.DB, log *logrus.Logger, mgr *ddns.Manager) *DDNSHandler {
-	return &DDNSHandler{db: db, log: log, mgr: mgr}
+	return &DDNSHandler{repo: crud.New[model.DDNSTask](db), db: db, log: log, mgr: mgr}
 }
 
 func (h *DDNSHandler) List(c *gin.Context) {
-	var tasks []model.DDNSTask
-	h.db.Order("id desc").Find(&tasks)
+	tasks, err := h.repo.List(c.Request.Context(), crud.ListOptions{OrderBy: "id desc"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	for i := range tasks {
 		tasks[i].Status = h.mgr.GetStatus(tasks[i].ID)
 	}
@@ -40,7 +46,10 @@ func (h *DDNSHandler) Create(c *gin.Context) {
 		return
 	}
 	task.Status = "stopped"
-	h.db.Create(&task)
+	if err := h.repo.Create(c.Request.Context(), &task); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 logger.WriteLog("info", "ddns", fmt.Sprintf("创建DDNS任务 [%d] %s", task.ID, task.Name))
 	if task.Enable {
 		h.mgr.Start(task.ID)
@@ -57,7 +66,10 @@ func (h *DDNSHandler) Update(c *gin.Context) {
 	}
 	h.mgr.Stop(uint(id))
 	req.ID = uint(id)
-	h.db.Save(&req)
+	if err := h.repo.Update(c.Request.Context(), uint(id), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 logger.WriteLog("info", "ddns", fmt.Sprintf("更新DDNS任务 [%d] %s", id, req.Name))
 	if req.Enable {
 		h.mgr.Start(uint(id))
@@ -68,7 +80,10 @@ logger.WriteLog("info", "ddns", fmt.Sprintf("更新DDNS任务 [%d] %s", id, req.
 func (h *DDNSHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
-	h.db.Delete(&model.DDNSTask{}, id)
+	if err := h.repo.Delete(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "ddns", fmt.Sprintf("删除DDNS任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }

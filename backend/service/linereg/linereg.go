@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/service/selector"
 )
 
@@ -344,7 +345,7 @@ func (m *Manager) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.wg.Add(1)
-	go m.run(ctx)
+	svcutil.SafeGo(m.log, "linereg.run", true, func() { m.run(ctx) })
 	m.log.Info("[线路选择] 后台测速选线已启动")
 }
 
@@ -381,6 +382,7 @@ func (m *Manager) run(ctx context.Context) {
 			}
 			timer.Reset(m.currentInterval())
 		case <-timer.C:
+			svcutil.BeatEngineHeartbeat("linereg")
 			m.refresh(ctx)
 			timer.Reset(m.currentInterval())
 		}
@@ -665,6 +667,24 @@ func (m *Manager) pruneHistory(lineID string) {
 	}
 	excess := count - maxHistoryPerLine
 	m.db.Where("line_id = ?", lineID).Order("id asc").Limit(int(excess)).Delete(&model.ProbeHistory{})
+}
+
+// History 返回指定线路的探测历史（延迟趋势），按时间正序排列，供前端趋势图使用。
+// limit <= 0 或 > 500 时默认取 100 条；lineID 不存在则返回空 map。
+func (m *Manager) History(lineID string, limit int) ([]model.ProbeHistory, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	var history []model.ProbeHistory
+	if err := m.db.Where("line_id = ?", lineID).
+		Order("id desc").Limit(limit).Find(&history).Error; err != nil {
+		return nil, err
+	}
+	// 时间正序（趋势图从左到右）
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
+	return history, nil
 }
 
 // BuildLines 从数据库汇总各工具「启用且入口可用」的线路。

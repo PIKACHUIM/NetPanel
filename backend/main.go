@@ -19,7 +19,9 @@ import (
 	"github.com/netpanel/netpanel/api"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
+	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/pkg/pprof"
 	"github.com/netpanel/netpanel/pkg/secret"
 	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/pkg/sysutil"
@@ -28,7 +30,6 @@ import (
 	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
-	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
 	"github.com/netpanel/netpanel/service/cron"
@@ -43,6 +44,7 @@ import (
 	"github.com/netpanel/netpanel/service/monitor"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
@@ -339,7 +341,11 @@ func startServer() *http.Server {
 	lineregMgr.Start()
 	// 系统防火墙规则定时同步（此前 StartAutoSync 无任何调用者，功能实际未生效）
 	firewallMgr.StartAutoSync()
-	
+
+	// 数据保留清理器：定时分批清理时序数据，防止数据库无限膨胀
+	retentionCleaner := retention.New(db, log)
+	retentionStop := retentionCleaner.Start()
+
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
 		log.Errorf("监控服务启动失败: %v", err)
@@ -416,6 +422,16 @@ func startServer() *http.Server {
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: router,
+		// 超时配置（稳定性：防慢连接长期占住 goroutine 与 fd）：
+		//   - ReadTimeout 限制读请求，请求体都很小，30s 足够；
+		//   - WriteTimeout 必须保持 0：AI 对话与 CF 隧道日志走 SSE 流式响应、
+		//     终端走 WebSocket 升级，任何写超时都会掐断长连接；
+		//   - IdleTimeout 回收空闲连接，防连接堆积。
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
@@ -432,8 +448,41 @@ func startServer() *http.Server {
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr, autohealMgr,
 		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv,
 		syslogMgr, wafMgr)
+	// 把清理器的停止函数链入全局优雅关闭
+	if prev := stopAllFn; prev != nil {
+		stopAllFn = func() { prev(); retentionStop() }
+	}
+
+	// pprof 性能剖析：默认关闭，仅 NETPANEL_PPROF=1 时启用。
+	// 独立监听 127.0.0.1:6060，不复用上面暴露公网的 router，
+	// 避免堆栈/goroutine/cmdline 等信息被外网读取。
+	if pprof.Enabled() {
+		pprofSrv, err := pprof.Start("", log)
+		if err != nil {
+			log.Errorf("[pprof] 启动失败（不影响面板主服务）: %v", err)
+		} else {
+			stopAllFn = wrapStopWith(pprofSrv, log)
+		}
+	} else {
+		log.Debug("[pprof] 未启用（如需性能剖析请设置 NETPANEL_PPROF=1）")
+	}
 
 	return srv
+}
+
+// wrapStopWith 包装 stopAllFn，在原有停止逻辑之后追加 pprof 服务关闭。
+func wrapStopWith(p *pprof.Server, log *logrus.Logger) func() {
+	prev := stopAllFn
+	return func() {
+		if prev != nil {
+			prev()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.Shutdown(ctx); err != nil {
+			log.Warnf("[pprof] 关闭超时: %v", err)
+		}
+	}
 }
 
 // findAvailablePort 尝试绑定指定端口，若失败则在 preferredPort+1 ~ preferredPort+100 范围内

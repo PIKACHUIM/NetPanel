@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
+	"github.com/netpanel/netpanel/pkg/crud"
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/pkg/safehttp"
 	"github.com/netpanel/netpanel/service/access"
@@ -523,17 +524,22 @@ func (p *dnspodRecordProvider) ListDomains() ([]ProviderDomainItem, error) {
 // ===== WOL =====
 
 type WolHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
+	// repo 承载纯 CRUD 访问；db 仅供 Wake 等带业务逻辑的路径直接查询。
+	repo crud.Store[model.WolDevice]
+	db   *gorm.DB
+	log  *logrus.Logger
 }
 
 func NewWolHandler(db *gorm.DB, log *logrus.Logger) *WolHandler {
-	return &WolHandler{db: db, log: log}
+	return &WolHandler{repo: crud.New[model.WolDevice](db), db: db, log: log}
 }
 
 func (h *WolHandler) List(c *gin.Context) {
-	var devices []model.WolDevice
-	h.db.Order("id desc").Find(&devices)
+	devices, err := h.repo.List(c.Request.Context(), crud.ListOptions{OrderBy: "id desc"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": devices})
 }
 
@@ -543,7 +549,10 @@ func (h *WolHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.db.Create(&device)
+	if err := h.repo.Create(c.Request.Context(), &device); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "wol", fmt.Sprintf("创建WOL设备 [%d] %s", device.ID, device.MACAddress))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": device, "message": "创建成功"})
 }
@@ -556,14 +565,20 @@ func (h *WolHandler) Update(c *gin.Context) {
 		return
 	}
 	req.ID = uint(id)
-	h.db.Save(&req)
+	if err := h.repo.Update(c.Request.Context(), uint(id), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "wol", fmt.Sprintf("更新WOL设备 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *WolHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.db.Delete(&model.WolDevice{}, id)
+	if err := h.repo.Delete(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "wol", fmt.Sprintf("删除WOL设备 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
@@ -586,17 +601,22 @@ func (h *WolHandler) Wake(c *gin.Context) {
 // ===== 域名账号 =====
 
 type DomainAccountHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
+	// repo 承载纯 CRUD 访问；db 仅供 Test 等带业务逻辑的路径直接查询。
+	repo crud.Store[model.DomainAccount]
+	db   *gorm.DB
+	log  *logrus.Logger
 }
 
 func NewDomainAccountHandler(db *gorm.DB, log *logrus.Logger) *DomainAccountHandler {
-	return &DomainAccountHandler{db: db, log: log}
+	return &DomainAccountHandler{repo: crud.New[model.DomainAccount](db), db: db, log: log}
 }
 
 func (h *DomainAccountHandler) List(c *gin.Context) {
-	var accounts []model.DomainAccount
-	h.db.Order("id desc").Find(&accounts)
+	accounts, err := h.repo.List(c.Request.Context(), crud.ListOptions{OrderBy: "id desc"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	// 隐藏 Secret
 	for i := range accounts {
 		if len(accounts[i].AccessSecret) > 4 {
@@ -612,15 +632,18 @@ func (h *DomainAccountHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.db.Create(&account)
+	if err := h.repo.Create(c.Request.Context(), &account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "domain", fmt.Sprintf("创建域名账号 [%d] %s", account.ID, account.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": account, "message": "创建成功"})
 }
 
 func (h *DomainAccountHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var existing model.DomainAccount
-	if err := h.db.First(&existing, id).Error; err != nil {
+	existing, err := h.repo.Get(c.Request.Context(), uint(id))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "账号不存在"})
 		return
 	}
@@ -634,7 +657,10 @@ func (h *DomainAccountHandler) Update(c *gin.Context) {
 	if strings.HasPrefix(req.AccessSecret.String(), "****") {
 		req.AccessSecret = existing.AccessSecret
 	}
-	h.db.Save(&req)
+	if err := h.repo.Update(c.Request.Context(), uint(id), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "domain", fmt.Sprintf("更新域名账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
@@ -648,7 +674,10 @@ func (h *DomainAccountHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "该账号下存在域名，无法删除"})
 		return
 	}
-	h.db.Delete(&model.DomainAccount{}, id)
+	if err := h.repo.Delete(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "domain", fmt.Sprintf("删除域名账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
@@ -1928,18 +1957,21 @@ func (h *AccessHandler) restartBoundSites(bindSiteIDs string) {
 // ===== 回调账号 =====
 
 type CallbackAccountHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
-	mgr *callback.Manager
+	repo crud.Store[model.CallbackAccount]
+	log  *logrus.Logger
+	mgr  *callback.Manager
 }
 
 func NewCallbackAccountHandler(db *gorm.DB, log *logrus.Logger, mgr *callback.Manager) *CallbackAccountHandler {
-	return &CallbackAccountHandler{db: db, log: log, mgr: mgr}
+	return &CallbackAccountHandler{repo: crud.New[model.CallbackAccount](db), log: log, mgr: mgr}
 }
 
 func (h *CallbackAccountHandler) List(c *gin.Context) {
-	var accounts []model.CallbackAccount
-	h.db.Order("id desc").Find(&accounts)
+	accounts, err := h.repo.List(c.Request.Context(), crud.ListOptions{OrderBy: "id desc"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": accounts})
 }
 
@@ -1949,7 +1981,10 @@ func (h *CallbackAccountHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.db.Create(&account)
+	if err := h.repo.Create(c.Request.Context(), &account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "callback", fmt.Sprintf("创建回调账号 [%d]", account.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": account, "message": "创建成功"})
 }
@@ -1962,14 +1997,20 @@ func (h *CallbackAccountHandler) Update(c *gin.Context) {
 		return
 	}
 	req.ID = uint(id)
-	h.db.Save(&req)
+	if err := h.repo.Update(c.Request.Context(), uint(id), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "callback", fmt.Sprintf("更新回调账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *CallbackAccountHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.db.Delete(&model.CallbackAccount{}, id)
+	if err := h.repo.Delete(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "callback", fmt.Sprintf("删除回调账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
@@ -1986,17 +2027,20 @@ func (h *CallbackAccountHandler) Test(c *gin.Context) {
 // ===== 回调任务 =====
 
 type CallbackTaskHandler struct {
-	db  *gorm.DB
-	log *logrus.Logger
+	repo crud.Store[model.CallbackTask]
+	log  *logrus.Logger
 }
 
 func NewCallbackTaskHandler(db *gorm.DB, log *logrus.Logger) *CallbackTaskHandler {
-	return &CallbackTaskHandler{db: db, log: log}
+	return &CallbackTaskHandler{repo: crud.New[model.CallbackTask](db), log: log}
 }
 
 func (h *CallbackTaskHandler) List(c *gin.Context) {
-	var tasks []model.CallbackTask
-	h.db.Order("id desc").Find(&tasks)
+	tasks, err := h.repo.List(c.Request.Context(), crud.ListOptions{OrderBy: "id desc"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tasks})
 }
 
@@ -2006,7 +2050,10 @@ func (h *CallbackTaskHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.db.Create(&task)
+	if err := h.repo.Create(c.Request.Context(), &task); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "callback", fmt.Sprintf("创建回调任务 [%d]", task.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": task, "message": "创建成功"})
 }
@@ -2019,14 +2066,20 @@ func (h *CallbackTaskHandler) Update(c *gin.Context) {
 		return
 	}
 	req.ID = uint(id)
-	h.db.Save(&req)
+	if err := h.repo.Update(c.Request.Context(), uint(id), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "callback", fmt.Sprintf("更新回调任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *CallbackTaskHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	h.db.Delete(&model.CallbackTask{}, id)
+	if err := h.repo.Delete(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	logger.WriteLog("info", "callback", fmt.Sprintf("删除回调任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
