@@ -353,6 +353,7 @@ export const systemApi = {
   updateConfig: (data: any) => request.put('/v1/system/config', data),
   changePassword: (data: any) => request.post('/v1/system/change-password', data),
   getInterfaces: () => request.get('/v1/system/interfaces'),
+  getIPv6Info: () => request.get('/v1/system/ipv6'),
   login: (data: any) => request.post('/v1/auth/login', data),
 }
 
@@ -361,7 +362,11 @@ export const adminApi = {
   // 日志查看
   queryLogs: (params?: any) => request.get('/v1/admin/logs', { params }),
   getLogServices: () => request.get('/v1/admin/logs/services'),
-  cleanupLogs: (days: number) => request.delete('/v1/admin/logs', { params: { days } }),
+  cleanupLogs: (days: number) => request.delete("/v1/admin/logs", { params: { days } }),
+  // 审计查询
+  queryAuditLogs: (params?: any) => request.get("/v1/admin/logs", { params }),
+  getAuditActors: () => request.get("/v1/admin/audit/actors"),
+  getAuditResourceTypes: () => request.get("/v1/admin/audit/resource-types"),
   // 用户管理
   listUsers: () => request.get('/v1/admin/users'),
   createUser: (data: any) => request.post('/v1/admin/users', data),
@@ -592,6 +597,25 @@ export const initApi = {
   status: () => request.get('/v1/init/status'),
   setup: (data: { username: string; password: string }) => request.post('/v1/init/setup', data),
   networkInfo: () => request.get('/v1/init/network-info'),
+}
+
+// ===== frpc 多节点 Master（M4） =====
+export const frpmasterApi = {
+  listNodes: () => request.get('/v1/frpmaster/nodes'),
+  createNode: (data: { name: string; region?: string; server_addr: string; server_port: number; frps_token?: string; remark?: string }) =>
+    request.post('/v1/frpmaster/nodes', data),
+  deleteNode: (id: number) => request.delete(`/v1/frpmaster/nodes/${id}`),
+  previewConfig: (id: number) => request.get(`/v1/frpmaster/nodes/${id}/config`),
+  agentHeartbeat: (nodeId: number, token: string) =>
+    request.post('/v1/frpmaster/agent/heartbeat', { node_id: nodeId, token }),
+  agentStatus: (nodeId: number, token: string, tunnels?: unknown) =>
+    request.post('/v1/frpmaster/agent/status', { node_id: nodeId, token, tunnels }),
+  agentConfig: (nodeId: number, token: string) =>
+    request.post(`/v1/frpmaster/agent/config?node_id=${nodeId}`, null, {
+      headers: { 'X-Frp-Token': encodeURIComponent(token) },
+    }),
+  agentLogs: (nodeId: number, token: string, logs: string[]) =>
+    request.post('/v1/frpmaster/agent/logs', { node_id: nodeId, token, logs }),
 }
 
 // ===== 线路探测策略（linereg） =====

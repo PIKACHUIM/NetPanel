@@ -6,8 +6,8 @@ import (
 	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/pkg/config"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
-	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/cftunnel"
@@ -15,16 +15,17 @@ import (
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/dnsmasq"
 	"github.com/netpanel/netpanel/service/easytier"
+	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/frpmaster"
 	"github.com/netpanel/netpanel/service/linereg"
+	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
 	"github.com/netpanel/netpanel/service/tunservice"
-	"github.com/netpanel/netpanel/service/ai"
-	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -39,6 +40,7 @@ type RouterOptions struct {
 	PortForwardMgr *portforward.Manager
 	StunMgr        *stun.Manager
 	FrpMgr         *frp.Manager
+	FrpMasterMgr   *frpmaster.Manager
 	NpsMgr         *nps.Manager
 	EasytierMgr    *easytier.Manager
 	CftunnelMgr    *cftunnel.Manager
@@ -114,6 +116,13 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	apiV1.GET("/auth/oauth/:provider/authorize", oauthHandler.Authorize)
 	apiV1.GET("/auth/oauth/:provider/callback", oauthHandler.Callback)
 
+	// frpc 多节点 Master：远程节点控制面（节点凭 node_id+token 认证，无面板 JWT）
+	fmHandler := handlers.NewFrpMasterHandler(opts.DB, opts.Log, opts.FrpMasterMgr)
+	apiV1.POST("/frpmaster/agent/heartbeat", fmHandler.Heartbeat)
+	apiV1.POST("/frpmaster/agent/status", fmHandler.ReportStatus)
+	apiV1.POST("/frpmaster/agent/logs", fmHandler.ReportLogs)
+	apiV1.POST("/frpmaster/agent/config", fmHandler.FetchConfig)
+
 	// 需要认证的路由
 	auth := apiV1.Group("")
 	auth.Use(middleware.JWTAuth(opts.DB))
@@ -129,13 +138,14 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/system/info", sysHandler.GetInfo)
 	auth.GET("/system/stats", sysHandler.GetStats)
 	auth.GET("/system/interfaces", sysHandler.GetInterfaces)
+	auth.GET("/system/ipv6", sysHandler.GetIPv6Info)
 	auth.GET("/system/health", sysHandler.GetHealth)
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 	admin.GET("/system/config", sysHandler.GetConfig)
 	admin.PUT("/system/config", sysHandler.UpdateConfig)
 
 	// 端口转发（创建规则即可暴露任意内网目标，属高危能力）
-	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr)
+	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr, opts.SyslogMgr)
 	dockerHandler := handlers.NewDockerHandler()
 	auth.GET("/docker/containers", dockerHandler.ListContainers)
 	auth.GET("/port-forward", pfHandler.List)
@@ -471,6 +481,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.GET("/admin/logs", syslogHandler.QueryLogs)
 	admin.GET("/admin/logs/services", syslogHandler.GetLogServices)
 	admin.DELETE("/admin/logs", syslogHandler.CleanupLogs)
+	admin.GET("/admin/audit/actors", syslogHandler.GetAuditActors)
+	admin.GET("/admin/audit/resource-types", syslogHandler.GetAuditResourceTypes)
 
 	// 用户管理
 	userHandler := handlers.NewUserHandler(opts.DB, opts.Log)
@@ -545,6 +557,12 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.PUT("/ai/plugins/:id", aiHandler.UpdatePlugin)
 	admin.DELETE("/ai/plugins/:id", aiHandler.DeletePlugin)
 	admin.POST("/ai/plugins/:id/toggle", aiHandler.TogglePlugin)
+
+	// ── frpc 多节点 Master（管理面）────────────────────────────────────────────
+	auth.GET("/frpmaster/nodes", fmHandler.List)
+	auth.POST("/frpmaster/nodes", fmHandler.Create)
+	admin.DELETE("/frpmaster/nodes/:id", fmHandler.Delete)
+	admin.GET("/frpmaster/nodes/:id/config", fmHandler.ConfigPreview)
 
 	// ── 服务监控 ────────────────────────────────────────────────────────────────
 	// 服务器凭据与探测写操作限管理员（可经 SSH 在受管主机执行命令）

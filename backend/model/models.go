@@ -611,6 +611,10 @@ type TunService struct {
 	// LockedLine 服务级锁线：非空且存在于 LineRefs 时，该服务的有效线路
 	// 固定为 LockedLine，不再跟随全局选线结果切换；空串表示自动（跟随全局）。
 	LockedLine string `gorm:"size:50" json:"locked_line"`
+	// PoolRef 绑定的线路池 ID（可选）。设置后 TunService 的候选线路由池内
+	// 线路（含远程节点入口）构成；空 = 沿用默认 LineRefs 集合，行为不变。
+	// PoolRef 仅作为 hint，实际池管理随多节点 Master（#89）合入后进一步扩展。
+	PoolRef string `gorm:"size:64" json:"pool_ref"`
 }
 
 // ===== 线路探测历史（可观测性） =====
@@ -1117,10 +1121,17 @@ type CallbackTask struct {
 // SystemLog 系统日志记录
 type SystemLog struct {
 	ID      uint      `gorm:"primarykey" json:"id"`
-	Level   string    `gorm:"size:20;index" json:"level"`   // info/warn/error/debug
-	Service string    `gorm:"size:50;index" json:"service"` // system/frp/nps/easytier/ddns/caddy/portforward/stun/dnsmasq/storage/cron/waf/firewall/access/cert/callback
+	Level   string    `gorm:"size:20;index" json:"level"`   // info/warn/error/debug/audit
+	Service string    `gorm:"size:50;index" json:"service"` // system/frp/nps/easytier/ddns/caddy/portforward/stun/dnsmasq/storage/cron/waf/firewall/access/cert/callback/audit
 	Message string    `gorm:"type:text" json:"message"`
 	LogTime time.Time `gorm:"index" json:"log_time"`
+
+	// 审计扩展字段（Level=audit 时有效）
+	Actor       string `gorm:"size:100;index" json:"actor"`         // 操作者用户名
+	ActionType  string `gorm:"size:20;index" json:"action_type"`    // CREATE/UPDATE/DELETE/ENABLE/DISABLE
+	ResourceType string `gorm:"size:50;index" json:"resource_type"` // frp_proxy/caddy_site/easytier_client/...
+	ResourceID  uint   `gorm:"index" json:"resource_id"`           // 资源记录 ID
+	Diff        string `gorm:"type:text" json:"diff"`              // before/after JSON diff（脱敏后）
 }
 
 // ===== 角色常量 =====
