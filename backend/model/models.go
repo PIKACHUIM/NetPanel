@@ -611,6 +611,10 @@ type TunService struct {
 	// LockedLine 服务级锁线：非空且存在于 LineRefs 时，该服务的有效线路
 	// 固定为 LockedLine，不再跟随全局选线结果切换；空串表示自动（跟随全局）。
 	LockedLine string `gorm:"size:50" json:"locked_line"`
+	// PoolRef 绑定的线路池 ID（可选）。设置后 TunService 的候选线路由池内
+	// 线路（含远程节点入口）构成；空 = 沿用默认 LineRefs 集合，行为不变。
+	// PoolRef 仅作为 hint，实际池管理随多节点 Master（#89）合入后进一步扩展。
+	PoolRef string `gorm:"size:64" json:"pool_ref"`
 }
 
 // ===== 线路探测历史（可观测性） =====
