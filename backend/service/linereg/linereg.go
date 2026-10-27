@@ -209,6 +209,8 @@ func (m *Manager) SetProber(p selector.Prober) {
 // 用于额外通知；在 Start 前调用即可。
 func (m *Manager) SetHealthEventSink(fn HealthEventSink) {
 	m.eventSink = fn
+}
+
 // SetRemoteLineProvider 注册远程线路提供者（可选；如 frpc Master 在线节点）。
 // refresh 每轮把 provider 返回的线路合并进候选集合参与测速选线；provider
 // 不再返回某线路时，SetLines 全量刷新会自动清理其选线状态。

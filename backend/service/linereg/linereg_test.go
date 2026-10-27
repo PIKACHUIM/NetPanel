@@ -643,6 +643,9 @@ func TestHealthEventSinkAndSystemLog(t *testing.T) {
 	db.Model(&model.SystemLog{}).Where("service = ?", "linereg").Count(&cnt)
 	if cnt != 2 {
 		t.Fatalf("SystemLog 应有 2 条 linereg 记录, got %d", cnt)
+	}
+}
+
 // TestRefreshMergesRemoteLines 远程线路 provider 的线路合并进候选集合，
 // provider 不再返回时（如节点离线）自动从选线状态清理。
 func TestRefreshMergesRemoteLines(t *testing.T) {
