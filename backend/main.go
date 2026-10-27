@@ -37,6 +37,7 @@ import (
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/frpmaster"
 	"github.com/netpanel/netpanel/service/linereg"
 	"github.com/netpanel/netpanel/service/mcp"
 	"github.com/netpanel/netpanel/service/meshnode"
@@ -225,6 +226,7 @@ func startServer() *http.Server {
 	portforwardMgr := portforward.NewManager(db, logPortforward)
 	stunMgr := stun.NewManager(db, logStun)
 	frpMgr := frp.NewManager(db, logFrp)
+	frpMasterMgr := frpmaster.NewManager(db, log)
 	npsMgr := nps.NewManager(db, logNps, *dataDir)
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
@@ -338,6 +340,7 @@ func startServer() *http.Server {
 		PortForwardMgr: portforwardMgr,
 		StunMgr:        stunMgr,
 		FrpMgr:         frpMgr,
+		FrpMasterMgr:   frpMasterMgr,
 		NpsMgr:         npsMgr,
 		EasytierMgr:    easytierMgr,
 		CftunnelMgr:    cftunnelMgr,
