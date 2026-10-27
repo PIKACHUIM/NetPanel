@@ -26,6 +26,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/pkg/sysutil"
 	"github.com/netpanel/netpanel/service/access"
+	"github.com/netpanel/netpanel/service/autoheal"
 	"github.com/netpanel/netpanel/service/ai"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
@@ -256,7 +257,7 @@ func startServer() *http.Server {
 	// 监控管理器
 	logMonitor := logger.NewDBLogger(log, "monitor")
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
-	_ = logMonitor // 暂时不使用，预留给未来的日志集成
+	_ = logMonitor
 
 	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）；
 	// 同时启动攻击日志保留清理（7 天）
@@ -264,8 +265,34 @@ func startServer() *http.Server {
 	waf.SetDefault(wafMgr)
 	wafMgr.StartRetention()
 
-	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
+	// 线路注册中心
 	lineregMgr := linereg.NewManager(db, log, 0)
+
+	// 自愈管理器（依赖 cftunnelMgr/portforwardMgr 已初始化）
+	autohealCfg := autoheal.Config{
+		CheckIntervalSec:  30,
+		RestartMaxRetries: 3,
+		CertWarnDays:      7,
+		ProbeFunc: autoheal.BuildProbeFunc(
+			db,
+			frpMgr,
+			cftunnelMgr,
+			portforwardMgr,
+		),
+		RestartFn: func(id uint, service string) error {
+			switch service {
+			case "frp_client":
+				return frpMgr.RestartClient(id)
+			case "cftunnel":
+				return cftunnelMgr.Restart(id)
+			case "portforward":
+				return portforwardMgr.Start(id)
+			default:
+				return fmt.Errorf("unknown service %s", service)
+			}
+		},
+	}
+	autohealMgr := autoheal.NewManager(db, log, syslogMgr, callbackMgr, autohealCfg)
 	// 切换落地：选线结果变化时热加载 Caddy 反代目标（域名层）与 DNS 解析（DNS 层）
 	lineregMgr.SetCaddyUpdater(caddyMgr.UpdateUpstream)
 	lineregMgr.SetDNSUpdater(dnsmasqMgr.SetRecord)
@@ -312,6 +339,7 @@ func startServer() *http.Server {
 	dnsmasqMgr.StartAll()
 	certMgr.StartAll()
 	callbackMgr.Start()
+	autohealMgr.Start()
 	meshNodeMgr.Start()
 	aiMgr.Start()
 	lineregMgr.Start()
@@ -422,7 +450,7 @@ func startServer() *http.Server {
 	}()
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
-	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
+	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr, autohealMgr,
 		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv,
 		syslogMgr, wafMgr)
 	// 把清理器的停止函数链入全局优雅关闭
@@ -509,6 +537,7 @@ func registerStopHandlers(
 	stunMgr interface{ StopAll() },
 	frpMgr interface{ StopAll() },
 	npsMgr interface{ StopAll() },
+	autohealMgr interface{ Stop() },
 	easytierMgr interface{ StopAll() },
 	ddnsMgr interface{ StopAll() },
 	caddyMgr interface{ StopAll() },
@@ -541,6 +570,7 @@ func registerStopHandlers(
 		storageMgr.StopAll()
 		dnsmasqMgr.StopAll()
 		callbackMgr.Stop()
+		autohealMgr.Stop()
 		wireguardMgr.StopAll()
 		meshNodeMgr.Stop()
 		lineregMgr.Stop()
