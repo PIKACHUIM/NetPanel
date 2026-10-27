@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import SectionTitle from '../components/SectionTitle'
 import {
   Table, Button, Space, Switch, Modal, Form, Input, InputNumber,
   Popconfirm, message, Typography, Tag, Tooltip, Row, Col, Tabs, Select,
@@ -17,15 +18,6 @@ import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Text } = Typography
 const { Option } = Select
-
-// 分组标题
-const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
-    <div style={{ width: 3, height: 14, background: '#0071e3', borderRadius: 2, flexShrink: 0 }} />
-    <span style={{ fontSize: 12, fontWeight: 600, color: '#595959', letterSpacing: '0.02em' }}>{children}</span>
-    <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
-  </div>
-)
 
 const FrpServer: React.FC = () => {
   const tunnelCtx = useTunnelApi()

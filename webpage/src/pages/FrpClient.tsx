@@ -1,4 +1,6 @@
 import React, {useEffect, useState} from 'react'
+import SectionTitle from '../components/SectionTitle'
+import {FieldRow} from '../components/ConfigFields'
 import {
     Badge,
     Button,
@@ -44,20 +46,35 @@ import { useTableStyle } from '../hooks/useTableStyle'
 const {Option} = Select
 const {Text} = Typography
 
+// 连接协议选项
+const TRANSPORT_OPTIONS = [
+    {label: 'TCP（默认）', value: 'tcp'},
+    {label: 'KCP（UDP加速）', value: 'kcp'},
+    {label: 'QUIC', value: 'quic'},
+    {label: 'WebSocket', value: 'websocket'},
+    {label: 'WSS（WebSocket+TLS）', value: 'wss'},
+]
+
+// 认证方式选项
+const AUTH_METHOD_OPTIONS = [
+    {label: 'Token', value: 'token'},
+    {label: 'OIDC', value: 'oidc'},
+]
+
+// 日志级别选项
+const LOG_LEVEL_OPTIONS = [
+    {label: 'trace', value: 'trace'},
+    {label: 'debug', value: 'debug'},
+    {label: 'info（推荐）', value: 'info'},
+    {label: 'warn', value: 'warn'},
+    {label: 'error', value: 'error'},
+]
+
 // 代理类型颜色
 const proxyTypeColor: Record<string, string> = {
     tcp: 'blue', udp: 'green', http: 'orange', https: 'gold',
     stcp: 'purple', xtcp: 'magenta', tcpmux: 'cyan',
 }
-
-// 分组标题
-const SectionTitle = ({children}: { children: React.ReactNode }) => (
-    <div style={{display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px'}}>
-        <div style={{width: 3, height: 14, background: '#0071e3', borderRadius: 2, flexShrink: 0}}/>
-        <span style={{fontSize: 12, fontWeight: 600, color: '#595959', letterSpacing: '0.02em'}}>{children}</span>
-        <div style={{flex: 1, height: 1, background: '#f0f0f0'}}/>
-    </div>
-)
 
 const FrpClient: React.FC = () => {
     const {t} = useTranslation()
@@ -371,275 +388,86 @@ const FrpClient: React.FC = () => {
     // ===== frpc 主配置 Tab =====
     const tabBasic = (
         <>
-            <Row gutter={16}>
-                <Col span={10}>
-                    <Form.Item name="name" label="名称" rules={[{required: true, message: '请填写名称'}]}>
-                        <Input placeholder="客户端名称" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-                <Col span={10}>
-                    <Form.Item
-                        name="user"
-                        label="用户名"
-                        extra={<span style={{fontSize: 11}}>代理名 user.proxyName</span>}
-                    >
-                        <Input placeholder="留空不设置" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-                <Col span={4}>
-                    <Form.Item name="enable" label="启用" valuePropName="checked">
-                        <Switch/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'name', label: '名称', span: 10, placeholder: '客户端名称', rules: [{required: true, message: '请填写名称'}]},
+                    {name: 'user', label: '用户名', span: 10, placeholder: '留空不设置', hint: '代理名 user.proxyName'},
+                    {name: 'enable', label: '启用', type: 'switch', span: 4},
+                ]}
+            />
             <SectionTitle>服务器连接</SectionTitle>
-            <Row gutter={16}>
-                <Col span={12}>
-                    <Form.Item
-                        name="server_addr"
-                        label="服务器地址"
-                        rules={[{required: true, message: '请填写服务器地址'}]}
-                        extra={<span style={{fontSize: 11}}>FRP 服务端的 IP 或域名</span>}
-                    >
-                        <Input placeholder="frp.example.com" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-                <Col span={4}>
-                    <Form.Item
-                        name="server_port"
-                        label="端口"
-                        rules={[{required: true, message: '请填写端口'}]}
-                        extra={<span style={{fontSize: 11}}>默认 7000</span>}
-                    >
-                        <InputNumber min={1} max={65535} style={{width: '100%'}} placeholder="7000"/>
-                    </Form.Item>
-                </Col>
-                <Col span={8}>
-                    <Form.Item
-                        name="transport_protocol"
-                        label="协议"
-                        extra={<span style={{fontSize: 11}}>连接协议</span>}
-                    >
-                        <Select style={{width: '100%'}}>
-                            <Option value="tcp">TCP（默认）</Option>
-                            <Option value="kcp">KCP（UDP加速）</Option>
-                            <Option value="quic">QUIC</Option>
-                            <Option value="websocket">WebSocket</Option>
-                            <Option value="wss">WSS（WebSocket+TLS）</Option>
-                        </Select>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'server_addr', label: '服务器地址', placeholder: 'frp.example.com', rules: [{required: true, message: '请填写服务器地址'}], hint: 'FRP 服务端的 IP 或域名'},
+                    {name: 'server_port', label: '端口', type: 'number', min: 1, max: 65535, placeholder: '7000', rules: [{required: true, message: '请填写端口'}], hint: '默认 7000'},
+                    {name: 'transport_protocol', label: '协议', type: 'select', span: 8, options: TRANSPORT_OPTIONS, hint: '连接协议'},
+                ]}
+            />
             <SectionTitle>认证</SectionTitle>
-            <Row gutter={16}>
-                <Col span={8}>
-                    <Form.Item
-                        name="auth_method"
-                        label="认证方式"
-                        extra={<span style={{fontSize: 11}}>默认 token</span>}
-                    >
-                        <Select style={{width: '100%'}}>
-                            <Option value="token">Token</Option>
-                            <Option value="oidc">OIDC</Option>
-                        </Select>
-                    </Form.Item>
-                </Col>
-                <Col span={16}>
-                    <Form.Item
-                        name="token"
-                        label="认证 Token"
-                        extra={<span style={{fontSize: 11}}>需与服务端配置一致，留空不认证</span>}
-                    >
-                        <Input.Password placeholder="留空不认证" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'auth_method', label: '认证方式', type: 'select', options: AUTH_METHOD_OPTIONS, hint: '默认 token'},
+                    {name: 'token', label: '认证 Token', type: 'password', span: 16, placeholder: '留空不认证', hint: '需与服务端配置一致，留空不认证'},
+                ]}
+            />
             <SectionTitle>TLS / 日志</SectionTitle>
-            <Row gutter={16}>
-                <Col span={4}>
-                    <Form.Item
-                        name="tls_enable"
-                        label="TLS"
-                        valuePropName="checked"
-                        extra={<span style={{fontSize: 11}}>加密传输</span>}
-                    >
-                        <Switch/>
-                    </Form.Item>
-                </Col>
-                <Col span={8}>
-                    <Form.Item name="log_level" label="日志级别">
-                        <Select style={{width: '100%'}}>
-                            <Option value="trace">trace</Option>
-                            <Option value="debug">debug</Option>
-                            <Option value="info">info（推荐）</Option>
-                            <Option value="warn">warn</Option>
-                            <Option value="error">error</Option>
-                        </Select>
-                    </Form.Item>
-                </Col>
-                <Col span={6}>
-                    <Form.Item
-                        name="pool_count"
-                        label="连接池大小"
-                        extra={<span style={{fontSize: 11}}>预建连接数，默认 5</span>}
-                    >
-                        <InputNumber min={0} max={100} style={{width: '100%'}} placeholder="5"/>
-                    </Form.Item>
-                </Col>
-                <Col span={6}>
-                    <Form.Item
-                        name="udp_packet_size"
-                        label="UDP 包大小"
-                        extra={<span style={{fontSize: 11}}>默认 1500，需与服务端一致</span>}
-                    >
-                        <InputNumber min={512} max={65535} style={{width: '100%'}} placeholder="1500"/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'tls_enable', label: 'TLS', type: 'switch', span: 4, hint: '加密传输'},
+                    {name: 'log_level', label: '日志级别', type: 'select', span: 8, options: LOG_LEVEL_OPTIONS},
+                    {name: 'pool_count', label: '连接池大小', type: 'number', min: 0, max: 100, placeholder: '5', hint: '预建连接数，默认 5'},
+                    {name: 'udp_packet_size', label: 'UDP 包大小', type: 'number', min: 512, max: 65535, placeholder: '1500', hint: '默认 1500，需与服务端一致'},
+                ]}
+            />
         </>
     )
 
     const tabConnection = (
         <>
             <SectionTitle>心跳 &amp; 超时</SectionTitle>
-            <Row gutter={16}>
-                <Col span={8}>
-                    <Form.Item
-                        name="heartbeat_interval"
-                        label="心跳间隔（秒）"
-                        extra={<span style={{fontSize: 11}}>默认 30，-1 禁用</span>}
-                    >
-                        <InputNumber min={-1} max={3600} style={{width: '100%'}} placeholder="30"/>
-                    </Form.Item>
-                </Col>
-                <Col span={8}>
-                    <Form.Item
-                        name="heartbeat_timeout"
-                        label="心跳超时（秒）"
-                        extra={<span style={{fontSize: 11}}>默认 90</span>}
-                    >
-                        <InputNumber min={1} max={3600} style={{width: '100%'}} placeholder="90"/>
-                    </Form.Item>
-                </Col>
-                <Col span={8}>
-                    <Form.Item
-                        name="dial_server_timeout"
-                        label="连接超时（秒）"
-                        extra={<span style={{fontSize: 11}}>连接服务端超时，默认 10</span>}
-                    >
-                        <InputNumber min={1} max={300} style={{width: '100%'}} placeholder="10"/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'heartbeat_interval', label: '心跳间隔（秒）', type: 'number', min: -1, max: 3600, placeholder: '30', hint: '默认 30，-1 禁用'},
+                    {name: 'heartbeat_timeout', label: '心跳超时（秒）', type: 'number', min: 1, max: 3600, placeholder: '90', hint: '默认 90'},
+                    {name: 'dial_server_timeout', label: '连接超时（秒）', type: 'number', min: 1, max: 300, placeholder: '10', hint: '连接服务端超时，默认 10'},
+                ]}
+            />
             <SectionTitle>TCP 多路复用</SectionTitle>
-            <Row gutter={16}>
-                <Col span={6}>
-                    <Form.Item
-                        name="tcp_mux"
-                        label="TCP 多路复用"
-                        valuePropName="checked"
-                        extra={<span style={{fontSize: 11}}>默认启用</span>}
-                    >
-                        <Switch/>
-                    </Form.Item>
-                </Col>
-                <Col span={9}>
-                    <Form.Item
-                        name="tcp_mux_keepalive_interval"
-                        label="tcp_mux 心跳间隔（秒）"
-                        extra={<span style={{fontSize: 11}}>0 表示不设置</span>}
-                    >
-                        <InputNumber min={0} max={3600} style={{width: '100%'}} placeholder="0"/>
-                    </Form.Item>
-                </Col>
-                <Col span={9}>
-                    <Form.Item
-                        name="dial_server_keepalive"
-                        label="TCP keepalive 间隔（秒）"
-                        extra={<span style={{fontSize: 11}}>底层 TCP 保活，0 不设置</span>}
-                    >
-                        <InputNumber min={0} max={3600} style={{width: '100%'}} placeholder="0"/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'tcp_mux', label: 'TCP 多路复用', type: 'switch', span: 6, hint: '默认启用'},
+                    {name: 'tcp_mux_keepalive_interval', label: 'tcp_mux 心跳间隔（秒）', type: 'number', span: 9, min: 0, max: 3600, placeholder: '0', hint: '0 表示不设置'},
+                    {name: 'dial_server_keepalive', label: 'TCP keepalive 间隔（秒）', type: 'number', span: 9, min: 0, max: 3600, placeholder: '0', hint: '底层 TCP 保活，0 不设置'},
+                ]}
+            />
             <SectionTitle>网络 &amp; 代理</SectionTitle>
-            <Row gutter={16}>
-                <Col span={12}>
-                    <Form.Item
-                        name="proxy_url"
-                        label="代理地址"
-                        extra={<span style={{fontSize: 11}}>格式：http://user:pass@host:port 或 socks5://...</span>}
-                    >
-                        <Input placeholder="http://127.0.0.1:8080" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-                <Col span={12}>
-                    <Form.Item
-                        name="connect_server_local_ip"
-                        label="绑定本地 IP"
-                        extra={<span style={{fontSize: 11}}>连接服务端时绑定的本地 IP，多网卡时使用</span>}
-                    >
-                        <Input placeholder="留空自动选择" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-            </Row>
-            <Row gutter={16}>
-                <Col span={12}>
-                    <Form.Item
-                        name="nat_hole_stun_server"
-                        label="STUN 服务器"
-                        extra={<span style={{fontSize: 11}}>xtcp 打洞使用，默认 stun.easyvoip.com:3478</span>}
-                    >
-                        <Input placeholder="stun.easyvoip.com:3478" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-                <Col span={12}>
-                    <Form.Item
-                        name="dns_server"
-                        label="DNS 服务器"
-                        extra={<span style={{fontSize: 11}}>自定义 DNS，留空使用系统默认</span>}
-                    >
-                        <Input placeholder="8.8.8.8" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'proxy_url', label: '代理地址', placeholder: 'http://127.0.0.1:8080', hint: '格式：http://user:pass@host:port 或 socks5://...'},
+                    {name: 'connect_server_local_ip', label: '绑定本地 IP', placeholder: '留空自动选择', hint: '连接服务端时绑定的本地 IP，多网卡时使用'},
+                ]}
+            />
+            <FieldRow
+                fields={[
+                    {name: 'nat_hole_stun_server', label: 'STUN 服务器', placeholder: 'stun.easyvoip.com:3478', hint: 'xtcp 打洞使用，默认 stun.easyvoip.com:3478'},
+                    {name: 'dns_server', label: 'DNS 服务器', placeholder: '8.8.8.8', hint: '自定义 DNS，留空使用系统默认'},
+                ]}
+            />
             <SectionTitle>Web 管理</SectionTitle>
-            <Row gutter={16}>
-                <Col span={8}>
-                    <Form.Item name="web_server_port" label="管理端口"
-                               extra={<span style={{fontSize: 11}}>留空不启用</span>}>
-                        <InputNumber min={1} max={65535} style={{width: '100%'}} placeholder="7400"/>
-                    </Form.Item>
-                </Col>
-                <Col span={8}>
-                    <Form.Item name="web_server_user" label="用户名">
-                        <Input placeholder="admin" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-                <Col span={8}>
-                    <Form.Item name="web_server_password" label="密码">
-                        <Input.Password placeholder="管理密码" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'web_server_port', label: '管理端口', type: 'number', min: 1, max: 65535, placeholder: '7400', hint: '留空不启用'},
+                    {name: 'web_server_user', label: '用户名', placeholder: 'admin'},
+                    {name: 'web_server_password', label: '密码', type: 'password', placeholder: '管理密码'},
+                ]}
+            />
             <SectionTitle>其他</SectionTitle>
-            <Row gutter={16}>
-                <Col span={8}>
-                    <Form.Item
-                        name="login_fail_exit"
-                        label="登录失败退出"
-                        valuePropName="checked"
-                        extra={<span style={{fontSize: 11}}>首次登录失败是否退出进程，建议关闭以保持隧道自动重连</span>}
-                    >
-                        <Switch/>
-                    </Form.Item>
-                </Col>
-                <Col span={16}>
-                    <Form.Item name="remark" label="备注">
-                        <Input.TextArea rows={2} placeholder="备注（可选）" style={{width: '100%'}}/>
-                    </Form.Item>
-                </Col>
-            </Row>
+            <FieldRow
+                fields={[
+                    {name: 'login_fail_exit', label: '登录失败退出', type: 'switch', hint: '首次登录失败是否退出进程，建议关闭以保持隧道自动重连'},
+                    {name: 'remark', label: '备注', type: 'textarea', rows: 2, span: 16, placeholder: '备注（可选）'},
+                ]}
+            />
         </>
     )
 

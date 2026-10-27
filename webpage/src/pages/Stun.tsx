@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react'
+import SectionTitle from '../components/SectionTitle'
 import {
     AutoComplete,
     Button,
@@ -308,13 +309,6 @@ const STUN_SERVER_LIST = [
 const STUN_SERVER_OPTIONS = STUN_SERVER_LIST.map(v => ({value: v, label: v}))
 
 // 分组标题（与 EasyTier 保持一致）
-const SectionTitle = ({children}: { children: React.ReactNode }) => (
-    <div style={{display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px'}}>
-        <div style={{width: 3, height: 14, background: '#0071e3', borderRadius: 2, flexShrink: 0}}/>
-        <span style={{fontSize: 12, fontWeight: 600, color: '#595959', letterSpacing: '0.02em'}}>{children}</span>
-        <div style={{flex: 1, height: 1, background: '#f0f0f0'}}/>
-    </div>
-)
 
 const Stun: React.FC = () => {
     const {t} = useTranslation()
@@ -331,8 +325,10 @@ const Stun: React.FC = () => {
     const [callbackTasks, setCallbackTasks] = useState<any[]>([])
     const [form] = Form.useForm()
     const [forwardMode, setForwardMode] = useState<string>('proxy')
-    // 'none' | 'upnp' | 'natmap'
+
     const [natHelper, setNatHelper] = useState<string>('none')
+    const [natChecking, setNatChecking] = useState(false)
+    const [natResult, setNatResult] = useState<any>(null)
 
     const fetchData = async () => {
         setLoading(true)
@@ -356,6 +352,28 @@ const Stun: React.FC = () => {
         fetchData();
         fetchCallbackTasks()
     }, [])
+
+    const handleDetectNat = async () => {
+        setNatChecking(true)
+        try {
+            const res: any = await stunApi.detectNat()
+            if (res.code === 200 && res.data) {
+                setNatResult(res.data)
+            } else {
+                message.error(res.message || t('common.failed'))
+            }
+        } catch {
+            message.error(t('common.failed'))
+        } finally {
+            setNatChecking(false)
+        }
+    }
+
+    const p2pScoreInfo = (score: number): {color: string, text: string} => {
+        if (score >= 85) return {color: '#52c41a', text: t('stun.p2pGood')}
+        if (score >= 50) return {color: '#faad14', text: t('stun.p2pFair')}
+        return {color: '#ff4d4f', text: t('stun.p2pPoor')}
+    }
 
     const handleCreate = () => {
         setEditRecord(null)
@@ -769,6 +787,40 @@ const Stun: React.FC = () => {
                 <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>{t('common.create')}</Button>
             </div>
             )}
+
+            <Card size="small" style={{marginBottom: 16}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12}}>
+                    <div>
+                        <Text strong>{t('stun.natCheckTitle')}</Text>
+                        <div style={{fontSize: 12, marginTop: 2}}>
+                            <Text type="secondary">{t('stun.natCheckDesc')}</Text>
+                        </div>
+                    </div>
+                    <Button loading={natChecking} onClick={handleDetectNat}>{t('stun.natCheckRun')}</Button>
+                </div>
+                {natResult && (
+                    <div style={{marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0'}}>
+                        <Row gutter={[16, 8]}>
+                            <Col span={8}>
+                                <Text type="secondary">{t('stun.natType')}</Text>
+                                <div><Tag color="blue">{natResult.nat_type || '未知'}</Tag></div>
+                            </Col>
+                            <Col span={8}>
+                                <Text type="secondary">{t('stun.currentIP')}</Text>
+                                <div><Text code>{natResult.ip ? `${natResult.ip}:${natResult.port}` : '-'}</Text></div>
+                            </Col>
+                            <Col span={8}>
+                                <Text type="secondary">{t('stun.p2pScore')}</Text>
+                                <div>
+                                    <Tag color={natResult.p2p_score >= 85 ? 'success' : natResult.p2p_score >= 50 ? 'warning' : 'error'}>
+                                        {natResult.p2p_score} · {p2pScoreInfo(natResult.p2p_score).text}
+                                    </Tag>
+                                </div>
+                            </Col>
+                        </Row>
+                    </div>
+                )}
+            </Card>
 
             <Table
                 dataSource={data} columns={columns} rowKey="id" loading={loading}

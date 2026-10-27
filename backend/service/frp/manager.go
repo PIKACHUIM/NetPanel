@@ -9,12 +9,14 @@ import (
 
 	"github.com/fatedier/frp/assets"
 	"github.com/fatedier/frp/client"
+	"github.com/fatedier/frp/pkg/config/source"
 	"github.com/fatedier/frp/pkg/config/types"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/server"
 	frpsassets "github.com/netpanel/netpanel/assets/frps"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -123,12 +125,17 @@ func (m *Manager) StartClient(id uint) error {
 		return fmt.Errorf("FRP 客户端配置验证失败: %w", err)
 	}
 
-	// 创建服务
+	// 创建服务（frp v0.70+ 不再直接接收 ProxyCfgs/VisitorCfgs，
+	// 代理配置须经 ConfigSourceAggregator 传入内存配置源）
+	cfgSource := source.NewConfigSource()
+	if err := cfgSource.ReplaceAll(proxyCfgs, nil); err != nil {
+		m.setClientError(id, err.Error())
+		return fmt.Errorf("加载 FRP 代理配置失败: %w", err)
+	}
 	svc, err := client.NewService(client.ServiceOptions{
-		Common:         frpCfg,
-		ProxyCfgs:      proxyCfgs,
-		VisitorCfgs:    nil,
-		ConfigFilePath: "",
+		Common:                 frpCfg,
+		ConfigSourceAggregator: source.NewAggregator(cfgSource),
+		ConfigFilePath:         "",
 	})
 	if err != nil {
 		m.setClientError(id, err.Error())
@@ -292,8 +299,7 @@ func (m *Manager) runClient(ctx context.Context, id uint, name string, svc *clie
 			"last_error": "进程意外退出，正在自动重启",
 		})
 		m.log.Warnf("[FRP客户][%s] 服务意外退出，5 秒后自动重启", name)
-		time.Sleep(5 * time.Second)
-		if m.isStopping() {
+		if svcutil.Delay(5*time.Second, m.isStopping) {
 			return
 		}
 		var cur model.FrpcConfig
@@ -707,8 +713,7 @@ func (m *Manager) runServer(ctx context.Context, id uint, name string, svc *serv
 			"last_error": "进程意外退出，正在自动重启",
 		})
 		m.log.Warnf("[FRP服务][%s] 服务意外退出，5 秒后自动重启", name)
-		time.Sleep(5 * time.Second)
-		if m.isStopping() {
+		if svcutil.Delay(5*time.Second, m.isStopping) {
 			return
 		}
 		var cur model.FrpsConfig

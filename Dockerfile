@@ -18,7 +18,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 # ─────────────────────────────────────────────
 # 阶段 2：构建后端（支持交叉编译到目标架构）
 # ─────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
 
 # 接收目标平台参数
 ARG TARGETPLATFORM
@@ -98,3 +98,7 @@ ENV TZ=Asia/Shanghai
 
 ENTRYPOINT ["/app/netpanel"]
 CMD ["--port", "8080", "--data", "/app/data"]
+
+# 健康检查：面板初始化状态接口（公开端点，容器内自检）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8080/api/v1/init/status >/dev/null 2>&1 || exit 1

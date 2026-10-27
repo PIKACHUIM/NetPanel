@@ -21,6 +21,7 @@ export const stunApi = {
   start: (id: number) => request.post(`/v1/stun/${id}/start`),
   stop: (id: number) => request.post(`/v1/stun/${id}/stop`),
   getStatus: (id: number) => request.get(`/v1/stun/${id}/status`),
+  detectNat: (server?: string) => request.get('/v1/stun/nat-check', {params: server ? {server} : {}}),
 }
 
 // ===== FRP 客户端 =====
@@ -594,6 +595,7 @@ export const monitorApi = {
 export const initApi = {
   status: () => request.get('/v1/init/status'),
   setup: (data: { username: string; password: string }) => request.post('/v1/init/setup', data),
+  networkInfo: () => request.get('/v1/init/network-info'),
 }
 
 // ===== 线路探测策略（linereg） =====
@@ -611,4 +613,6 @@ export const lineregApi = {
     updateConfig: (data: ProbeConfig) => request.put('/v1/linereg/config', data),
     rebindPending: () => request.get('/v1/linereg/rebind-pending'),
     rebindApply: () => request.post('/v1/linereg/rebind-apply'),
+    // 单线路探测历史（延迟趋势图）
+    getLineHistory: (lineId: string, limit = 100) => request.get(`/v1/linereg/line/${encodeURIComponent(lineId)}/history?limit=${limit}`),
 }
