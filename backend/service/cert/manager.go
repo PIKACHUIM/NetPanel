@@ -75,6 +75,8 @@ type Manager struct {
 	// ctx/stop 控制定时循环的生命周期（此前为裸 for-range，进程内无法优雅关闭）
 	ctx    context.Context
 	cancel context.CancelFunc
+	// stopCh 用于终止后台续期与 ACME 流程轮询 goroutine
+	stopCh chan struct{}
 	// startOnce/stopOnce 保证 StartAll/StopAll 幂等，可被 API 与开机恢复路径重复调用
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -95,6 +97,7 @@ func (m *Manager) Stop() {
 // 不再拖垮整个面板进程。
 func (m *Manager) StartAll() {
 	m.startOnce.Do(func() {
+		m.stopCh = make(chan struct{})
 		svcutil.SafeGo(m.log, "cert.autorenew", true, m.autoRenewLoop)
 		svcutil.SafeGo(m.log, "cert.acmeflow", true, m.acmeFlowLoop)
 	})
@@ -861,7 +864,7 @@ func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domain
 		return nil, fmt.Errorf("finalize 订单失败: %w", err)
 	}
 
-	// 等待订单完成
+	// 等待订单完成（ACME 轮询，最长 30s）
 	for i := 0; i < 10; i++ {
 		if orderResp.Status == "valid" {
 			break
@@ -869,6 +872,8 @@ func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domain
 		if orderResp.Status == "invalid" {
 			return nil, fmt.Errorf("订单状态无效: %s", orderResp.Status)
 		}
+		// 注意：此循环在 HTTP 请求上下文中执行，中断等待无意义，
+		// 保持固定 3s 间隔轮询（ACME 服务端状态变化本身以分钟计）。
 		time.Sleep(3 * time.Second)
 		orderResp, err = core.Orders.Get(order.Location)
 		if err != nil {
@@ -980,4 +985,6 @@ type noopDNSProvider struct{}
 
 func (p *noopDNSProvider) Present(domain, token, keyAuth string) error { return nil }
 func (p *noopDNSProvider) CleanUp(domain, token, keyAuth string) error { return nil }
-func (p *noopDNSProvider) Timeout() (timeout, interval time.Duration)  { return 1 * time.Second, 1 * time.Second }
+func (p *noopDNSProvider) Timeout() (timeout, interval time.Duration) {
+	return 1 * time.Second, 1 * time.Second
+}
