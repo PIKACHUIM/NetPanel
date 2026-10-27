@@ -558,7 +558,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/frpmaster/nodes", fmHandler.List)
 	auth.POST("/frpmaster/nodes", fmHandler.Create)
 	admin.DELETE("/frpmaster/nodes/:id", fmHandler.Delete)
-	auth.GET("/frpmaster/nodes/:id/config", fmHandler.ConfigPreview)
+	admin.GET("/frpmaster/nodes/:id/config", fmHandler.ConfigPreview)
 
 	// ── 服务监控 ────────────────────────────────────────────────────────────────
 	// 服务器凭据与探测写操作限管理员（可经 SSH 在受管主机执行命令）
