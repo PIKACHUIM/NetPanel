@@ -54,12 +54,22 @@ const (
 	minIntervalSec = 5
 )
 
+// LineHealthEvent selector.HealthEvent 的类型别名：供上层（main）注入健康
+// 事件外送（如桥接 callback 任务触发）时引用，避免上层依赖 selector 包。
+type LineHealthEvent = selector.HealthEvent
+
+// HealthEventSink 线路健康事件外送通道（SystemLog 之外的可选通知，如触发
+// callback 任务）。由上层注入；实现须快速返回（在探测循环内被调用）。
+type HealthEventSink func(ev LineHealthEvent)
+
 // Manager 线路注册中心：持有 selector，负责周期刷新线路并驱动测速选线。
 type Manager struct {
 	db       *gorm.DB
 	log      *logrus.Logger
 	interval time.Duration
 	selector *selector.Selector
+	// eventSink 健康转换事件外送（进入不可达 / 恢复时触发），可为 nil。
+	eventSink HealthEventSink
 	// remoteLines 远程线路提供者（如 frpc Master 的在线节点），可为 nil。
 	// 每轮 refresh 合并其返回的线路参与自动测速选线。
 	remoteLines func() ([]selector.Line, error)
@@ -103,7 +113,7 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 	if log == nil {
 		log = logrus.New()
 	}
-	return &Manager{
+	m := &Manager{
 		db:             db,
 		log:            log,
 		interval:       DefaultInterval,
@@ -113,6 +123,11 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 		pendingRebinds: make(map[uint]string),
 		reload:         make(chan struct{}, 1),
 	}
+	// 注册健康转换观察者：进入不可达 / 恢复时写日志、落 SystemLog 并外送事件。
+	m.selector.SetHealthObserver(func(ev selector.HealthEvent) {
+		m.handleHealthEvent(ev)
+	})
+	return m
 }
 
 // 端口层重绑模式取值。
@@ -189,6 +204,11 @@ func (m *Manager) SetProber(p selector.Prober) {
 	m.selector.SetProber(p)
 }
 
+// SetHealthEventSink 注册健康转换事件外送通道（可选，如桥接 callback 任务）。
+// 事件已由 linereg 内部写入运行日志与 SystemLog（Service=linereg），sink 仅
+// 用于额外通知；在 Start 前调用即可。
+func (m *Manager) SetHealthEventSink(fn HealthEventSink) {
+	m.eventSink = fn
 // SetRemoteLineProvider 注册远程线路提供者（可选；如 frpc Master 在线节点）。
 // refresh 每轮把 provider 返回的线路合并进候选集合参与测速选线；provider
 // 不再返回某线路时，SetLines 全量刷新会自动清理其选线状态。
@@ -369,6 +389,33 @@ func (m *Manager) Stop() {
 	}
 	m.wg.Wait()
 	m.log.Info("[线路选择] 后台测速选线已停止")
+}
+
+// handleHealthEvent 处理 selector 健康转换事件（进入不可达 / 恢复）：
+// 写入运行日志与 SystemLog（Service=linereg），并外送事件供上层通知
+// （如触发用户配置的 callback 任务）。由 selector.ProbeAll 的调用方
+// goroutine（linereg 后台循环）内触发，需快速返回。
+func (m *Manager) handleHealthEvent(ev selector.HealthEvent) {
+	msg := fmt.Sprintf("[线路健康] 线路 %s (%s): %s → %s（连续失败 %d 次）",
+		ev.LineID, ev.Tool, ev.From, ev.To, ev.ConsecutiveFailures)
+	level := "info"
+	if ev.To == selector.HealthUnreachable {
+		level = "warn"
+		m.log.Warn(msg)
+	} else {
+		m.log.Info(msg)
+	}
+	if err := m.db.Create(&model.SystemLog{
+		Level:   level,
+		Service: "linereg",
+		Message: msg,
+		LogTime: time.Now(),
+	}).Error; err != nil {
+		m.log.Warnf("[线路健康] SystemLog 写入失败: %v", err)
+	}
+	if m.eventSink != nil {
+		m.eventSink(ev)
+	}
 }
 
 func (m *Manager) run(ctx context.Context) {

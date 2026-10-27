@@ -296,6 +296,15 @@ func startServer() *http.Server {
 	// 切换落地：选线结果变化时热加载 Caddy 反代目标（域名层）与 DNS 解析（DNS 层）
 	lineregMgr.SetCaddyUpdater(caddyMgr.UpdateUpstream)
 	lineregMgr.SetDNSUpdater(dnsmasqMgr.SetRecord)
+	// 线路健康转换事件（进入不可达 / 恢复）→ 触发用户配置的 callback 任务
+	// （trigger_type: line_unreachable / line_recovered；UI 创建入口后续版本提供）
+	lineregMgr.SetHealthEventSink(func(ev linereg.LineHealthEvent) {
+		typ := "line_recovered"
+		if ev.To == "unreachable" {
+			typ = "line_unreachable"
+		}
+		callbackMgr.Trigger(callback.TriggerEvent{Type: typ})
+	})
 	// 远程线路合并：frpc Master 在线节点作为候选线路参与自动测速选线
 	lineregMgr.SetRemoteLineProvider(frpMasterMgr.Lines)
 
