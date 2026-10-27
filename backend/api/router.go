@@ -144,7 +144,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.PUT("/system/config", sysHandler.UpdateConfig)
 
 	// 端口转发（创建规则即可暴露任意内网目标，属高危能力）
-	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr)
+	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr, opts.SyslogMgr)
 	dockerHandler := handlers.NewDockerHandler()
 	auth.GET("/docker/containers", dockerHandler.ListContainers)
 	auth.GET("/port-forward", pfHandler.List)
@@ -480,6 +480,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.GET("/admin/logs", syslogHandler.QueryLogs)
 	admin.GET("/admin/logs/services", syslogHandler.GetLogServices)
 	admin.DELETE("/admin/logs", syslogHandler.CleanupLogs)
+	admin.GET("/admin/audit/actors", syslogHandler.GetAuditActors)
+	admin.GET("/admin/audit/resource-types", syslogHandler.GetAuditResourceTypes)
 
 	// 用户管理
 	userHandler := handlers.NewUserHandler(opts.DB, opts.Log)
