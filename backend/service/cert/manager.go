@@ -1,6 +1,7 @@
 package cert
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -27,6 +28,7 @@ import (
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -70,16 +72,41 @@ type Manager struct {
 	log     *logrus.Logger
 	dataDir string
 	mu      sync.Mutex
+	// ctx/stop 控制定时循环的生命周期（此前为裸 for-range，进程内无法优雅关闭）
+	ctx    context.Context
+	cancel context.CancelFunc
+	// stopCh 用于终止后台续期与 ACME 流程轮询 goroutine
+	stopCh chan struct{}
+	// startOnce/stopOnce 保证 StartAll/StopAll 幂等，可被 API 与开机恢复路径重复调用
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
-	return &Manager{db: db, log: log, dataDir: dataDir}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Manager{db: db, log: log, dataDir: dataDir, ctx: ctx, cancel: cancel}
 }
 
-// StartAll 启动自动续期检查和 ACME 流程定时器
+// Stop 停止后台定时循环（优雅关闭时调用）
+func (m *Manager) Stop() {
+	m.cancel()
+}
+
+// StartAll 启动自动续期检查和 ACME 流程定时器（幂等）。
+// 使用 svcutil.SafeGo 做 panic 隔离：任一引擎循环崩溃只隔离重启自身，
+// 不再拖垮整个面板进程。
 func (m *Manager) StartAll() {
-	go m.autoRenewLoop()
-	go m.acmeFlowLoop()
+	m.startOnce.Do(func() {
+		m.stopCh = make(chan struct{})
+		svcutil.SafeGo(m.log, "cert.autorenew", true, m.autoRenewLoop)
+		svcutil.SafeGo(m.log, "cert.acmeflow", true, m.acmeFlowLoop)
+	})
+}
+
+// StopAll 停止后台轮询，供进程优雅关闭时回收 goroutine。
+// 原实现没有停止入口，进程退出前两个 goroutine 会持续运行。
+func (m *Manager) StopAll() {
+	m.stopOnce.Do(m.cancel)
 }
 
 // autoRenewLoop 每 12 小时检查一次证书到期情况
@@ -90,8 +117,13 @@ func (m *Manager) autoRenewLoop() {
 	// 启动时先检查一次
 	m.checkAndRenew()
 
-	for range ticker.C {
-		m.checkAndRenew()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.checkAndRenew()
+		}
 	}
 }
 
@@ -103,8 +135,13 @@ func (m *Manager) acmeFlowLoop() {
 	// 启动时先检查一次
 	m.processAcmeFlowTasks()
 
-	for range ticker.C {
-		m.processAcmeFlowTasks()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.processAcmeFlowTasks()
+		}
 	}
 }
 
@@ -759,7 +796,7 @@ func (m *Manager) getDNSCredentials(cert *model.DomainCert) (accessID, accessSec
 	if cert.DomainAccountID > 0 {
 		var account model.DomainAccount
 		if dbErr := m.db.First(&account, cert.DomainAccountID).Error; dbErr == nil {
-			return account.AccessID, account.AccessSecret, account.Provider, nil
+			return account.AccessID, account.AccessSecret.String(), account.Provider, nil
 		}
 	}
 	return "", "", "", fmt.Errorf("未配置 DNS 账号，请关联域名账号")
@@ -827,7 +864,7 @@ func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domain
 		return nil, fmt.Errorf("finalize 订单失败: %w", err)
 	}
 
-	// 等待订单完成
+	// 等待订单完成（ACME 轮询，最长 30s）
 	for i := 0; i < 10; i++ {
 		if orderResp.Status == "valid" {
 			break
@@ -835,6 +872,8 @@ func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domain
 		if orderResp.Status == "invalid" {
 			return nil, fmt.Errorf("订单状态无效: %s", orderResp.Status)
 		}
+		// 注意：此循环在 HTTP 请求上下文中执行，中断等待无意义，
+		// 保持固定 3s 间隔轮询（ACME 服务端状态变化本身以分钟计）。
 		time.Sleep(3 * time.Second)
 		orderResp, err = core.Orders.Get(order.Location)
 		if err != nil {
@@ -946,4 +985,6 @@ type noopDNSProvider struct{}
 
 func (p *noopDNSProvider) Present(domain, token, keyAuth string) error { return nil }
 func (p *noopDNSProvider) CleanUp(domain, token, keyAuth string) error { return nil }
-func (p *noopDNSProvider) Timeout() (timeout, interval time.Duration)  { return 1 * time.Second, 1 * time.Second }
+func (p *noopDNSProvider) Timeout() (timeout, interval time.Duration) {
+	return 1 * time.Second, 1 * time.Second
+}

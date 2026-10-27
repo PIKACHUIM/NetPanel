@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 1087,
+    port: 5170,
     proxy: {
       '/api': {
         target: 'http://localhost:1086',
@@ -21,5 +21,21 @@ export default defineConfig({
   build: {
     outDir: '../backend/embed/dist',
     emptyOutDir: true,
+    // 体积较大的第三方库单独分包：原先 echarts/xterm 会被打进首屏 chunk，
+    // 产生两个 1MB+ 的入口包。拆出后首屏只需加载实际访问到的库。
+    rollupOptions: {
+      output: {
+        // 函数式 manualChunks：只把真正被入口首屏引用的框架类依赖归一到独立 chunk。
+        // 不要用对象式/整棵子树搬移，否则 antd 等仅在懒加载路由用到的模块会被静态
+        // 归入 entry 的 vendor chunk，造成首屏下载量反而变大。
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/react-router-dom/') || id.includes('/scheduler/')) {
+              return 'vendor-react'
+            }
+          }
+        },
+      },
+    },
   },
 })

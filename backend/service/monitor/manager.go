@@ -8,11 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 )
 
 // Manager 监控服务管理器
@@ -70,8 +72,11 @@ func NewManagerWithDataDir(db *gorm.DB, dataDir string) *Manager {
 	}
 
 	m := &Manager{
-		DB:               db,
-		grpcAddr:         "0.0.0.0",
+		DB: db,
+		// 仅监听回环：该 gRPC 服务没有任何认证拦截器，绑定到 0.0.0.0 会
+		// 把未鉴权的管理面暴露到网络。Agent 通道尚未实现（服务未注册），
+		// 待实现鉴权后再放开监听范围。
+		grpcAddr:         "127.0.0.1",
 		grpcPort:         50051,
 		DataDir:          dataDir,
 		ctx:              ctx,
@@ -102,8 +107,11 @@ func (m *Manager) Start() error {
 	
 	// 启动心跳检测
 	m.wg.Add(1)
-	go m.heartbeatChecker()
-	
+	svcutil.SafeGo(logrus.StandardLogger(), "monitor.heartbeat", true, m.heartbeatChecker)
+
+	// 启动数据保留策略清理循环
+	m.wg.Add(1)
+	go m.retentionLoop()
 	// 启动子模块
 	m.ProbeEngine.Start()
 	m.TaskEngine.Start()
@@ -128,6 +136,12 @@ func (m *Manager) Stop() {
 	m.ProbeEngine.Stop()
 	m.TaskEngine.Stop()
 	m.AlertEngine.Stop()
+	
+	// 回收 SSH 连接池：Collector.CloseAll 此前无任何调用者，
+	// 停机时已建立的 SSH 连接不会被释放
+	if m.Collector != nil {
+		m.Collector.CloseAll()
+	}
 	
 	m.wg.Wait()
 	log.Println("[Monitor] 监控服务已停止")
@@ -169,6 +183,52 @@ func (m *Manager) startGRPCServer() error {
 	}()
 	
 	return nil
+}
+
+// retentionLoop 数据保留策略清理循环（每日）：防止高频写入的监控表
+// 无界膨胀（此前仅在删除父实体时顺带清理）。
+func (m *Manager) retentionLoop() {
+	defer m.wg.Done()
+
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	// 启动时先清一次
+	m.runRetention()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.runRetention()
+		}
+	}
+}
+
+// runRetention 执行一轮过期数据清理
+func (m *Manager) runRetention() {
+	rules := []struct {
+		model  any
+		column string
+		days   int
+		name   string
+	}{
+		{&model.MonitorMetric{}, "timestamp", 7, "监控指标"},
+		{&model.MonitorProbeResult{}, "timestamp", 30, "探测结果"},
+		{&model.MonitorTaskLog{}, "start_time", 30, "任务日志"},
+	}
+	for _, r := range rules {
+		cutoff := time.Now().AddDate(0, 0, -r.days)
+		res := m.DB.Where(r.column+" < ?", cutoff).Delete(r.model)
+		if res.Error != nil {
+			log.Printf("[Monitor] 清理过期%s失败: %v", r.name, res.Error)
+			continue
+		}
+		if res.RowsAffected > 0 {
+			log.Printf("[Monitor] 已清理 %d 条过期%s", res.RowsAffected, r.name)
+		}
+	}
 }
 
 // heartbeatChecker 心跳检测器

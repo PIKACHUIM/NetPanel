@@ -43,6 +43,19 @@ const MonitorTerminal: React.FC = () => {
     }
   }, [terminalRef.current])
 
+  // 窗口尺寸变化时自适应终端。
+  // 原实现把 addEventListener 放在 initTerminal 内且从未移除：组件卸载或
+  // 重复挂载会不断累积监听器，并持续调用已失效的终端实例。
+  useEffect(() => {
+    const onResize = () => {
+      if (fitAddon.current) {
+        fitAddon.current.fit()
+      }
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   const loadServers = async () => {
     try {
       const response = await monitorApi.listServers()
@@ -100,15 +113,6 @@ const MonitorTerminal: React.FC = () => {
     term.writeln('')
 
     terminalInstance.current = term
-
-    // 监听窗口大小变化
-    window.addEventListener('resize', handleResize)
-  }
-
-  const handleResize = () => {
-    if (fitAddon.current) {
-      fitAddon.current.fit()
-    }
   }
 
   const connect = async () => {

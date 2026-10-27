@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,8 +23,12 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/service/selector"
 )
+
+// tunnelUUIDRe 匹配标准 8-4-4-4-12 格式 UUID（cftunnel 公网入口要求 UUID）
+var tunnelUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // DefaultInterval 默认的线路刷新与测速间隔。
 const DefaultInterval = 60 * time.Second
@@ -340,7 +345,7 @@ func (m *Manager) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.wg.Add(1)
-	go m.run(ctx)
+	svcutil.SafeGo(m.log, "linereg.run", true, func() { m.run(ctx) })
 	m.log.Info("[线路选择] 后台测速选线已启动")
 }
 
@@ -377,6 +382,7 @@ func (m *Manager) run(ctx context.Context) {
 			}
 			timer.Reset(m.currentInterval())
 		case <-timer.C:
+			svcutil.BeatEngineHeartbeat("linereg")
 			m.refresh(ctx)
 			timer.Reset(m.currentInterval())
 		}
@@ -663,6 +669,24 @@ func (m *Manager) pruneHistory(lineID string) {
 	m.db.Where("line_id = ?", lineID).Order("id asc").Limit(int(excess)).Delete(&model.ProbeHistory{})
 }
 
+// History 返回指定线路的探测历史（延迟趋势），按时间正序排列，供前端趋势图使用。
+// limit <= 0 或 > 500 时默认取 100 条；lineID 不存在则返回空 map。
+func (m *Manager) History(lineID string, limit int) ([]model.ProbeHistory, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	var history []model.ProbeHistory
+	if err := m.db.Where("line_id = ?", lineID).
+		Order("id desc").Limit(limit).Find(&history).Error; err != nil {
+		return nil, err
+	}
+	// 时间正序（趋势图从左到右）
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
+	return history, nil
+}
+
 // BuildLines 从数据库汇总各工具「启用且入口可用」的线路。
 //
 // 各工具入口来源：
@@ -755,11 +779,17 @@ func BuildLines(db *gorm.DB) []selector.Line {
 
 	// ---- Cloudflare Tunnel（named 模式入口固定，可探测）----
 	// quick/token 模式无固定外部入口（trycloudflare 随机域名 / 远程配置），
-	// 不注册为线路；named 模式用 {tunnel_name}.cfargotunnel.com:443 探测。
+	// 不注册为线路。named 模式公网入口为 <UUID>.cfargotunnel.com；隧道名称
+	// 无法本地解析为 UUID（需调 CF API），未解析出 UUID 前不注册线路，
+	// 避免生成恒失败的探测（cftunnel manager 启动时会解析并写回 tunnel_id）。
 	var cfts []model.CftunnelConfig
 	if err := db.Where("enable = ? AND mode = ?", true, "named").Find(&cfts).Error; err == nil {
 		for _, c := range cfts {
-			if c.TunnelName == "" {
+			entry := strings.TrimSpace(c.TunnelID)
+			if entry == "" && tunnelUUIDRe.MatchString(c.TunnelName) {
+				entry = c.TunnelName
+			}
+			if entry == "" {
 				continue
 			}
 			lines = append(lines, selector.Line{
@@ -767,7 +797,7 @@ func BuildLines(db *gorm.DB) []selector.Line {
 				Name:    c.Name,
 				Tool:    "cloudflare",
 				Layer:   "domain",
-				Address: c.TunnelName + ".cfargotunnel.com:443",
+				Address: entry + ".cfargotunnel.com:443",
 			})
 		}
 	}

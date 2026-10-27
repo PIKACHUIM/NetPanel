@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
+	"net/url"
 	"sync"
 	"time"
 
@@ -58,7 +58,10 @@ func (m *Manager) Start() {
 }
 
 func (m *Manager) Stop() {
-	close(m.stopCh)
+	// 与 Start 共用 once：重复调用 close(stopCh) 会 panic
+	m.once.Do(func() {
+		close(m.stopCh)
+	})
 }
 
 // Trigger 触发回调事件
@@ -68,6 +71,27 @@ func (m *Manager) Trigger(event TriggerEvent) {
 	default:
 		m.log.Warn("[回调] 事件队列已满，丢弃事件")
 	}
+}
+
+// TriggerBySTUN 实现 stun.CallbackNotifier 接口：STUN 规则探测到公网地址
+// 变化后，触发规则绑定的回调任务（taskID 为 CallbackTask.ID）。任务经
+// exist/enable 校验后异步执行，不阻塞 STUN 检测循环。
+func (m *Manager) TriggerBySTUN(taskID uint, ip string, port int) error {
+	var task model.CallbackTask
+	if err := m.db.First(&task, taskID).Error; err != nil {
+		return fmt.Errorf("回调任务 %d 不存在: %w", taskID, err)
+	}
+	if !task.Enable {
+		return fmt.Errorf("回调任务 [%s] 未启用", task.Name)
+	}
+	event := &TriggerEvent{
+		Type:    "stun_ip_change",
+		NewIP:   ip,
+		NewPort: port,
+	}
+	m.log.Infof("[回调] STUN 地址变化 %s:%d，触发任务 [%s]", ip, port, task.Name)
+	go m.executeTask(&task, event)
+	return nil
 }
 
 func (m *Manager) processEvents() {
@@ -82,17 +106,20 @@ func (m *Manager) processEvents() {
 }
 
 func (m *Manager) handleEvent(event TriggerEvent) {
-	// 将事件类型映射到任务 trigger_type
-	// 例如 "stun_ip_change" → "stun"
-	triggerType := event.Type
-	if mapped, ok := triggerTypePrefix[event.Type]; ok {
-		triggerType = mapped
+	// 事件类型映射到任务 trigger_type（"stun_ip_change" -> "stun"）；
+	// 同时兼容任务里直接存完整事件名的情况（前端表单保存 "stun_ip_change"）
+	mapped := event.Type
+	if t, ok := triggerTypePrefix[event.Type]; ok {
+		mapped = t
 	}
 
 	var tasks []model.CallbackTask
-	m.db.Where("enable = ? AND trigger_type = ?", true, triggerType).Find(&tasks)
+	m.db.Where("enable = ?", true).Find(&tasks)
 
 	for _, task := range tasks {
+		if task.TriggerType != mapped && task.TriggerType != event.Type {
+			continue
+		}
 		if task.TriggerSourceID != 0 && task.TriggerSourceID != event.SourceID {
 			continue
 		}
@@ -280,48 +307,22 @@ func (m *Manager) executeAliESA(account *model.CallbackAccount, task *model.Call
 		fmt.Sscanf(p, "%d", &targetPort)
 	}
 
-	// 调用阿里云 ESA OpenAPI 更新回源规则
-	// API: https://esa.aliyuncs.com/ UpdateOriginPool 或 UpdateRoutineRelatedRecord
-	// 使用阿里云 OpenAPI 签名 V4
-	apiURL := "https://esa.aliyuncs.com/"
-	params := map[string]string{
-		"Action":          "UpdateOriginPool",
-		"Version":         "2024-09-10",
-		"SiteId":          siteID,
-		"Format":          "JSON",
-		"AccessKeyId":     accessKeyID,
-		"SignatureMethod":  "HMAC-SHA1",
-		"SignatureVersion": "1.0",
-		"Timestamp":       time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-		"SignatureNonce":   fmt.Sprintf("%d", time.Now().UnixNano()),
-	}
+	// 阿里云 ESA OpenAPI（RPC 风格）：业务参数经 query 携带，使用 V3 签名
+	// （ACS3-HMAC-SHA256）。若 ESA 接口参数命名调整，需同步官方文档修正。
+	params := url.Values{}
+	params.Set("Action", "UpdateOriginPool")
+	params.Set("Version", "2024-09-10")
+	params.Set("SiteId", siteID)
+	params.Set("Origin", fmt.Sprintf("%s:%d", event.NewIP, targetPort))
 	if ruleID != "" {
-		params["Id"] = ruleID
+		params.Set("Id", ruleID)
 	}
 
-	// 构建请求体
-	reqBody := map[string]interface{}{
-		"SiteId": siteID,
-		"Origin": fmt.Sprintf("%s:%d", event.NewIP, targetPort),
-	}
-	if ruleID != "" {
-		reqBody["Id"] = ruleID
-	}
-
-	bodyBytes, _ := json.Marshal(reqBody)
-
-	// 使用简单的 POST 请求（实际生产中需要完整的阿里云签名）
-	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequest("POST", "https://esa.aliyuncs.com/?"+params.Encode(), nil)
 	if err != nil {
 		return fmt.Errorf("创建阿里云 ESA 请求失败: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range params {
-		req.Header.Set("x-acs-"+strings.ToLower(k), v)
-	}
-	req.Header.Set("x-acs-accesskeyid", accessKeyID)
-	req.Header.Set("x-acs-action", "UpdateOriginPool")
-	req.Header.Set("x-acs-version", "2024-09-10")
+	acs3Sign(req, accessKeyID, accessKeySecret, "UpdateOriginPool", "2024-09-10")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -333,6 +334,17 @@ func (m *Manager) executeAliESA(account *model.CallbackAccount, task *model.Call
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("阿里云 ESA API 返回错误 %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// 检查业务错误（RPC 风格错误响应含 Error.Code / Error.Message）
+	var result struct {
+		Error *struct {
+			Code    string `json:"Code"`
+			Message string `json:"Message"`
+		} `json:"Error"`
+	}
+	if err := json.Unmarshal(respBody, &result); err == nil && result.Error != nil {
+		return fmt.Errorf("阿里云 ESA 业务错误: %s - %s", result.Error.Code, result.Error.Message)
 	}
 
 	m.log.Infof("[回调][阿里ESA] 回源已更新为 %s:%d，站点 %s", event.NewIP, targetPort, siteID)
@@ -366,38 +378,36 @@ func (m *Manager) executeTencentEO(account *model.CallbackAccount, task *model.C
 	timestamp := time.Now().Unix()
 
 	reqBody := map[string]interface{}{
-		"ZoneId": zoneID,
+		"ZoneId":        zoneID,
 		"OriginGroupId": ruleID,
 		"Origins": []map[string]interface{}{
 			{
-				"OriginId":     "origin-1",
-				"Origin":       event.NewIP,
-				"OriginPort":   fmt.Sprintf("%d", targetPort),
-				"Weight":       100,
-				"Private":      false,
+				"OriginId":   "origin-1",
+				"Origin":     event.NewIP,
+				"OriginPort": fmt.Sprintf("%d", targetPort),
+				"Weight":     100,
+				"Private":    false,
 			},
 		},
 	}
 
-	bodyBytes, _ := json.Marshal(reqBody)
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("序列化腾讯云 EO 请求体失败: %w", err)
+	}
 
 	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("创建腾讯云 EO 请求失败: %w", err)
 	}
 
-	// 腾讯云 API 3.0 签名
+	// 腾讯云 API 3.0 签名（TC3-HMAC-SHA256）
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-TC-Action", "ModifyOriginGroup")
 	req.Header.Set("X-TC-Version", "2022-09-01")
 	req.Header.Set("X-TC-Timestamp", fmt.Sprintf("%d", timestamp))
 	req.Header.Set("X-TC-Region", "")
-
-	// 简化签名（实际生产中需要完整的 TC3-HMAC-SHA256 签名）
-	authHeader := fmt.Sprintf("TC3-HMAC-SHA256 Credential=%s/%s/teo/tc3_request, SignedHeaders=content-type;host, Signature=placeholder",
-		secretID, time.Now().UTC().Format("2006-01-02"))
-	req.Header.Set("Authorization", authHeader)
-	_ = secretKey // 实际签名时使用
+	req.Header.Set("Authorization", tc3Sign(secretID, secretKey, "teo.tencentcloudapi.com", "teo", timestamp, bodyBytes))
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)

@@ -8,25 +8,41 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/secret"
+	"gorm.io/gorm"
 )
 
 // Claims JWT 声明。
 // IsAdmin 随令牌下发，供 AdminOnly 中间件做权限判定；
-// UserID 作为稳定标识（用户名可被修改，不能作为身份依据）。
+// UserID 作为稳定标识（用户名可被修改，不能作为身份依据）；
+// Claims 同时携带 Roles（RBAC 判定）与 TokenVersion（令牌吊销）。
 type Claims struct {
-	Username string `json:"username"`
-	UserID   uint   `json:"user_id"`
-	IsAdmin  bool   `json:"is_admin"`
+	Username     string `json:"username"`
+	UserID       uint   `json:"user_id"`
+	IsAdmin      bool   `json:"is_admin"`
+	Roles        string `json:"roles"`
+	TokenVersion int    `json:"token_version"`
 	jwt.RegisteredClaims
 }
 
-// GenerateToken 生成 JWT token
-func GenerateToken(username string, userID uint, isAdmin bool) (string, error) {
+// GenerateToken 生成 JWT token；tokenVersion 取自用户记录，改密/禁用/降权时递增以吊销旧令牌。
+func GenerateToken(username string, userID uint, isAdmin bool, tokenVersion int) (string, error) {
+	return generateTokenInternal(username, userID, isAdmin, "", tokenVersion)
+}
+
+// GenerateTokenWithRoles 生成 JWT token，并将角色列表与令牌版本写入 claims。
+func GenerateTokenWithRoles(username string, userID uint, isAdmin bool, roles string, tokenVersion int) (string, error) {
+	return generateTokenInternal(username, userID, isAdmin, roles, tokenVersion)
+}
+
+func generateTokenInternal(username string, userID uint, isAdmin bool, roles string, tokenVersion int) (string, error) {
 	claims := Claims{
-		Username: username,
-		UserID:   userID,
-		IsAdmin:  isAdmin,
+		Username:     username,
+		UserID:       userID,
+		IsAdmin:      isAdmin,
+		Roles:        roles,
+		TokenVersion: tokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -54,8 +70,12 @@ func ParseToken(tokenStr string) (*Claims, error) {
 	return nil, jwt.ErrSignatureInvalid
 }
 
-// JWTAuth JWT 认证中间件
-func JWTAuth() gin.HandlerFunc {
+// JWTAuth JWT 认证中间件。
+//
+// db 用于在每次请求时核对令牌版本与账号状态：仅校验签名无法让已签发的
+// 令牌在改密/禁用/降权后立即失效（令牌最长 24 小时有效）。db 为 nil 时
+// 跳过这一核对（保留给测试等场景）。
+func JWTAuth(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -78,9 +98,33 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
+		// 有稳定用户 ID 时核对账号状态与令牌版本，实现即时吊销
+		if db != nil && claims.UserID != 0 {
+			var user model.User
+			if err := db.Select("id", "enable", "is_admin", "token_version").
+				First(&user, claims.UserID).Error; err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "账号不存在"})
+				c.Abort()
+				return
+			}
+			if !user.Enable {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "账号已被禁用"})
+				c.Abort()
+				return
+			}
+			if user.TokenVersion != claims.TokenVersion {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "登录已失效，请重新登录"})
+				c.Abort()
+				return
+			}
+			// 权限以数据库实时状态为准，防止降权后旧令牌仍带管理员标识
+			claims.IsAdmin = user.IsAdmin
+		}
+
 		c.Set("username", claims.Username)
 		c.Set("user_id", claims.UserID)
 		c.Set("is_admin", claims.IsAdmin)
+		c.Set("roles", claims.Roles)
 		c.Next()
 	}
 }
@@ -108,6 +152,50 @@ func AdminOnly() gin.HandlerFunc {
 	}
 }
 
+// RoleRequired 角色权限中间件。必须置于 JWTAuth 之后。
+// requiredRoles 至少包含一个候选角色，命中任意一个即放行；为空时退化为 AdminOnly。
+func RoleRequired(requiredRoles ...string) gin.HandlerFunc {
+	if len(requiredRoles) == 0 {
+		return AdminOnly()
+	}
+	return func(c *gin.Context) {
+		roles, exists := c.Get("roles")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权，请先登录"})
+			c.Abort()
+			return
+		}
+		userRoles, ok := roles.(string)
+		if !ok || userRoles == "" {
+			c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "没有访问权限"})
+			c.Abort()
+			return
+		}
+		userRoleSet := make(map[string]struct{}, strings.Count(userRoles, ",")+1)
+		for _, r := range strings.Split(userRoles, ",") {
+			userRoleSet[strings.TrimSpace(r)] = struct{}{}
+		}
+		for _, req := range requiredRoles {
+			if _, granted := userRoleSet[req]; granted {
+				c.Next()
+				return
+			}
+		}
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "权限不足"})
+		c.Abort()
+	}
+}
+
+// MustCurrentUser 提取当前请求用户 ID；不存在时中止响应。
+func MustCurrentUser(c *gin.Context) uint {
+	id, ok := CurrentUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登录"})
+		c.Abort()
+	}
+	return id
+}
+
 // CurrentUserID 从上下文取当前用户 ID（稳定标识，优于用户名）。
 func CurrentUserID(c *gin.Context) (uint, bool) {
 	v, exists := c.Get("user_id")
@@ -126,6 +214,43 @@ func IsCurrentUserAdmin(c *gin.Context) bool {
 	}
 	admin, ok := v.(bool)
 	return ok && admin
+}
+
+// TrustedProxies 返回可信反向代理的地址列表，用于 gin SetTrustedProxies。
+//
+// 默认返回 nil（不信任任何代理），使 c.ClientIP() 直接取 RemoteAddr。
+// gin 的默认行为是信任所有代理（0.0.0.0/0），
+// 攻击者只需伪造 X-Forwarded-For 即可绕过登录失败限流与 IP 黑白名单，
+// 因此除非显式配置 NETPANEL_TRUSTED_PROXIES，否则一律不信任。
+func TrustedProxies() []string {
+	raw := os.Getenv("NETPANEL_TRUSTED_PROXIES")
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// CurrentRoles 从上下文取当前用户角色字符串（逗号分隔）。
+func CurrentRoles(c *gin.Context) string {
+	v, exists := c.Get("roles")
+	if !exists {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
 }
 
 // allowedOrigins 允许的跨域来源，通过环境变量 NETPANEL_ALLOWED_ORIGINS 配置

@@ -7,7 +7,7 @@
 *An all-in-one panel for NAT traversal, site-to-site networking & reverse proxy — built for home labs, NAS and small networks.*
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-orange.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://golang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://reactjs.org/)
 [![Ant Design](https://img.shields.io/badge/Ant%20Design-5-1677FF?logo=antdesign)](https://ant.design/)
 [![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite)](https://vitejs.dev/)
@@ -105,7 +105,7 @@
 
 | 层 | 技术 |
 |------|------|
-| **后端** Backend | Go 1.25 · Gin · GORM + SQLite · JWT 认证 |
+| **后端** Backend | Go 1.26 · Gin · GORM + SQLite · JWT 认证 |
 | **前端** Frontend | React 18 · TypeScript · Ant Design 5 · Vite 7 · react-i18next |
 | **桌面端** Desktop | Electron（跨平台桌面应用封装） |
 | **集成库** Integrations | FRP · NPS · Caddy · Coraza · DDNS-Go · lego (ACME) · pion/stun · miekg/dns · WireGuard |
@@ -146,18 +146,44 @@ cd netpanel-linux-amd64
 
 ### 方式二：Docker 部署
 
-```bash
-# 使用 docker-compose
-docker-compose up -d
+提供两种配置，按需选择：
 
-# 或直接运行
+```bash
+# 🟢 最小化部署（仅 Web 面板，无需额外权限）
+# 适用：端口转发、DDNS、反向代理等基础功能
+docker compose -f docker-compose.minimal.yml up -d
+
+# 🔵 完整部署（含 TUN/组网能力）
+# 适用：需要 EasyTier/WireGuard/Mesh 等网络功能
+docker compose -f docker-compose.full.yml up -d
+```
+
+<details>
+<summary>手动运行 docker run</summary>
+
+```bash
+# 最小化
 docker run -d \
   --name netpanel \
   -p 8080:8080 \
   -v ./data:/app/data \
   --restart unless-stopped \
-  netpanel:latest
+  ghcr.io/pikachuim/netpanel:latest
+
+# 完整（含 TUN）
+docker run -d \
+  --name netpanel \
+  -p 8080:8080 \
+  -v ./data:/app/data \
+  --cap-add NET_ADMIN --cap-add SYS_MODULE \
+  --device /dev/net/tun:/dev/net/tun \
+  --sysctl net.ipv4.ip_forward=1 \
+  --sysctl net.ipv6.conf.all.forwarding=1 \
+  --restart unless-stopped \
+  ghcr.io/pikachuim/netpanel:latest
 ```
+
+</details>
 
 ### 方式三：安装为系统服务
 
@@ -171,7 +197,7 @@ curl -fsSL https://raw.githubusercontent.com/PIKACHUIM/NetPanel/main/scripts/ins
 
 ### 方式四：从源码构建
 
-需要 Go 1.25+ 和 Node.js 20.19+（CI 环境：Go 1.25 / Node 24）。
+需要 Go 1.26+ 和 Node.js 20.19+（CI 环境：Go 1.26 / Node 24）。
 
 ```bash
 # 克隆仓库
@@ -247,7 +273,7 @@ NetPanel/
 
 ### 环境要求
 
-- Go 1.25+（参考 `backend/go.mod`，CI 使用 Go 1.25）
+- Go 1.26+（参考 `backend/go.mod`，CI 使用 Go 1.26）
 - Node.js 20.19+（CI 使用 Node 24）
 - Git
 
@@ -279,7 +305,7 @@ make windows-amd64
 
 ### 代码规范
 
-- 后端遵循 Go 惯用法，PR 门禁会执行 `go vet`、`go build` 与单元测试（Go 1.25）
+- 后端遵循 Go 惯用法，PR 门禁会执行 `go vet`、`go build` 与单元测试（Go 1.26）
 - 前端使用 TypeScript 严格模式，PR 门禁会执行类型检查与生产构建
 - 提交前请确保本地能通过 `go vet ./... && go test ./...` 与前端构建
 - UI 文案国际化：新增界面文案请同时补充 `webpage/src/i18n` 中的中文与英文条目

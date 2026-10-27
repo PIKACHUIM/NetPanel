@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -18,7 +19,9 @@ import (
 	"github.com/netpanel/netpanel/api"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
+	"github.com/netpanel/netpanel/pkg/crypto"
 	"github.com/netpanel/netpanel/pkg/logger"
+	"github.com/netpanel/netpanel/pkg/pprof"
 	"github.com/netpanel/netpanel/pkg/secret"
 	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/pkg/sysutil"
@@ -41,6 +44,7 @@ import (
 	"github.com/netpanel/netpanel/service/monitor"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
@@ -131,7 +135,9 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log := logger.Init()
+	// 注意：此处必须用 Get() 复用 startServer 初始化的全局 logger——
+	// 再调 Init() 会创建新 logger 覆盖全局实例，导致关闭阶段日志丢失 DBHook
+	log := logger.Get()
 	log.Info("正在关闭 NetPanel...")
 
 	// 停止所有子服务
@@ -182,6 +188,13 @@ func startServer() *http.Server {
 
 	// 初始化系统日志管理器，并注入全局日志写入器
 	// 必须在各服务 logger 创建之前完成，确保 DBHook 能正常写入
+	// 初始化加密模块（敏感配置 AES-256-GCM 加密存储）
+	if err := crypto.InitKey(); err != nil {
+		log.Warnf("[init] %v，敏感配置将以明文存储", err)
+	} else {
+		log.Infof("[init] 加密模块已初始化")
+	}
+
 	syslogMgr := syslog.NewManager(db, log)
 	logger.SetDBWriter(syslogMgr)
 
@@ -218,6 +231,9 @@ func startServer() *http.Server {
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
 	caddyMgr := caddy.NewManager(db, logCaddy, *dataDir)
+	// 静态站点根目录只允许落在数据目录下的 wwwroot 内，
+	// 否则用户可建一个 root_path=/ 的站点把整个磁盘暴露到公网
+	caddy.SetSiteRootWhitelist([]string{filepath.Join(*dataDir, "wwwroot")})
 	wolMgr := wol.NewManager(db, logWol)
 	certMgr := cert.NewManager(db, logCert, *dataDir)
 	cronMgr := cron.NewManager(db, logCron, certMgr, ddnsMgr, wolMgr)
@@ -225,6 +241,9 @@ func startServer() *http.Server {
 	accessMgr := access.NewManager(db, logAccess)
 	dnsmasqMgr := dnsmasq.NewManager(db, logDnsmasq)
 	callbackMgr := callback.NewManager(db, logCallback)
+	// 注入 STUN 回调通知器：STUN 探测到公网地址变化时触发其绑定的回调任务
+	// （更新 CF 回源 / 阿里 ESA / 腾讯 EO / WebHook）
+	stunMgr.SetCallbackNotifier(callbackMgr)
 	firewallMgr := firewall.NewManager(db, logFirewall)
 	wireguardMgr := wireguard.NewManager(db, logWireguard, *dataDir)
 	meshNodeMgr := meshnode.NewManager(db, logMeshNode)
@@ -239,8 +258,11 @@ func startServer() *http.Server {
 	monitorMgr := monitor.NewManagerWithDataDir(db, *dataDir)
 	_ = logMonitor // 暂时不使用，预留给未来的日志集成
 
-	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）
-	waf.SetDefault(waf.NewManager(db))
+	// WAF 引擎管理器（全局默认，供 Caddy 中间件与 Handler 使用）；
+	// 同时启动攻击日志保留清理（7 天）
+	wafMgr := waf.NewManager(db)
+	waf.SetDefault(wafMgr)
+	wafMgr.StartRetention()
 
 	// 线路注册中心：汇总 frp/nps/easytier/wg 入口为线路，驱动自动测速选线
 	lineregMgr := linereg.NewManager(db, log, 0)
@@ -291,6 +313,12 @@ func startServer() *http.Server {
 	meshNodeMgr.Start()
 	aiMgr.Start()
 	lineregMgr.Start()
+	// 系统防火墙规则定时同步（此前 StartAutoSync 无任何调用者，功能实际未生效）
+	firewallMgr.StartAutoSync()
+
+	// 数据保留清理器：定时分批清理时序数据，防止数据库无限膨胀
+	retentionCleaner := retention.New(db, log)
+	retentionStop := retentionCleaner.Start()
 
 	// 启动监控服务
 	if err := monitorMgr.Start(); err != nil {
@@ -358,8 +386,9 @@ func startServer() *http.Server {
 		})
 	}
 
-	// 访问控制中间件注入
-	accessMgr.SetGinEngine(router)
+	// 访问控制中间件已在 api.NewRouter 内部、注册路由之前挂载。
+	// 注意：Gin 在注册路由时对中间件链做快照，路由注册完成后再调用
+	// Use/SetGinEngine 不会作用于已注册路由（曾因此导致访问控制整体失效）。
 
 	// 尝试绑定端口，若失败则自动寻找可用端口
 	listenPort := findAvailablePort(*port, log)
@@ -368,6 +397,16 @@ func startServer() *http.Server {
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: router,
+		// 超时配置（稳定性：防慢连接长期占住 goroutine 与 fd）：
+		//   - ReadTimeout 限制读请求，请求体都很小，30s 足够；
+		//   - WriteTimeout 必须保持 0：AI 对话与 CF 隧道日志走 SSE 流式响应、
+		//     终端走 WebSocket 升级，任何写超时都会掐断长连接；
+		//   - IdleTimeout 回收空闲连接，防连接堆积。
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
@@ -382,9 +421,43 @@ func startServer() *http.Server {
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
-		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, monitorMgr, mcpSrv)
+		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv,
+		syslogMgr, wafMgr)
+	// 把清理器的停止函数链入全局优雅关闭
+	if prev := stopAllFn; prev != nil {
+		stopAllFn = func() { prev(); retentionStop() }
+	}
+
+	// pprof 性能剖析：默认关闭，仅 NETPANEL_PPROF=1 时启用。
+	// 独立监听 127.0.0.1:6060，不复用上面暴露公网的 router，
+	// 避免堆栈/goroutine/cmdline 等信息被外网读取。
+	if pprof.Enabled() {
+		pprofSrv, err := pprof.Start("", log)
+		if err != nil {
+			log.Errorf("[pprof] 启动失败（不影响面板主服务）: %v", err)
+		} else {
+			stopAllFn = wrapStopWith(pprofSrv, log)
+		}
+	} else {
+		log.Debug("[pprof] 未启用（如需性能剖析请设置 NETPANEL_PPROF=1）")
+	}
 
 	return srv
+}
+
+// wrapStopWith 包装 stopAllFn，在原有停止逻辑之后追加 pprof 服务关闭。
+func wrapStopWith(p *pprof.Server, log *logrus.Logger) func() {
+	prev := stopAllFn
+	return func() {
+		if prev != nil {
+			prev()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.Shutdown(ctx); err != nil {
+			log.Warnf("[pprof] 关闭超时: %v", err)
+		}
+	}
 }
 
 // findAvailablePort 尝试绑定指定端口，若失败则在 preferredPort+1 ~ preferredPort+100 范围内
@@ -445,8 +518,13 @@ func registerStopHandlers(
 	meshNodeMgr interface{ Stop() },
 	lineregMgr interface{ Stop() },
 	cftunnelMgr interface{ StopAll() },
+	certMgr interface{ StopAll() },
+	aiMgr interface{ Stop() },
 	monitorMgr interface{ Stop() },
 	mcpSrv interface{ Stop() error },
+	// 以下为此前漏注册的服务：日志写入器（需排空队列）、WAF 数据保留策略
+	syslogMgr interface{ Stop() },
+	wafMgr interface{ StopRetention() },
 ) {
 	stopAllFn = func() {
 		log.Info("正在停止所有服务...")
@@ -465,8 +543,12 @@ func registerStopHandlers(
 		meshNodeMgr.Stop()
 		lineregMgr.Stop()
 		cftunnelMgr.StopAll()
+		certMgr.StopAll()
+		aiMgr.Stop()
 		monitorMgr.Stop()
-		_ = mcpSrv.Stop()
+		mcpSrv.Stop()
+		syslogMgr.Stop() // 最后停：排空剩余日志队列
+		wafMgr.StopRetention()
 		log.Info("所有服务已停止")
 	}
 }

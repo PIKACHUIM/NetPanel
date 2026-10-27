@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -166,6 +167,14 @@ func (m *Manager) StartAll() {
 	}()
 }
 
+// isStopping 报告管理器是否已进入关闭流程。
+// watcher goroutine 用它中断崩溃重启前的延迟等待，避免关闭时白等 5 秒。
+func (m *Manager) isStopping() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stopping
+}
+
 func (m *Manager) StopAll() {
 	// 设置关闭标志，阻止自动重启
 	m.mu.Lock()
@@ -174,30 +183,30 @@ func (m *Manager) StopAll() {
 
 	var wg sync.WaitGroup
 
+	// 注意：cmd.Wait() 只允许调用一次，此处不能直接 Wait——进程的回收由各实例
+	// 的 watcher goroutine 负责（它会 close(entry.done)）。这里改为等待 done，
+	// 避免与 watcher 并发调用 cmd.Wait() 造成竞态与资源重复回收。
+	stopEntry := func(entry *processEntry) {
+		defer wg.Done()
+		entry.cancel()
+		if entry.cmd.Process != nil {
+			_ = entry.cmd.Process.Kill()
+		}
+		select {
+		case <-entry.done:
+		case <-time.After(5 * time.Second):
+			// 兜底：watcher 异常时也不能永久阻塞关闭流程
+		}
+	}
+
 	m.clients.Range(func(key, value interface{}) bool {
-		entry := value.(*processEntry)
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			entry.cancel()
-			if entry.cmd.Process != nil {
-				_ = entry.cmd.Process.Kill()
-			}
-			_ = entry.cmd.Wait()
-		}()
+		go stopEntry(value.(*processEntry))
 		return true
 	})
 	m.servers.Range(func(key, value interface{}) bool {
-		entry := value.(*processEntry)
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			entry.cancel()
-			if entry.cmd.Process != nil {
-				_ = entry.cmd.Process.Kill()
-			}
-			_ = entry.cmd.Wait()
-		}()
+		go stopEntry(value.(*processEntry))
 		return true
 	})
 
@@ -208,6 +217,12 @@ func (m *Manager) StopAll() {
 
 func (m *Manager) StartClient(id uint) error {
 	m.StopClient(id)
+
+	// 复位关闭标志：StopAll 会将其置为 true 阻止自动重启，
+	// 若不复位，此后手动启动的实例崩溃后将永远不会自动重启。
+	m.mu.Lock()
+	m.stopping = false
+	m.mu.Unlock()
 
 	if !m.isBinaryAvailable() {
 		return fmt.Errorf("easytier-core 二进制不存在，请先下载: %s", m.getBinaryPath())
@@ -226,8 +241,11 @@ func (m *Manager) StartClient(id uint) error {
 
 	// 创建日志缓冲区
 	logBuf := newRingBuffer(maxLogLines)
-	// 用于检测 WinPcap panic 的 stderr 缓冲
+	// 用于检测 WinPcap panic 的 stderr 缓冲。
+	// bytes.Buffer 非并发安全，而写入发生在 stderr 读取 goroutine、读取发生在
+	// watcher goroutine，必须加锁。
 	var stderrBuf bytes.Buffer
+	var stderrMu sync.Mutex
 
 	stdoutPipe, _ := cmd.StdoutPipe()
 	stderrPipe, _ := cmd.StderrPipe()
@@ -259,7 +277,9 @@ func (m *Manager) StartClient(id uint) error {
 		for scanner.Scan() {
 			line := scanner.Text()
 			logBuf.write("[stderr] " + line)
+			stderrMu.Lock()
 			stderrBuf.WriteString(line + "\n")
+			stderrMu.Unlock()
 			_, _ = fmt.Fprintln(os.Stderr, line)
 		}
 	}()
@@ -268,7 +288,9 @@ func (m *Manager) StartClient(id uint) error {
 		err := cmd.Wait()
 		// 进程已退出，立即关闭 done channel，通知 StopClient 端口等资源已释放
 		close(entry.done)
+		stderrMu.Lock()
 		stderrOutput := stderrBuf.String()
+		stderrMu.Unlock()
 		m.clients.Delete(id)
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
@@ -277,13 +299,8 @@ func (m *Manager) StartClient(id uint) error {
 				"status":     "error",
 				"last_error": errMsg,
 			})
-			// 自动重启（延迟5秒，避免快速循环崩溃）
-			time.Sleep(5 * time.Second)
-			// 关闭期间不自动重启
-			m.mu.Lock()
-			isStopping := m.stopping
-			m.mu.Unlock()
-			if isStopping {
+			// 自动重启（延迟 5 秒避免快速循环崩溃）；关闭期间立即中断等待
+			if svcutil.Delay(5*time.Second, m.isStopping) {
 				return
 			}
 			var cur model.EasytierClient
@@ -358,7 +375,7 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		args = append(args, "--network-name", cfg.NetworkName)
 	}
 	if cfg.NetworkPassword != "" {
-		args = append(args, "--network-secret", cfg.NetworkPassword)
+		args = append(args, "--network-secret", cfg.NetworkPassword.String())
 	}
 
 	// 虚拟 IP（DHCP 模式与手动指定互斥）
@@ -527,7 +544,7 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 		args = append(args, "--private-mode")
 	}
 	if cfg.PrivateKey != "" {
-		args = append(args, "--private-key", cfg.PrivateKey)
+		args = append(args, "--private-key", cfg.PrivateKey.String())
 	}
 	if cfg.PreSharedKey != "" {
 		args = append(args, "--pre-shared-key", cfg.PreSharedKey)
@@ -638,6 +655,11 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 func (m *Manager) StartServer(id uint) error {
 	m.StopServer(id)
 
+	// 复位关闭标志（与 StartClient 同理）
+	m.mu.Lock()
+	m.stopping = false
+	m.mu.Unlock()
+
 	if !m.isBinaryAvailable() {
 		return fmt.Errorf("easytier-core 二进制不存在，请先下载: %s", m.getBinaryPath())
 	}
@@ -656,8 +678,9 @@ func (m *Manager) StartServer(id uint) error {
 
 	// 创建日志缓冲区
 	logBuf := newRingBuffer(maxLogLines)
-	// 用于检测 WinPcap panic 的 stderr 缓冲
+	// 用于检测 WinPcap panic 的 stderr 缓冲（写入与读取位于不同 goroutine，需加锁）
 	var stderrBuf bytes.Buffer
+	var stderrMu sync.Mutex
 
 	stdoutPipe, _ := cmd.StdoutPipe()
 	stderrPipe, _ := cmd.StderrPipe()
@@ -689,7 +712,9 @@ func (m *Manager) StartServer(id uint) error {
 		for scanner.Scan() {
 			line := scanner.Text()
 			logBuf.write("[stderr] " + line)
+			stderrMu.Lock()
 			stderrBuf.WriteString(line + "\n")
+			stderrMu.Unlock()
 			_, _ = fmt.Fprintln(os.Stderr, line)
 		}
 	}()
@@ -698,7 +723,9 @@ func (m *Manager) StartServer(id uint) error {
 		err := cmd.Wait()
 		// 进程已退出，立即关闭 done channel，通知 StopServer 端口等资源已释放
 		close(entry.done)
+		stderrMu.Lock()
 		stderrOutput := stderrBuf.String()
+		stderrMu.Unlock()
 		m.servers.Delete(id)
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
@@ -710,13 +737,8 @@ func (m *Manager) StartServer(id uint) error {
 				"status":     "error",
 				"last_error": errMsg,
 			})
-			// 自动重启（延迟5秒，避免快速循环崩溃）
-			time.Sleep(5 * time.Second)
-			// 关闭期间不自动重启
-			m.mu.Lock()
-			isStopping := m.stopping
-			m.mu.Unlock()
-			if isStopping {
+			// 自动重启（延迟 5 秒避免快速循环崩溃）；关闭期间立即中断等待
+			if svcutil.Delay(5*time.Second, m.isStopping) {
 				return
 			}
 			var cur model.EasytierServer
@@ -896,7 +918,7 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 		args = append(args, "--private-mode")
 	}
 	if cfg.PrivateKey != "" {
-		args = append(args, "--private-key", cfg.PrivateKey)
+		args = append(args, "--private-key", cfg.PrivateKey.String())
 	}
 	if cfg.PreSharedKey != "" {
 		args = append(args, "--pre-shared-key", cfg.PreSharedKey)

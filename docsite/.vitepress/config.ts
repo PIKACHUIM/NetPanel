@@ -100,6 +100,13 @@ export default defineConfig({
           ]
         },
         {
+          text: '版本更新',
+          collapsed: false,
+          items: [
+            { text: 'V0.3 更新说明', link: '/guide/release-v0.3' },
+          ]
+        },
+        {
           text: '资源与下载',
           collapsed: false,
           items: [

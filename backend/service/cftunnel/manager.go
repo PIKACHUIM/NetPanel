@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/svcutil"
 )
 
 const (
@@ -37,6 +39,14 @@ const (
 // quickURLRe 匹配 cloudflared quick 模式日志中的临时隧道地址，
 // 形如 https://<random>.trycloudflare.com
 var quickURLRe = regexp.MustCompile(`(?i)https://[a-z0-9-]+\.trycloudflare\.com(?:\s|$)`)
+
+// tunnelUUIDRe 匹配标准 8-4-4-4-12 格式 UUID（隧道公网入口要求 UUID）
+var tunnelUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// isTunnelUUID 判断字符串是否为合法隧道 UUID
+func isTunnelUUID(s string) bool {
+	return tunnelUUIDRe.MatchString(strings.TrimSpace(s))
+}
 
 // processEntry 单个 cloudflared 进程
 type processEntry struct {
@@ -84,10 +94,10 @@ func (r *ringBuffer) lines() []string {
 
 // Manager Cloudflare Tunnel 管理器
 type Manager struct {
-	db      *gorm.DB
-	log     *logrus.Logger
-	dataDir string
-	tunnels sync.Map // map[uint]*processEntry
+	db       *gorm.DB
+	log      *logrus.Logger
+	dataDir  string
+	tunnels  sync.Map // map[uint]*processEntry
 	stopping bool
 	mu       sync.Mutex
 }
@@ -143,6 +153,13 @@ func (m *Manager) StartAll() {
 }
 
 // StopAll 停止所有隧道
+// isStopping 报告管理器是否已进入关闭流程，用于中断崩溃重启前的延迟等待。
+func (m *Manager) isStopping() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stopping
+}
+
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	m.stopping = true
@@ -156,6 +173,12 @@ func (m *Manager) StopAll() {
 // Start 启动指定隧道
 func (m *Manager) Start(id uint) error {
 	_ = m.Stop(id)
+
+	// 复位关闭标志：StopAll 会将其置为 true 以阻止自动重启，
+	// 若不复位，此后手动启动的隧道在崩溃后将永远不会自动重启。
+	m.mu.Lock()
+	m.stopping = false
+	m.mu.Unlock()
 
 	if !m.isBinaryAvailable() {
 		return fmt.Errorf("cloudflared 二进制不存在，请先下载: %s", m.getBinaryPath())
@@ -175,6 +198,15 @@ func (m *Manager) Start(id uint) error {
 		return err
 	}
 
+	// named 模式：解析隧道 UUID 并写回数据库，供线路注册中心生成可探测的
+	// <UUID>.cfargotunnel.com 线路地址（隧道名称无法在本地解析为 UUID）
+	if cfg.Mode == "named" {
+		if uid := m.resolveTunnelUUID(&cfg); uid != "" && uid != cfg.TunnelID {
+			m.db.Model(&model.CftunnelConfig{}).Where("id = ?", id).Update("tunnel_id", uid)
+			m.log.Infof("[CF隧道][%d] 已解析隧道 UUID: %s", id, uid)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, m.getBinaryPath(), args...)
 	cmd.Dir = filepath.Dir(m.getBinaryPath())
@@ -184,7 +216,10 @@ func (m *Manager) Start(id uint) error {
 	}
 
 	logBuf := newRingBuffer(maxLogLines)
+	// stderr 缓冲用于在进程异常退出时输出诊断信息。
+	// 写入位于 stderr 读取 goroutine、读取位于 watcher goroutine，需加锁。
 	var stderrBuf bytes.Buffer
+	var stderrMu sync.Mutex
 
 	stdoutPipe, _ := cmd.StdoutPipe()
 	stderrPipe, _ := cmd.StderrPipe()
@@ -223,7 +258,9 @@ func (m *Manager) Start(id uint) error {
 		for scanner.Scan() {
 			line := scanner.Text()
 			logBuf.write("[stderr] " + line)
+			stderrMu.Lock()
 			stderrBuf.WriteString(line + "\n")
+			stderrMu.Unlock()
 		}
 	}()
 
@@ -231,7 +268,12 @@ func (m *Manager) Start(id uint) error {
 		err := cmd.Wait()
 		close(entry.done)
 		m.tunnels.Delete(id)
-		_ = stderrBuf.String()
+		stderrMu.Lock()
+		stderrOutput := stderrBuf.String()
+		stderrMu.Unlock()
+		if stderrOutput != "" {
+			m.log.Warnf("[CF隧道][%d] stderr 输出:\n%s", id, stderrOutput)
+		}
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
 			m.log.Warnf("[CF隧道][%d] %s", id, errMsg)
@@ -240,12 +282,8 @@ func (m *Manager) Start(id uint) error {
 				"last_error": errMsg,
 				"quick_url":  "",
 			})
-			// 自动重启（延迟 5 秒，关闭期间不重启）
-			time.Sleep(5 * time.Second)
-			m.mu.Lock()
-			isStopping := m.stopping
-			m.mu.Unlock()
-			if isStopping {
+			// 自动重启（延迟 5 秒，关闭期间立即中断等待）
+			if svcutil.Delay(5*time.Second, m.isStopping) {
 				return
 			}
 			var cur model.CftunnelConfig
@@ -414,6 +452,45 @@ func (m *Manager) buildArgs(cfg *model.CftunnelConfig) (args []string, env []str
 	default:
 		return nil, nil, fmt.Errorf("未知模式: %q（可选 quick/named/token）", cfg.Mode)
 	}
+}
+
+// resolveTunnelUUID 解析 named 隧道的公网入口 UUID。公网入口固定为
+// <UUID>.cfargotunnel.com；隧道名称需要调 CF API 才能解析成 UUID，本地无法完成，
+// 因此仅在 TunnelName 本身是 UUID、或可从凭据文件中读取时返回。
+func (m *Manager) resolveTunnelUUID(cfg *model.CftunnelConfig) string {
+	if isTunnelUUID(cfg.TunnelName) {
+		return strings.TrimSpace(cfg.TunnelName)
+	}
+	if cfg.CredentialsFile != "" {
+		if id := readTunnelIDFromCredentials(cfg.CredentialsFile); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+// readTunnelIDFromCredentials 从 cloudflared 凭据 JSON 中解析隧道 UUID，
+// 兼容两种字段格式：完整命名 {"AccountTag","TunnelID","TunnelSecret"}
+// 与缩写 {"a","t","s"}。
+func readTunnelIDFromCredentials(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var cred struct {
+		TunnelID string `json:"TunnelID"`
+		T        string `json:"t"`
+	}
+	if json.Unmarshal(data, &cred) != nil {
+		return ""
+	}
+	if isTunnelUUID(cred.TunnelID) {
+		return cred.TunnelID
+	}
+	if isTunnelUUID(cred.T) {
+		return cred.T
+	}
+	return ""
 }
 
 // tunnelNameRe 隧道名称/UUID 白名单：字母数字开头，允许 . _ - ，长度 1-63。
