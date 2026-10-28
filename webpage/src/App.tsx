@@ -18,7 +18,6 @@ const NpsServer = lazy(() => import('./pages/NpsServer'))
 const NpsClient = lazy(() => import('./pages/NpsClient'))
 const EasytierClient = lazy(() => import('./pages/EasytierClient'))
 const EasytierServer = lazy(() => import('./pages/EasytierServer'))
-const TunService = lazy(() => import('./pages/TunService'))
 const Wireguard = lazy(() => import('./pages/Wireguard'))
 const Ddns = lazy(() => import('./pages/Ddns'))
 const Caddy = lazy(() => import('./pages/Caddy'))
@@ -35,6 +34,7 @@ const Help = lazy(() => import('./pages/Help'))
 const Dnsmasq = lazy(() => import('./pages/Dnsmasq'))
 const Cron = lazy(() => import('./pages/Cron'))
 const Storage = lazy(() => import('./pages/Storage'))
+const DockerContainers = lazy(() => import('./pages/DockerContainers'))
 const IpDb = lazy(() => import('./pages/IpDb'))
 const Access = lazy(() => import('./pages/Access'))
 const CallbackAccount = lazy(() => import('./pages/CallbackAccount'))
@@ -63,8 +63,6 @@ const MonitorTerminal = lazy(() => import('./pages/MonitorTerminal'))
 const MonitorDDNS = lazy(() => import('./pages/MonitorDDNS'))
 const MonitorNotifications = lazy(() => import('./pages/MonitorNotifications'))
 const MonitorTunnels = lazy(() => import('./pages/MonitorTunnels'))
-const FrpMasterNodes = lazy(() => import('./pages/FrpmasterNodes'))
-const Pool = lazy(() => import('./pages/Pool'))
 
 const PageLoader: React.FC = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 300 }}>
@@ -129,7 +127,6 @@ const App: React.FC = () => {
         <Route path="easytier/client" element={<Suspense fallback={<PageLoader />}><EasytierClient /></Suspense>} />
         <Route path="easytier/server" element={<Suspense fallback={<PageLoader />}><EasytierServer /></Suspense>} />
         <Route path="cftunnel" element={<Suspense fallback={<PageLoader />}><CfTunnel /></Suspense>} />
-        <Route path="tunservice" element={<Suspense fallback={<PageLoader />}><TunService /></Suspense>} />
         <Route path="wireguard" element={<Suspense fallback={<PageLoader />}><Wireguard /></Suspense>} />
         <Route path="ddns" element={<Suspense fallback={<PageLoader />}><Ddns /></Suspense>} />
         <Route path="caddy" element={<Suspense fallback={<PageLoader />}><Caddy /></Suspense>} />
@@ -145,6 +142,7 @@ const App: React.FC = () => {
         <Route path="dnsmasq" element={<Suspense fallback={<PageLoader />}><Dnsmasq /></Suspense>} />
         <Route path="cron" element={<Suspense fallback={<PageLoader />}><Cron /></Suspense>} />
         <Route path="storage" element={<Suspense fallback={<PageLoader />}><Storage /></Suspense>} />
+        <Route path="docker/containers" element={<Suspense fallback={<PageLoader />}><DockerContainers /></Suspense>} />
         <Route path="ipdb" element={<Suspense fallback={<PageLoader />}><IpDb /></Suspense>} />
         <Route path="access" element={<Suspense fallback={<PageLoader />}><Access /></Suspense>} />
         <Route path="callback/account" element={<Suspense fallback={<PageLoader />}><CallbackAccount /></Suspense>} />
@@ -172,8 +170,6 @@ const App: React.FC = () => {
         <Route path="monitor/ddns" element={<Suspense fallback={<PageLoader />}><MonitorDDNS /></Suspense>} />
         <Route path="monitor/notifications" element={<Suspense fallback={<PageLoader />}><MonitorNotifications /></Suspense>} />
         <Route path="monitor/tunnels" element={<Suspense fallback={<PageLoader />}><MonitorTunnels /></Suspense>} />
-        <Route path="frp/master/nodes" element={<Suspense fallback={<PageLoader />}><FrpMasterNodes /></Suspense>} />
-        <Route path="frp/master/pool" element={<Suspense fallback={<PageLoader />}><Pool /></Suspense>} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

@@ -29,7 +29,6 @@ import (
 	"github.com/netpanel/netpanel/service/linereg"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
-	"github.com/netpanel/netpanel/service/tunservice"
 	"github.com/netpanel/netpanel/service/wireguard"
 )
 
@@ -37,7 +36,6 @@ import (
 type Server struct {
 	db             *gorm.DB
 	log            *logrus.Logger
-	tunserviceMgr  *tunservice.Manager
 	lineregMgr     *linereg.Manager
 	frpMgr         *frp.Manager
 	npsMgr         *nps.Manager
@@ -56,7 +54,6 @@ type Server struct {
 func NewServer(
 	db *gorm.DB,
 	log *logrus.Logger,
-	tunserviceMgr *tunservice.Manager,
 	lineregMgr *linereg.Manager,
 	frpMgr *frp.Manager,
 	npsMgr *nps.Manager,
@@ -70,7 +67,6 @@ func NewServer(
 	return &Server{
 		db:             db,
 		log:            log,
-		tunserviceMgr:  tunserviceMgr,
 		lineregMgr:     lineregMgr,
 		frpMgr:         frpMgr,
 		npsMgr:         npsMgr,
@@ -269,32 +265,17 @@ func (s *Server) toolsList() []map[string]interface{} {
 	}
 	return []map[string]interface{}{
 		{
-			"name":        "tunservice_list",
-			"description": "列出全部穿透服务及其线路（含实时状态）",
-			"inputSchema": schema(nil, nil),
-		},
-		{
-			"name":        "tunservice_start",
-			"description": "启动指定穿透服务关联的全部线路",
-			"inputSchema": schema(map[string]interface{}{"id": intg("穿透服务 ID")}, []string{"id"}),
-		},
-		{
-			"name":        "tunservice_stop",
-			"description": "停止指定穿透服务关联的全部线路",
-			"inputSchema": schema(map[string]interface{}{"id": intg("穿透服务 ID")}, []string{"id"}),
-		},
-		{
 			"name":        "line_snapshot",
 			"description": "返回线路自动选线器当前状态快照（Current/Lines/Results/Locked）",
 			"inputSchema": schema(nil, nil),
 		},
 		{
-			"name":        "probe_history",
-			"description": "返回指定穿透服务的线路探测历史（按线路分组，最近 limit 条）",
+			"name":        "line_history",
+			"description": "返回指定线路的探测历史（延迟趋势，最近 limit 条）",
 			"inputSchema": schema(map[string]interface{}{
-				"id":    intg("穿透服务 ID"),
-				"limit": intg("返回条数，默认 100，范围 1-500"),
-			}, []string{"id"}),
+				"line_id": str("线路 ID，如 frp:1 / nps:2 / easytier:3:0 / wg:4 / cftunnel:5"),
+				"limit":   intg("返回条数，默认 100，范围 1-500"),
+			}, []string{"line_id"}),
 		},
 		{
 			"name":        "tool_logs",
@@ -333,7 +314,6 @@ func (s *Server) toolsList() []map[string]interface{} {
 				"tolerance_ms":      intg("切换防抖容差（毫秒），范围 0-5000"),
 				"max_concurrent":    intg("单轮探测并发上限，范围 1-64"),
 				"tool_filter":       str("参与自动选线的工具（逗号分隔，如 wireguard；空=全部）"),
-				"rebind_mode":       str("端口层重绑模式：auto / manual / off"),
 			}, nil),
 		},
 		{
@@ -371,11 +351,6 @@ func (s *Server) toolsList() []map[string]interface{} {
 				"id": intg("Cloudflare Tunnel ID"),
 			}, []string{"id"}),
 		},
-		{
-			"name":        "tunservice_diag",
-			"description": "异常诊断：列出全部穿透服务的状态与最近错误，并附带选线快照与待重绑清单",
-			"inputSchema": schema(nil, nil),
-		},
 	}
 }
 
@@ -399,40 +374,15 @@ func (s *Server) handleToolCall(raw json.RawMessage) map[string]interface{} {
 	}
 
 	switch params.Name {
-	case "tunservice_list":
-		views, err := s.tunserviceMgr.List()
-		if err != nil {
-			return s.textError("获取穿透服务列表失败: " + err.Error())
-		}
-		return s.textResult(views)
-
-	case "tunservice_start":
-		id, err := s.argUint(params.Arguments, "id")
-		if err != nil {
-			return s.textError(err.Error())
-		}
-		if err := s.tunserviceMgr.Start(id); err != nil {
-			return s.textError("启动穿透服务失败: " + err.Error())
-		}
-		return s.textResult(map[string]interface{}{"ok": true, "id": id})
-
-	case "tunservice_stop":
-		id, err := s.argUint(params.Arguments, "id")
-		if err != nil {
-			return s.textError(err.Error())
-		}
-		s.tunserviceMgr.Stop(id)
-		return s.textResult(map[string]interface{}{"ok": true, "id": id})
-
 	case "line_snapshot":
 		// Snapshot 返回 selector.State（Current/Lines/Results/Locked），
 		// 字段均为导出且线程安全拷贝，可直接序列化。
 		return s.textResult(s.lineregMgr.Selector().Snapshot())
 
-	case "probe_history":
-		id, err := s.argUint(params.Arguments, "id")
-		if err != nil {
-			return s.textError(err.Error())
+	case "line_history":
+		lineID, _ := params.Arguments["line_id"].(string)
+		if lineID == "" {
+			return s.textError("line_id 不能为空")
 		}
 		limit := 100
 		if v, ok := params.Arguments["limit"]; ok {
@@ -449,7 +399,7 @@ func (s *Server) handleToolCall(raw json.RawMessage) map[string]interface{} {
 		if limit > 500 {
 			limit = 500
 		}
-		hist, err := s.tunserviceMgr.History(id, limit)
+		hist, err := s.lineregMgr.History(lineID, limit)
 		if err != nil {
 			return s.textError("获取探测历史失败: " + err.Error())
 		}
@@ -489,9 +439,6 @@ func (s *Server) handleToolCall(raw json.RawMessage) map[string]interface{} {
 	case "probe_config_set":
 		return s.handleProbeConfigSet(params.Arguments)
 
-	case "tunservice_diag":
-		return s.handleTunserviceDiag()
-
 	case "frp_client_detail":
 		return s.handleFRPClientDetail(params.Arguments)
 
@@ -520,7 +467,6 @@ func (s *Server) probeConfigSnapshot() map[string]interface{} {
 		"tolerance_ms":      s.cfgInt("probe_tolerance_ms", 50),
 		"max_concurrent":    s.cfgInt("probe_max_concurrent", 8),
 		"tool_filter":       s.cfgStr("probe_tool_filter", ""),
-		"rebind_mode":       s.lineregMgr.RebindMode(),
 	}
 }
 
@@ -531,7 +477,6 @@ func (s *Server) handleProbeConfigSet(args map[string]interface{}) map[string]in
 	toleranceMs := s.cfgInt("probe_tolerance_ms", 50)
 	maxConcurrent := s.cfgInt("probe_max_concurrent", 8)
 	toolFilter := s.cfgStr("probe_tool_filter", "")
-	rebindMode := s.lineregMgr.RebindMode()
 
 	// 覆盖传入字段（带范围校验）
 	fields := []struct {
@@ -565,21 +510,12 @@ func (s *Server) handleProbeConfigSet(args map[string]interface{}) map[string]in
 			return s.textError("tool_filter 参数需为字符串")
 		}
 	}
-	if v, ok := args["rebind_mode"]; ok {
-		str, isStr := v.(string)
-		if !isStr || (str != "auto" && str != "manual" && str != "off") {
-			return s.textError("rebind_mode 需为 auto/manual/off")
-		}
-		rebindMode = str
-	}
-
 	// 持久化
 	s.setCfgInt("probe_interval_sec", intervalSec)
 	s.setCfgInt("probe_failure_threshold", failureThreshold)
 	s.setCfgInt("probe_tolerance_ms", toleranceMs)
 	s.setCfgInt("probe_max_concurrent", maxConcurrent)
 	s.setCfgStr("probe_tool_filter", toolFilter)
-	s.setCfgStr("port_rebind_mode", rebindMode)
 
 	// 应用
 	s.lineregMgr.SetInterval(time.Duration(intervalSec) * time.Second)
@@ -587,22 +523,7 @@ func (s *Server) handleProbeConfigSet(args map[string]interface{}) map[string]in
 	s.lineregMgr.SetTolerance(time.Duration(toleranceMs) * time.Millisecond)
 	s.lineregMgr.SetMaxConcurrent(maxConcurrent)
 	s.lineregMgr.SetToolFilter(toolFilter)
-	s.lineregMgr.SetRebindMode(rebindMode)
 	return s.textResult(map[string]interface{}{"ok": true, "config": s.probeConfigSnapshot()})
-}
-
-// handleTunserviceDiag 异常诊断：服务状态 + 最近错误 + 选线快照 + 待重绑清单。
-func (s *Server) handleTunserviceDiag() map[string]interface{} {
-	views, err := s.tunserviceMgr.List()
-	if err != nil {
-		return s.textError("获取穿透服务列表失败: " + err.Error())
-	}
-	return s.textResult(map[string]interface{}{
-		"services":         views,
-		"snapshot":         s.lineregMgr.Selector().Snapshot(),
-		"rebind_mode":      s.lineregMgr.RebindMode(),
-		"pending_rebinds":  s.lineregMgr.PendingRebinds(),
-	})
 }
 
 // handleFRPClientDetail 获取FRP客户端详细诊断信息

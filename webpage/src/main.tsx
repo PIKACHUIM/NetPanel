@@ -15,6 +15,10 @@ const Root: React.FC = () => {
   const isDark = uiMode === 'dark'
   const hasWp = hasWallpaper(wallpaper)
   const primaryColor = getWallpaperColor(wallpaper)
+  // 浮层背景：动漫壁纸模式半透明（配合毛玻璃），简约模式必须实色不透明
+  const popupBg = hasWp
+    ? (isDark ? 'rgba(20,25,40,0.8)' : 'rgba(255,255,255,0.75)')
+    : (isDark ? '#1d1e26' : '#ffffff')
 
   // 同步主题属性到 HTML，供 CSS 使用
   // data-theme: 用于匹配暗色/亮色 CSS 选择器
@@ -106,10 +110,10 @@ const Root: React.FC = () => {
             colorTextLightSolid: isDark ? 'rgba(255,255,255,0.85)' : undefined,
           },
           Popover: {
-            colorBgElevated: isDark ? '#242424' : undefined,
+            colorBgElevated: popupBg,
           },
           Dropdown: {
-            colorBgElevated: isDark ? '#242424' : undefined,
+            colorBgElevated: popupBg,
           },
           Alert: {
             colorInfoBg: isDark ? 'rgba(0,113,227,0.12)' : undefined,

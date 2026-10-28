@@ -38,18 +38,6 @@ type Line struct {
 	// ProbeURL 可选。非空时额外做一次 HTTP 204 探测（用于区分「能连上」与
 	// 「能正常出网」）。
 	ProbeURL string
-
-	// Weight 选线权重：>1 强化、0~1 弱化，默认 1.0。
-	// 只要集合内存在任意 Weight != 0 的线路即进入「加权模式」：选线按
-	// score = 有效延迟 / Weight 排序（权重越大得分越优）；加权模式下
-	// Weight <= 0 的线路不参与自动选线（仍保留在集合中，可展示与手动锁定）。
-	// 全部未配置（全 0）= 纯延迟模式，等价旧行为。
-	Weight float64
-
-	// Region 线路所属区域（如 "cn-east" / "us-west"）。配合 Selector 的
-	// PreferRegion 实现「就近优先」：命中偏好区域的可用线路优先于其他区域，
-	// 区域内仍按 score 排序。空 = 不参与区域匹配。
-	Region string
 }
 
 // ProbeResult 单条线路的一次测速结果。
@@ -249,8 +237,6 @@ type Selector struct {
 	lockedLine string
 	// current 当前生效线路 id。
 	current string
-	// preferRegion 客户端偏好区域：非空时自动选线优先命中的区域（就近优先）。
-	preferRegion string
 	// healthObserver 健康状态转换观察者（跨过 unreachable 边界时回调）。
 	healthObserver HealthObserver
 }
@@ -357,21 +343,6 @@ func (s *Selector) Tolerance() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.tolerance
-}
-
-// SetPreferRegion 设置客户端偏好区域（就近优先）。空串 = 关闭区域偏好。
-// 须在首次 ProbeAll 前调用，否则不保证生效。
-func (s *Selector) SetPreferRegion(region string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.preferRegion = region
-}
-
-// PreferRegion 返回当前偏好区域。
-func (s *Selector) PreferRegion() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.preferRegion
 }
 
 // SetLines 全量替换线路集合（保留锁线与当前选择；失效的锁线自动解除）。
@@ -619,38 +590,9 @@ func (s *Selector) latencyFor(r ProbeResult) time.Duration {
 	return effectiveLatency(r)
 }
 
-// weightedMode 是否处于加权模式：集合内存在任意 Weight != 0 的线路。
-// 需在持有 s.mu 时调用。全部未配置（全 0）= 纯延迟模式（旧行为）。
-func (s *Selector) weightedMode() bool {
-	for _, l := range s.lines {
-		if l.Weight != 0 {
-			return true
-		}
-	}
-	return false
-}
-
-// weightOf 返回线路 id 对应的权重：未找到或未配置（<=0）时返回 1.0（中性）。
-func (s *Selector) weightOf(id string) float64 {
-	for _, l := range s.lines {
-		if l.ID == id && l.Weight > 0 {
-			return l.Weight
-		}
-	}
-	return 1.0
-}
-
-// scoreFor 返回线路用于排序与防抖比较的标量：加权模式下为 有效延迟/Weight，
-// 否则为有效延迟（等价旧行为）。需在持有 s.mu 时调用。
+// scoreFor 返回线路用于排序与防抖比较的标量（有效延迟）。需在持有 s.mu 时调用。
 func (s *Selector) scoreFor(r ProbeResult) time.Duration {
-	lat := s.latencyFor(r)
-	if !s.weightedMode() {
-		return lat
-	}
-	if w := s.weightOf(r.LineID); w > 0 && w != 1.0 {
-		return time.Duration(float64(lat) / w)
-	}
-	return lat
+	return s.latencyFor(r)
 }
 
 // Select 根据最新结果选线：锁线优先；否则取最优可用线路，且与当前线路的
@@ -690,43 +632,27 @@ func (s *Selector) Select() Selection {
 }
 
 // bestUsable 返回可用线路中最优的一条；无可用时返回空串。
-// 参与条件与比较规则（优先级从高到低）：
-//  1. 仅考虑 toolFilter 允许的工具线路；
-//  2. 加权模式下 Weight <= 0 的线路不参与自动选线（仍可展示与手动锁定）；
-//  3. 配置了 PreferRegion 时，命中偏好区域的可用线路优先（就近优先）；
-//  4. 其余按 score 排序：加权模式 = 有效延迟/Weight，否则 = 有效延迟。
+// 参与条件：仅考虑 toolFilter 允许的工具线路；按有效延迟升序取最优。
 func (s *Selector) bestUsable() string {
-	weighted := s.weightedMode()
 	type cand struct {
-		id     string
-		score  time.Duration
-		region bool
+		id    string
+		score time.Duration
 	}
 	var cands []cand
 	for _, l := range s.lines {
 		if !s.toolAllowed(l.Tool) {
 			continue
 		}
-		if weighted && l.Weight <= 0 {
-			continue
-		}
 		r, ok := s.results[l.ID]
 		if !ok || !s.usable(r) {
 			continue
 		}
-		cands = append(cands, cand{
-			id:     l.ID,
-			score:  s.scoreFor(r),
-			region: s.preferRegion != "" && l.Region == s.preferRegion,
-		})
+		cands = append(cands, cand{id: l.ID, score: s.scoreFor(r)})
 	}
 	if len(cands) == 0 {
 		return ""
 	}
 	sort.Slice(cands, func(i, j int) bool {
-		if cands[i].region != cands[j].region {
-			return cands[i].region
-		}
 		return cands[i].score < cands[j].score
 	})
 	return cands[0].id

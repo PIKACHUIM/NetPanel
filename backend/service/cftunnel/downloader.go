@@ -1,13 +1,18 @@
 package cftunnel
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -17,12 +22,90 @@ const (
 	cloudflaredVersion = "2024.8.2"
 	// downloadBaseURL GitHub Release 下载基础 URL
 	downloadBaseURL = "https://github.com/cloudflare/cloudflared/releases/download"
+	// downloadTimeout 整体下载超时，避免网络挂死
+	downloadTimeout = 30 * time.Minute
 )
 
 // ghProxyEnv GitHub 加速镜像环境变量（如 https://ghfast.top、https://gh-proxy.com）。
 // 国内网络直连 GitHub Releases 下载 cloudflared 常年卡死；配置后下载地址
 // 变为 <mirror>/<原始URL>。留空则直连。
 const ghProxyEnv = "NETPANEL_GH_MIRROR"
+
+const (
+	// caFileEnv 额外信任的 PEM 格式 CA 证书文件（企业代理/自签根证书场景）
+	caFileEnv = "NETPANEL_CA_FILE"
+	// insecureTLSEnv 设为 1 时跳过 TLS 证书校验，仅用于无法导入根证书的受限环境
+	insecureTLSEnv = "NETPANEL_INSECURE_TLS"
+)
+
+// newDownloadClient 构造下载用 HTTP 客户端。
+// 默认显式使用操作系统根证书池，避免 SSL_CERT_FILE 等环境变量指向
+// 不完整的 CA 包时，把合法证书误判为 unknown authority。
+func newDownloadClient() *http.Client {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if pool := buildRootCAs(); pool != nil {
+		tlsCfg.RootCAs = pool
+	}
+	if strings.TrimSpace(os.Getenv(insecureTLSEnv)) == "1" {
+		//nolint:gosec // 显式开关：用于无法安装根证书的受限网络，风险需自行承担
+		tlsCfg.InsecureSkipVerify = true
+		logrus.Warnf("[cftunnel] 已按 %s=1 关闭 TLS 证书校验，存在中间人风险", insecureTLSEnv)
+	}
+	transport.TLSClientConfig = tlsCfg
+
+	return &http.Client{Transport: transport, Timeout: downloadTimeout}
+}
+
+// buildRootCAs 返回系统根证书池，并按需追加 NETPANEL_CA_FILE 中的证书。
+func buildRootCAs() *x509.CertPool {
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		logrus.Warnf("[cftunnel] 读取系统根证书失败，使用空证书池: %v", err)
+		pool = x509.NewCertPool()
+	}
+
+	caFile := strings.TrimSpace(os.Getenv(caFileEnv))
+	if caFile == "" {
+		return pool
+	}
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		logrus.Warnf("[cftunnel] 读取 %s=%s 失败: %v", caFileEnv, caFile, err)
+		return pool
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		logrus.Warnf("[cftunnel] %s=%s 中未找到可用的 PEM 证书", caFileEnv, caFile)
+	}
+	return pool
+}
+
+// tlsHint 为证书校验类错误补充可操作的处理建议。
+func tlsHint(err error) string {
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostnameErr x509.HostnameError
+	var invalidCert x509.CertificateInvalidError
+	if errors.As(err, &unknownAuthority) || errors.As(err, &hostnameErr) || errors.As(err, &invalidCert) {
+		return fmt.Sprintf(
+			"（TLS 证书校验失败：若处于代理/安全软件中间人环境，请把其根证书导入系统，"+
+				"或设置 %s 指向 CA 证书文件；也可设置 %s 使用镜像；"+
+				"仅在信任当前网络时可用 %s=1 临时跳过校验）",
+			caFileEnv, ghProxyEnv, insecureTLSEnv,
+		)
+	}
+	return ""
+}
 
 // applyGHProxy 为 GitHub 下载地址拼接加速镜像前缀（已配置时）
 func applyGHProxy(rawURL string) string {
@@ -102,9 +185,9 @@ func DownloadBinary(binDir string, progressCallback func(downloaded, total int64
 	}
 
 	// 发送 HTTP GET 请求
-	resp, err := http.Get(url)
+	resp, err := newDownloadClient().Get(url)
 	if err != nil {
-		return "", fmt.Errorf("下载请求失败: %w", err)
+		return "", fmt.Errorf("下载请求失败: %w%s", err, tlsHint(err))
 	}
 	defer resp.Body.Close()
 

@@ -114,20 +114,6 @@ export const cftunnelApi = {
   }),
 }
 
-// ===== 穿透服务（统一内网穿透管理） =====
-export const tunserviceApi = {
-  list: () => request.get('/v1/tunservice'),
-  get: (id: number) => request.get(`/v1/tunservice/${id}`),
-  create: (data: any) => request.post('/v1/tunservice', data),
-  update: (id: number, data: any) => request.put(`/v1/tunservice/${id}`, data),
-  delete: (id: number) => request.delete(`/v1/tunservice/${id}`),
-  start: (id: number) => request.post(`/v1/tunservice/${id}/start`),
-  stop: (id: number) => request.post(`/v1/tunservice/${id}/stop`),
-  candidates: (id: number) => request.get(`/v1/tunservice/${id}/candidates`),
-  history: (id: number, limit = 100) => request.get(`/v1/tunservice/${id}/history?limit=${limit}`),
-  speedtest: (id: number) => request.get(`/v1/tunservice/${id}/speedtest`),
-}
-
 // ===== WireGuard =====
 export const wireguardApi = {
   list: () => request.get('/v1/wireguard'),
@@ -262,6 +248,14 @@ export const cronApi = {
   enable: (id: number) => request.post(`/v1/cron/${id}/enable`),
   disable: (id: number) => request.post(`/v1/cron/${id}/disable`),
   runNow: (id: number) => request.post(`/v1/cron/${id}/run`),
+}
+
+// ===== Docker 容器 =====
+export const dockerApi = {
+  list: (all = false) => request.get(`/v1/docker/containers?all=${all ? 1 : 0}`),
+  start: (id: string) => request.post(`/v1/docker/containers/${encodeURIComponent(id)}/start`),
+  stop: (id: string) => request.post(`/v1/docker/containers/${encodeURIComponent(id)}/stop`),
+  restart: (id: string) => request.post(`/v1/docker/containers/${encodeURIComponent(id)}/restart`),
 }
 
 // ===== 网络存储 =====
@@ -608,40 +602,4 @@ export const initApi = {
   networkInfo: () => request.get('/v1/init/network-info'),
 }
 
-// ===== frpc 多节点 Master（M4） =====
-export const frpmasterApi = {
-  listNodes: () => request.get('/v1/frpmaster/nodes'),
-  createNode: (data: { name: string; region?: string; server_addr: string; server_port: number; frps_token?: string; remark?: string }) =>
-    request.post('/v1/frpmaster/nodes', data),
-  deleteNode: (id: number) => request.delete(`/v1/frpmaster/nodes/${id}`),
-  previewConfig: (id: number) => request.get(`/v1/frpmaster/nodes/${id}/config`),
-  agentHeartbeat: (nodeId: number, token: string) =>
-    request.post('/v1/frpmaster/agent/heartbeat', { node_id: nodeId, token }),
-  agentStatus: (nodeId: number, token: string, tunnels?: unknown) =>
-    request.post('/v1/frpmaster/agent/status', { node_id: nodeId, token, tunnels }),
-  agentConfig: (nodeId: number, token: string) =>
-    request.post(`/v1/frpmaster/agent/config?node_id=${nodeId}`, null, {
-      headers: { 'X-Frp-Token': encodeURIComponent(token) },
-    }),
-  agentLogs: (nodeId: number, token: string, logs: string[]) =>
-    request.post('/v1/frpmaster/agent/logs', { node_id: nodeId, token, logs }),
-}
 
-// ===== 线路探测策略（linereg） =====
-export interface ProbeConfig {
-    interval_sec: number
-    failure_threshold: number
-    tolerance_ms: number
-    max_concurrent: number
-    tool_filter: string
-    rebind_mode: string
-}
-
-export const lineregApi = {
-    getConfig: () => request.get<ProbeConfig>('/v1/linereg/config'),
-    updateConfig: (data: ProbeConfig) => request.put('/v1/linereg/config', data),
-    rebindPending: () => request.get('/v1/linereg/rebind-pending'),
-    rebindApply: () => request.post('/v1/linereg/rebind-apply'),
-    // 单线路探测历史（延迟趋势图）
-    getLineHistory: (lineId: string, limit = 100) => request.get(`/v1/linereg/line/${encodeURIComponent(lineId)}/history?limit=${limit}`),
-}

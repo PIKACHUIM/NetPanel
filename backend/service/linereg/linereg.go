@@ -10,9 +10,7 @@ package linereg
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -40,7 +38,6 @@ const (
 	cfgKeyToleranceMs      = "probe_tolerance_ms"
 	cfgKeyMaxConcurrent    = "probe_max_concurrent"
 	cfgKeyToolFilter       = "probe_tool_filter"
-	cfgKeyRebindMode       = "port_rebind_mode"
 )
 
 // 探测参数默认值（与 selector 默认一致）。
@@ -70,34 +67,6 @@ type Manager struct {
 	selector *selector.Selector
 	// eventSink 健康转换事件外送（进入不可达 / 恢复时触发），可为 nil。
 	eventSink HealthEventSink
-	// remoteLines 远程线路提供者（如 frpc Master 的在线节点），可为 nil。
-	// 每轮 refresh 合并其返回的线路参与自动测速选线。
-	remoteLines func() ([]selector.Line, error)
-
-	// caddyUpdater 选线切换回调：把选中线路的入口同步到绑定的 Caddy 站点。
-	// 由上层注入（main.go），避免本包依赖 caddy。
-	caddyUpdater func(siteID uint, upstream string) error
-	// dnsUpdater 选线切换回调：把服务域名指向选中线路入口 IP（DNS 层切换）。
-	// 由上层注入（main.go），避免本包依赖 dnsmasq。
-	dnsUpdater func(domain, ip string) error
-	// portRebinder 选线切换回调：重建端口层服务的穿透规则（先停后起，
-	// 短暂抖动可接受），把本地监听入口重新绑定到当前选中线路。
-	// 仅作用于未绑定 Caddy 站点、未配置域名的纯 TCP/UDP 端口层服务。
-	// 由上层注入（main.go），避免本包依赖各工具 manager。
-	portRebinder func(svcID uint, lineID string) error
-
-	// lastUpstream 记录每个 Caddy 站点最近一次成功切换的上游目标（siteID -> upstream）。
-	// 切换失败时回滚到该值，避免 Caddy 反代目标与选中线路不一致。
-	lastUpstream map[uint]string
-	lastMu       sync.Mutex
-
-	// rebindMode 端口层重绑模式："auto"（选线变化自动重绑，默认）/
-	// "manual"（半自动：只记录待重绑清单，由用户手动触发）/ "off"（关闭重绑）。
-	rebindMode string
-	// pendingRebinds manual 模式下记录待重绑的服务（svcID -> 目标线路）。
-	// 每次选线变化时更新；用户手动触发后清空。
-	pendingRebinds map[uint]string
-	pendingMu      sync.Mutex
 	// cfgMu 保护 interval 等运行期可变配置：写方为 HTTP handler goroutine，
 	// 读方为后台探测循环，无锁访问会构成 data race。
 	cfgMu sync.RWMutex
@@ -114,84 +83,17 @@ func NewManager(db *gorm.DB, log *logrus.Logger, tolerance time.Duration) *Manag
 		log = logrus.New()
 	}
 	m := &Manager{
-		db:             db,
-		log:            log,
-		interval:       DefaultInterval,
-		selector:       selector.NewSelector(nil, tolerance),
-		lastUpstream:   make(map[uint]string),
-		rebindMode:     RebindModeAuto,
-		pendingRebinds: make(map[uint]string),
-		reload:         make(chan struct{}, 1),
+		db:       db,
+		log:      log,
+		interval: DefaultInterval,
+		selector: selector.NewSelector(nil, tolerance),
+		reload:   make(chan struct{}, 1),
 	}
 	// 注册健康转换观察者：进入不可达 / 恢复时写日志、落 SystemLog 并外送事件。
 	m.selector.SetHealthObserver(func(ev selector.HealthEvent) {
 		m.handleHealthEvent(ev)
 	})
 	return m
-}
-
-// 端口层重绑模式取值。
-const (
-	RebindModeAuto   = "auto"   // 选线变化自动重绑（默认）
-	RebindModeManual = "manual" // 半自动：只记录待重绑清单，由用户手动触发
-	RebindModeOff    = "off"    // 关闭端口层重绑
-)
-
-// SetRebindMode 设置端口层重绑模式。非法值忽略。
-func (m *Manager) SetRebindMode(mode string) {
-	switch mode {
-	case RebindModeAuto, RebindModeManual, RebindModeOff:
-		m.rebindMode = mode
-	}
-}
-
-// RebindMode 返回当前端口层重绑模式。
-func (m *Manager) RebindMode() string {
-	if m.rebindMode == "" {
-		return RebindModeAuto
-	}
-	return m.rebindMode
-}
-
-// PendingRebinds 返回 manual 模式下待重绑的服务（svcID -> 目标线路）快照。
-func (m *Manager) PendingRebinds() map[uint]string {
-	m.pendingMu.Lock()
-	defer m.pendingMu.Unlock()
-	out := make(map[uint]string, len(m.pendingRebinds))
-	for k, v := range m.pendingRebinds {
-		out[k] = v
-	}
-	return out
-}
-
-// ApplyPendingRebinds 手动触发所有待重绑服务（manual 模式使用）。
-// 逐个调用 portRebinder；全部成功后清空待重绑清单，返回处理数量。
-func (m *Manager) ApplyPendingRebinds() (int, error) {
-	if m.portRebinder == nil {
-		return 0, fmt.Errorf("端口层重绑回调未注入")
-	}
-	pending := m.PendingRebinds()
-	applied := 0
-	var firstErr error
-	for svcID, lineID := range pending {
-		if err := m.portRebinder(svcID, lineID); err != nil {
-			m.log.Errorf("[线路选择] 手动重绑端口层服务 %d 到线路 %s 失败: %v", svcID, lineID, err)
-			m.db.Model(&model.TunService{}).Where("id = ?", svcID).Update("last_error", err.Error())
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		m.db.Model(&model.TunService{}).Where("id = ?", svcID).Update("last_error", "")
-		m.log.Infof("[线路选择] 手动重绑端口层服务 %d 到线路 %s 成功", svcID, lineID)
-		applied++
-	}
-	if firstErr == nil {
-		m.pendingMu.Lock()
-		m.pendingRebinds = make(map[uint]string)
-		m.pendingMu.Unlock()
-	}
-	return applied, firstErr
 }
 
 // Selector 返回内部选择器，供 API / UI 读取状态或手动锁线。
@@ -209,15 +111,6 @@ func (m *Manager) SetProber(p selector.Prober) {
 // 用于额外通知；在 Start 前调用即可。
 func (m *Manager) SetHealthEventSink(fn HealthEventSink) {
 	m.eventSink = fn
-}
-
-// SetRemoteLineProvider 注册远程线路提供者（可选；如 frpc Master 在线节点）。
-// refresh 每轮把 provider 返回的线路合并进候选集合参与测速选线；provider
-// 不再返回某线路时，SetLines 全量刷新会自动清理其选线状态。
-// 返回 error 以便调用方区分「无远程节点」与「读取远程节点失败」。
-// 在 Start 前调用即可。
-func (m *Manager) SetRemoteLineProvider(fn func() ([]selector.Line, error)) {
-	m.remoteLines = fn
 }
 
 // SetInterval 设置线路刷新间隔。支持运行期热更新：
@@ -331,13 +224,11 @@ func (m *Manager) LoadProbeConfig() error {
 		maxConcurrent = defaultMaxConcurrent
 	}
 	toolFilter := loadConfigStr(m.db, cfgKeyToolFilter, "")
-	rebindMode := loadConfigStr(m.db, cfgKeyRebindMode, RebindModeAuto)
 
 	m.SetInterval(time.Duration(intervalSec) * time.Second)
 	m.SetFailureThreshold(failureThreshold)
 	m.SetTolerance(time.Duration(toleranceMs) * time.Millisecond)
 	m.SetMaxConcurrent(maxConcurrent)
-	m.SetRebindMode(rebindMode)
 	// 工具过滤：逗号分隔的工具名列表；空 = 全部工具参与自动选线。
 	var tools []string
 	for _, t := range strings.Split(toolFilter, ",") {
@@ -347,25 +238,6 @@ func (m *Manager) LoadProbeConfig() error {
 	}
 	m.selector.SetToolFilter(tools)
 	return nil
-}
-
-// SetCaddyUpdater 注入 Caddy 反代目标切换回调（域名层切换落地）。
-// 选线结果变化时，会把选中线路的入口地址同步到绑定了该线路的 Caddy 站点。
-func (m *Manager) SetCaddyUpdater(fn func(siteID uint, upstream string) error) {
-	m.caddyUpdater = fn
-}
-
-// SetDNSUpdater 注入 DNS 解析切换回调（DNS 层切换落地）。
-// 选线结果变化时，会把服务域名指向选中线路入口 IP。
-func (m *Manager) SetDNSUpdater(fn func(domain, ip string) error) {
-	m.dnsUpdater = fn
-}
-
-// SetPortRebinder 注入端口层切换回调（端口层切换落地）。
-// 选线结果变化时，会重建未绑定 Caddy/DNS 的纯 TCP/UDP 服务的穿透规则，
-// 使本地监听入口跟随当前选中线路。
-func (m *Manager) SetPortRebinder(fn func(svcID uint, lineID string) error) {
-	m.portRebinder = fn
 }
 
 // Start 启动后台守护：立即执行一轮刷新与测速，之后按 interval 周期循环。
@@ -453,18 +325,6 @@ func (m *Manager) run(ctx context.Context) {
 // refresh 从数据库重建线路集合，刷新 selector 并执行一轮测速选线。
 func (m *Manager) refresh(ctx context.Context) {
 	lines := BuildLines(m.db)
-	// 合并远程线路（如 frpc Master 在线节点）：provider 因节点离线不再返回时，
-	// SetLines 全量刷新会自动清理对应线路的选线状态与锁线。
-	if m.remoteLines != nil {
-		// 区分「无远程线路」与「读取远程线路失败」：失败时保留本机线路继续选线，
-		// 但不静默当作空集合（否则远程节点全挂会被误判为正常无候选）。
-		remote, err := m.remoteLines()
-		if err != nil {
-			m.log.Warnf("[线路选择] 读取远程线路失败: %v", err)
-		} else if len(remote) > 0 {
-			lines = append(lines, remote...)
-		}
-	}
 	m.selector.SetLines(lines)
 	if len(lines) == 0 {
 		return
@@ -472,233 +332,7 @@ func (m *Manager) refresh(ctx context.Context) {
 	m.selector.ProbeAll(ctx)
 	sel := m.selector.Select()
 	m.saveHistory()
-	// 切换落地：选线结果同步到绑定的 Caddy 站点（域名层）、DNS 解析（DNS 层）
-	// 与未绑定 Caddy/DNS 的端口层服务（端口层重绑）
-	m.applyCaddySwitch(sel.LineID)
-	m.applyDNSSwitch(sel.LineID)
-	m.applyPortSwitch(sel.LineID)
 	m.log.Infof("[线路选择] 共 %d 条线路，当前线路: %q", len(lines), sel.LineID)
-}
-
-// effectiveLine 返回某服务在本次选线中的有效线路。
-// 优先级：
-//  1. 服务级锁线（LockedLine 存在且命中 LineRefs）
-//  2. 池引用（PoolRef 非空时直接使用全局选线结果，候选池已含远程线路）
-//  3. 全局默认选线（保留现有效率，向后兼容）
-func (m *Manager) effectiveLine(svc model.TunService, globalLineID string) string {
-	if svc.LockedLine != "" {
-		var refs []string
-		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err == nil {
-			for _, ref := range refs {
-				if ref == svc.LockedLine {
-					return svc.LockedLine
-				}
-			}
-		}
-	}
-	// 绑池时直接沿用全局最优线路：刷新时 SetLines 已把池内线路（含远程节点入口）
-	// 统一接入 selector，选中线路必然属于候选池；不再做 LineRefs 逐行校验。
-	if svc.PoolRef != "" {
-		return globalLineID
-	}
-	return globalLineID
-}
-
-// applyCaddySwitch 将当前选中线路的入口地址同步到绑定了该线路的 Caddy 站点。
-// 通过 caddyUpdater 回调（main.go 注入）热加载 Caddy 反代目标，实现域名层自动切换。
-func (m *Manager) applyCaddySwitch(lineID string) {
-	if lineID == "" || m.caddyUpdater == nil {
-		return
-	}
-	// 查找绑定了 Caddy 站点的服务
-	var services []model.TunService
-	if err := m.db.Where("caddy_site_id > ?", 0).Find(&services).Error; err != nil {
-		m.log.Warnf("[线路选择] 查询绑定 Caddy 的服务失败: %v", err)
-		return
-	}
-	for _, svc := range services {
-		// 服务级锁线：若 LockedLine 存在于 LineRefs，使用锁定线路；否则用全局线路
-		effLineID := m.effectiveLine(svc, lineID)
-		if effLineID == "" {
-			continue
-		}
-		// 找到有效线路的地址（作为 Caddy 反代目标入口）
-		var line selector.Line
-		for _, l := range m.selector.Lines() {
-			if l.ID == effLineID {
-				line = l
-				break
-			}
-		}
-		if line.Address == "" {
-			continue
-		}
-		// 校验该有效线路确实在服务的 LineRefs 中
-		var refs []string
-		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
-			continue
-		}
-		found := false
-		for _, ref := range refs {
-			if ref == effLineID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			continue
-		}
-		if err := m.caddyUpdater(svc.CaddySiteID, line.Address); err != nil {
-			m.log.Errorf("[线路选择] 更新 Caddy 站点 %d 失败: %v", svc.CaddySiteID, err)
-			// 回滚到上一次成功切换的上游目标，避免 Caddy 与新线路不一致
-			m.lastMu.Lock()
-			old, ok := m.lastUpstream[svc.CaddySiteID]
-			m.lastMu.Unlock()
-			if ok && old != "" && old != line.Address {
-				if rerr := m.caddyUpdater(svc.CaddySiteID, old); rerr != nil {
-					m.log.Errorf("[线路选择] 回滚 Caddy 站点 %d 到 %s 失败: %v", svc.CaddySiteID, old, rerr)
-				} else {
-					m.log.Warnf("[线路选择] Caddy 站点 %d 已回滚到 %s", svc.CaddySiteID, old)
-				}
-			}
-			// 记录错误供 UI 排查
-			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
-		} else {
-			m.lastMu.Lock()
-			m.lastUpstream[svc.CaddySiteID] = line.Address
-			m.lastMu.Unlock()
-			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
-			m.log.Infof("[线路选择] Caddy 站点 %d 反代目标已切换为 %s", svc.CaddySiteID, line.Address)
-		}
-	}
-}
-
-// applyDNSSwitch 将服务域名指向当前选中线路的入口 IP（DNS 层切换）。
-// 仅当服务配置了 Domain 且线路入口为 IP 时生效（域名入口走 Caddy 域名层）。
-// 通过 dnsUpdater 回调（main.go 注入 dnsmasq.SetRecord）写入自定义解析记录。
-func (m *Manager) applyDNSSwitch(lineID string) {
-	if lineID == "" || m.dnsUpdater == nil {
-		return
-	}
-	// 查找配置了 Domain 的服务
-	var services []model.TunService
-	if err := m.db.Where("domain != ?", "").Find(&services).Error; err != nil {
-		m.log.Warnf("[线路选择] 查询配置域名服务失败: %v", err)
-		return
-	}
-	for _, svc := range services {
-		// 服务级锁线：若 LockedLine 存在于 LineRefs，使用锁定线路；否则用全局线路
-		effLineID := m.effectiveLine(svc, lineID)
-		if effLineID == "" {
-			continue
-		}
-		// 找到有效线路的地址，仅对 IP 入口做 DNS 切换
-		var line selector.Line
-		for _, l := range m.selector.Lines() {
-			if l.ID == effLineID {
-				line = l
-				break
-			}
-		}
-		host := lineHost(line.Address)
-		if host == "" || net.ParseIP(host) == nil {
-			continue
-		}
-		// 校验该有效线路确实在服务的 LineRefs 中
-		var refs []string
-		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
-			continue
-		}
-		found := false
-		for _, ref := range refs {
-			if ref == effLineID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			continue
-		}
-		if err := m.dnsUpdater(svc.Domain, host); err != nil {
-			m.log.Warnf("[线路选择] 更新 DNS 解析 %s -> %s 失败: %v", svc.Domain, host, err)
-			// 记录错误供 UI 排查
-			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
-		} else {
-			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
-			m.log.Infof("[线路选择] DNS 解析 %s -> %s 已切换", svc.Domain, host)
-		}
-	}
-}
-
-// applyPortSwitch 将当前选中线路同步到端口层服务（端口层切换落地）。
-// 端口层服务 = 未绑定 Caddy 站点（caddy_site_id=0）且未配置域名
-// （domain 为空）的纯 TCP/UDP 服务——HTTP/HTTPS 走域名层（Caddy），
-// 带域名的走 DNS 层，其余走端口映射。选线变化时重建受影响规则，
-// 把本地监听入口重新绑定到当前线路（先停后起，短暂抖动可接受）。
-func (m *Manager) applyPortSwitch(lineID string) {
-	if lineID == "" || m.portRebinder == nil {
-		return
-	}
-	// off 模式：关闭端口层重绑，直接返回。
-	if m.RebindMode() == RebindModeOff {
-		return
-	}
-	var services []model.TunService
-	if err := m.db.Where("caddy_site_id = ? AND (domain IS NULL OR domain = '')", 0).Find(&services).Error; err != nil {
-		m.log.Warnf("[线路选择] 查询端口层服务失败: %v", err)
-		return
-	}
-	for _, svc := range services {
-		// 服务级锁线：若 LockedLine 存在于 LineRefs，使用锁定线路；否则用全局线路
-		effLineID := m.effectiveLine(svc, lineID)
-		if effLineID == "" {
-			continue
-		}
-		// 校验该有效线路确实在服务的 LineRefs 中
-		var refs []string
-		if err := json.Unmarshal([]byte(svc.LineRefs), &refs); err != nil {
-			continue
-		}
-		found := false
-		for _, ref := range refs {
-			if ref == effLineID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			continue
-		}
-		// manual 模式：只记录待重绑清单（svcID -> 目标线路），不自动停起；
-		// 由用户通过 ApplyPendingRebinds 手动触发（避免自动重建带来抖动）。
-		if m.RebindMode() == RebindModeManual {
-			m.pendingMu.Lock()
-			m.pendingRebinds[svc.ID] = effLineID
-			m.pendingMu.Unlock()
-			m.log.Infof("[线路选择] manual 模式：端口层服务 %d 待重绑到线路 %s（等待手动触发）", svc.ID, effLineID)
-			continue
-		}
-		if err := m.portRebinder(svc.ID, effLineID); err != nil {
-			m.log.Errorf("[线路选择] 端口层服务 %d 重绑线路 %s 失败: %v", svc.ID, effLineID, err)
-			// 记录错误供 UI 排查
-			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", err.Error())
-		} else {
-			m.db.Model(&model.TunService{}).Where("id = ?", svc.ID).Update("last_error", "")
-			m.log.Infof("[线路选择] 端口层服务 %d 已重绑到线路 %s", svc.ID, effLineID)
-		}
-	}
-}
-
-// lineHost 从 host:port 地址中提取 host（无端口时视为纯 host）。
-func lineHost(address string) string {
-	if address == "" {
-		return ""
-	}
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return address
-	}
-	return host
 }
 
 // maxHistoryPerLine 每条线路保留的探测历史上限

@@ -152,40 +152,6 @@ func AdminOnly() gin.HandlerFunc {
 	}
 }
 
-// RoleRequired 角色权限中间件。必须置于 JWTAuth 之后。
-// requiredRoles 至少包含一个候选角色，命中任意一个即放行；为空时退化为 AdminOnly。
-func RoleRequired(requiredRoles ...string) gin.HandlerFunc {
-	if len(requiredRoles) == 0 {
-		return AdminOnly()
-	}
-	return func(c *gin.Context) {
-		roles, exists := c.Get("roles")
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权，请先登录"})
-			c.Abort()
-			return
-		}
-		userRoles, ok := roles.(string)
-		if !ok || userRoles == "" {
-			c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "没有访问权限"})
-			c.Abort()
-			return
-		}
-		userRoleSet := make(map[string]struct{}, strings.Count(userRoles, ",")+1)
-		for _, r := range strings.Split(userRoles, ",") {
-			userRoleSet[strings.TrimSpace(r)] = struct{}{}
-		}
-		for _, req := range requiredRoles {
-			if _, granted := userRoleSet[req]; granted {
-				c.Next()
-				return
-			}
-		}
-		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "权限不足"})
-		c.Abort()
-	}
-}
-
 // MustCurrentUser 提取当前请求用户 ID；不存在时中止响应。
 func MustCurrentUser(c *gin.Context) uint {
 	id, ok := CurrentUserID(c)

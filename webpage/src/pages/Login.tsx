@@ -264,9 +264,14 @@ const LoginPage: React.FC = () => {
   // 右侧登录卡片：始终根据 uiMode 决定文字颜色
   const rightTextColor = isDark ? '#fff' : '#1a1a2e'
   const rightSubColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'
-  const inputBg = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.02)'
+  // 动漫壁纸模式使用半透明毛玻璃；简约模式使用实色，不做透明处理
+  const inputBg = animeBg
+    ? (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.02)')
+    : (isDark ? '#151c30' : '#f2f4f8')
   const inputBorder = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'
-  const cardBg = isDark ? 'rgba(15,20,35,0.85)' : 'rgba(255,255,255,0.92)'
+  const cardBg = animeBg
+    ? (isDark ? 'rgba(15,20,35,0.85)' : 'rgba(255,255,255,0.92)')
+    : (isDark ? '#0b1224' : '#ffffff')
 
   const wpMenuItems = wpOptions.map(w => ({
     key: w.key,
@@ -410,8 +415,8 @@ const LoginPage: React.FC = () => {
         position: 'relative',
         zIndex: 1,
         background: cardBg,
-        backdropFilter: 'blur(40px)',
-        WebkitBackdropFilter: 'blur(40px)',
+        backdropFilter: animeBg ? 'blur(40px)' : undefined,
+        WebkitBackdropFilter: animeBg ? 'blur(40px)' : undefined,
         borderLeft: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
         boxShadow: isDark ? '-20px 0 60px rgba(0,0,0,0.3)' : '-10px 0 40px rgba(0,0,0,0.04)',
         opacity: visible ? 1 : 0,

@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import {
-  Card, Form, Input, Button, Select, Divider, message, Switch,
+  Card, Form, Input, Button, Select, Divider, message,
   Typography, Row, Col, Space, Tag, Alert,
 } from 'antd'
 import {
   LockOutlined, GlobalOutlined, InfoCircleOutlined,
-  CheckCircleOutlined, ThunderboltOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -25,23 +25,12 @@ const Settings: React.FC = () => {
   const [pwdForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [pwdSuccess, setPwdSuccess] = useState(false)
-  // 测速弹窗开关（SystemConfig: speedtest_popup_enabled，默认开启）
-  const [speedtestEnabled, setSpeedtestEnabled] = useState(true)
-  const [speedtestLoaded, setSpeedtestLoaded] = useState(false)
   // IPv6 状态卡片
   const [ipv6, setIpv6] = useState<{ has_global: boolean; public_reachable: boolean; global_addresses: string[] } | null>(null)
+  const [ipv6Loaded, setIpv6Loaded] = useState(false)
 
-  // 读取系统配置中的测速弹窗开关与 IPv6 状态
-  const loadSpeedtestSwitch = async () => {
-    try {
-      const res = await systemApi.getConfig()
-      const val = res?.data?.speedtest_popup_enabled
-      if (val !== undefined) {
-        setSpeedtestEnabled(val === 'true' || val === '1')
-      }
-    } catch {
-      // 读取失败保持默认开启
-    }
+  // 读取 IPv6 状态
+  const loadIPv6 = async () => {
     try {
       const res = await systemApi.getIPv6Info()
       setIpv6(res?.data ?? null)
@@ -49,20 +38,9 @@ const Settings: React.FC = () => {
       // IPv6 检测失败不阻塞页面
     }
   }
-  if (!speedtestLoaded) {
-    setSpeedtestLoaded(true)
-    loadSpeedtestSwitch()
-  }
-
-  const handleSpeedtestSwitch = async (checked: boolean) => {
-    setSpeedtestEnabled(checked)
-    try {
-      await systemApi.updateConfig({ speedtest_popup_enabled: checked ? 'true' : 'false' })
-      message.success(t('settings.saved'))
-    } catch {
-      setSpeedtestEnabled(!checked)
-      message.error(t('common.failed'))
-    }
+  if (!ipv6Loaded) {
+    setIpv6Loaded(true)
+    loadIPv6()
   }
 
   const handleChangePassword = async () => {
@@ -179,19 +157,6 @@ const Settings: React.FC = () => {
             </div>
 
             <Divider />
-
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                <ThunderboltOutlined style={{ marginRight: 6, color: '#0071e3' }} />
-                {t('settings.speedtestPopup')}
-              </Text>
-              <Space style={{ marginBottom: 4 }}>
-                <Switch checked={speedtestEnabled} onChange={handleSpeedtestSwitch} />
-                <Text type="secondary">{t('settings.speedtestPopupTip')}</Text>
-              </Space>
-              </div>
-
-              <Divider />
 
               <div>
                 <Text strong style={{ display: 'block', marginBottom: 8 }}>

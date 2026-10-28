@@ -5,7 +5,12 @@ import { useTranslation } from 'react-i18next'
 import { aiProviderApi } from '../api'
 import { useTableStyle } from '../hooks/useTableStyle'
 
-const AiProvider: React.FC = () => {
+type AiProviderProps = {
+  // embedded 为 true 时嵌在「AI 插件管理」的标签页里，不再重复渲染页面标题
+  embedded?: boolean
+}
+
+const AiProvider: React.FC<AiProviderProps> = ({ embedded = false }) => {
   const { t } = useTranslation()
   const tableStyle = useTableStyle()
   const [data, setData] = useState<any[]>([])
@@ -189,8 +194,8 @@ const AiProvider: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ margin: 0 }}><ApiOutlined /> {t('ai.providerManage')}</h2>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: embedded ? 'flex-end' : 'space-between', alignItems: 'center' }}>
+        {!embedded && <h2 style={{ margin: 0 }}><ApiOutlined /> {t('ai.providerManage')}</h2>}
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); setModalOpen(true) }}>
           {t('ai.addProvider')}
         </Button>

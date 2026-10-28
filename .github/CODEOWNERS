@@ -1,0 +1,6 @@
+# 菜单栏与菜单文案由仓库所有者维护，其他贡献者的改动需要 owner 审核。
+# 需在仓库设置中开启：Settings → Branches → Require review from Code Owners。
+
+webpage/src/layouts/MainLayout.tsx                 @PIKACHUIM @PIKACHUREN
+webpage/src/i18n/locales/zh.ts                     @PIKACHUIM @PIKACHUREN
+webpage/src/i18n/locales/en.ts                     @PIKACHUIM @PIKACHUREN

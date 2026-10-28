@@ -586,37 +586,6 @@ type CftunnelConfig struct {
 	Remark    string `gorm:"size:500" json:"remark"`
 }
 
-// ===== 穿透服务（用户视角） =====
-
-// TunService 穿透服务：一个「目标服务」由多条线路（frp/nps/easytier/wg/cf…）提供访问
-type TunService struct {
-	BaseModel
-	Name   string `gorm:"size:100;not null" json:"name"`
-	Enable bool   `gorm:"default:false" json:"enable"`
-	// 目标地址（IP/域名）
-	TargetAddress string `gorm:"size:255;not null" json:"target_address"`
-	TargetPort    int    `gorm:"not null" json:"target_port"`
-	Protocol      string `gorm:"size:10;default:'tcp'" json:"protocol"` // tcp/udp
-	// LineRefs 关联线路 ID 列表（JSON 数组，如 ["frp:1","cftunnel:2"]）
-	LineRefs string `gorm:"type:text" json:"line_refs"`
-	// CaddySiteID 绑定的 Caddy 反向代理站点 ID（0 表示不绑定）。
-	// 选线结果变化时，会把该站点的上游目标动态切换为当前线路的入口。
-	CaddySiteID uint `gorm:"default:0" json:"caddy_site_id"`
-	// Domain 对外服务域名（可选）。选线结果变化时，若线路入口为 IP，
-	// 会通过 dnsmasq 自定义解析记录把该域名指向当前线路入口（DNS 层切换）。
-	Domain    string `gorm:"size:255" json:"domain"`
-	Status    string `gorm:"size:20;default:'stopped'" json:"status"`
-	LastError string `gorm:"type:text" json:"last_error"`
-	Remark    string `gorm:"size:500" json:"remark"`
-	// LockedLine 服务级锁线：非空且存在于 LineRefs 时，该服务的有效线路
-	// 固定为 LockedLine，不再跟随全局选线结果切换；空串表示自动（跟随全局）。
-	LockedLine string `gorm:"size:50" json:"locked_line"`
-	// PoolRef 绑定的线路池 ID（可选）。设置后 TunService 的候选线路由池内
-	// 线路（含远程节点入口）构成；空 = 沿用默认 LineRefs 集合，行为不变。
-	// PoolRef 仅作为 hint，实际池管理随多节点 Master（#89）合入后进一步扩展。
-	PoolRef string `gorm:"size:64" json:"pool_ref"`
-}
-
 // ===== 线路探测历史（可观测性） =====
 
 // ProbeHistory 单条线路的一次探测结果记录（供延迟趋势/质量分析）
@@ -1152,30 +1121,6 @@ var validRoles = map[string]struct{}{
 func IsValidRole(role string) bool {
 	_, ok := validRoles[role]
 	return ok
-}
-
-// ParseRoles 解析逗号分隔的角色字符串，返回去重且顺序固定的合法子集。
-func ParseRoles(raw string) string {
-	seen := make(map[string]struct{}, 3)
-	var out []string
-	for _, r := range strings.Split(raw, ",") {
-		r = strings.TrimSpace(r)
-		if r == "" {
-			continue
-		}
-		if _, ok := validRoles[r]; !ok {
-			continue
-		}
-		if _, dup := seen[r]; dup {
-			continue
-		}
-		seen[r] = struct{}{}
-		out = append(out, r)
-	}
-	if len(out) == 0 {
-		return RoleViewer
-	}
-	return strings.Join(out, ",")
 }
 
 // ===== 用户管理 =====

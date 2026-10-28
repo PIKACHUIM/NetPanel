@@ -17,7 +17,6 @@ import (
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
-	"github.com/netpanel/netpanel/service/frpmaster"
 	"github.com/netpanel/netpanel/service/linereg"
 	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
@@ -25,7 +24,6 @@ import (
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
-	"github.com/netpanel/netpanel/service/tunservice"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
@@ -40,7 +38,6 @@ type RouterOptions struct {
 	PortForwardMgr *portforward.Manager
 	StunMgr        *stun.Manager
 	FrpMgr         *frp.Manager
-	FrpMasterMgr   *frpmaster.Manager
 	NpsMgr         *nps.Manager
 	EasytierMgr    *easytier.Manager
 	CftunnelMgr    *cftunnel.Manager
@@ -57,7 +54,6 @@ type RouterOptions struct {
 	SyslogMgr      *syslog.Manager
 	WireguardMgr   *wireguard.Manager
 	MeshNodeMgr    *meshnode.Manager
-	TunserviceMgr  *tunservice.Manager
 	AiMgr          *ai.Manager
 	LineregMgr     *linereg.Manager
 }
@@ -116,13 +112,6 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	apiV1.GET("/auth/oauth/:provider/authorize", oauthHandler.Authorize)
 	apiV1.GET("/auth/oauth/:provider/callback", oauthHandler.Callback)
 
-	// frpc 多节点 Master：远程节点控制面（节点凭 node_id+token 认证，无面板 JWT）
-	fmHandler := handlers.NewFrpMasterHandler(opts.DB, opts.Log, opts.FrpMasterMgr)
-	apiV1.POST("/frpmaster/agent/heartbeat", fmHandler.Heartbeat)
-	apiV1.POST("/frpmaster/agent/status", fmHandler.ReportStatus)
-	apiV1.POST("/frpmaster/agent/logs", fmHandler.ReportLogs)
-	apiV1.POST("/frpmaster/agent/config", fmHandler.FetchConfig)
-
 	// 需要认证的路由
 	auth := apiV1.Group("")
 	auth.Use(middleware.JWTAuth(opts.DB))
@@ -149,6 +138,10 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr, opts.SyslogMgr)
 	dockerHandler := handlers.NewDockerHandler()
 	auth.GET("/docker/containers", dockerHandler.ListContainers)
+	// 容器启停会改变宿主机上运行的工作负载，限管理员
+	admin.POST("/docker/containers/:id/start", dockerHandler.Start)
+	admin.POST("/docker/containers/:id/stop", dockerHandler.Stop)
+	admin.POST("/docker/containers/:id/restart", dockerHandler.Restart)
 	auth.GET("/port-forward", pfHandler.List)
 	auth.GET("/port-forward/:id/logs", pfHandler.GetLogs)
 	auth.GET("/port-forward/certs", pfHandler.ListCerts)
@@ -239,25 +232,10 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.POST("/easytier/server/:id/start", etsHandler.Start)
 	admin.POST("/easytier/server/:id/stop", etsHandler.Stop)
 
-	// 穿透服务（用户视角的统一内网穿透管理）
-	tsHandler := handlers.NewTunserviceHandler(opts.DB, opts.Log, opts.TunserviceMgr)
-	auth.GET("/tunservice", tsHandler.List)
-	auth.GET("/tunservice/:id", tsHandler.Get)
-	auth.GET("/tunservice/:id/candidates", tsHandler.Candidates)
-	auth.GET("/tunservice/:id/history", tsHandler.History)
-	admin.POST("/tunservice", tsHandler.Create)
-	admin.PUT("/tunservice/:id", tsHandler.Update)
-	admin.DELETE("/tunservice/:id", tsHandler.Delete)
-	admin.POST("/tunservice/:id/start", tsHandler.Start)
-	admin.POST("/tunservice/:id/stop", tsHandler.Stop)
-	admin.GET("/tunservice/:id/speedtest", tsHandler.Speedtest)
-
 	// 线路探测策略（参数化配置）
 	lineHandler := handlers.NewLineregHandler(opts.DB, opts.Log, opts.LineregMgr)
 	auth.GET("/linereg/config", lineHandler.GetConfig)
-	auth.GET("/linereg/rebind-pending", lineHandler.PendingRebinds)
 	admin.PUT("/linereg/config", lineHandler.UpdateConfig)
-	admin.POST("/linereg/rebind-apply", lineHandler.ApplyRebinds)
 	// 线路探测历史（延迟趋势图）
 	auth.GET("/linereg/line/:line_id/history", lineHandler.LineHistory)
 
@@ -559,12 +537,6 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.PUT("/ai/plugins/:id", aiHandler.UpdatePlugin)
 	admin.DELETE("/ai/plugins/:id", aiHandler.DeletePlugin)
 	admin.POST("/ai/plugins/:id/toggle", aiHandler.TogglePlugin)
-
-	// ── frpc 多节点 Master（管理面）────────────────────────────────────────────
-	auth.GET("/frpmaster/nodes", fmHandler.List)
-	auth.POST("/frpmaster/nodes", fmHandler.Create)
-	admin.DELETE("/frpmaster/nodes/:id", fmHandler.Delete)
-	admin.GET("/frpmaster/nodes/:id/config", fmHandler.ConfigPreview)
 
 	// ── 服务监控 ────────────────────────────────────────────────────────────────
 	// 服务器凭据与探测写操作限管理员（可经 SSH 在受管主机执行命令）

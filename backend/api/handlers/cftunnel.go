@@ -339,10 +339,12 @@ func (h *CfTunnelHandler) GetLogs(c *gin.Context) {
 // GET /api/v1/cftunnel/binary
 func (h *CfTunnelHandler) GetBinaryPath(c *gin.Context) {
 	path := ""
+	version := ""
 	if h.mgr.IsBinaryAvailable() {
 		path = h.mgr.GetBinaryPath()
+		version = h.mgr.GetBinaryVersion()
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"binary_path": path}})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"binary_path": path, "version": version}})
 }
 
 // GetDownloadInfo 获取 cloudflared 下载信息

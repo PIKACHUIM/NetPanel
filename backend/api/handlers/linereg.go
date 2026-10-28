@@ -22,7 +22,6 @@ const (
 	cfgKeyToleranceMs      = "probe_tolerance_ms"
 	cfgKeyMaxConcurrent    = "probe_max_concurrent"
 	cfgKeyToolFilter       = "probe_tool_filter"
-	cfgKeyRebindMode       = "port_rebind_mode"
 )
 
 // 探测参数默认值（与 linereg.DefaultInterval / selector 默认一致）。
@@ -64,7 +63,6 @@ type probeConfigResponse struct {
 	ToleranceMs      int    `json:"tolerance_ms"`
 	MaxConcurrent    int    `json:"max_concurrent"`
 	ToolFilter       string `json:"tool_filter"` // 逗号分隔的工具名；空 = 全部参与
-	RebindMode       string `json:"rebind_mode"` // auto / manual / off
 }
 
 // probeConfigRequest 前端提交的配置更新请求体。
@@ -74,7 +72,6 @@ type probeConfigRequest struct {
 	ToleranceMs      int    `json:"tolerance_ms"`
 	MaxConcurrent    int    `json:"max_concurrent"`
 	ToolFilter       string `json:"tool_filter"`
-	RebindMode       string `json:"rebind_mode"`
 }
 
 // getConfigInt 从 SystemConfig 读取一个整型参数；缺失或解析失败时返回 def。
@@ -98,7 +95,6 @@ func (h *LineregHandler) GetConfig(c *gin.Context) {
 		ToleranceMs:      getConfigInt(h.db, cfgKeyToleranceMs, defaultToleranceMs),
 		MaxConcurrent:    getConfigInt(h.db, cfgKeyMaxConcurrent, defaultMaxConcurrent),
 		ToolFilter:       getConfigString(h.db, cfgKeyToolFilter, ""),
-		RebindMode:       h.mgr.RebindMode(),
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": resp})
 }
@@ -163,13 +159,6 @@ func (h *LineregHandler) UpdateConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": field + " out of range"})
 		return
 	}
-	// 重绑模式校验
-	switch req.RebindMode {
-	case "", linereg.RebindModeAuto, linereg.RebindModeManual, linereg.RebindModeOff:
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "rebind_mode must be auto/manual/off"})
-		return
-	}
 	// 持久化
 	setConfigUpsert(h.db, cfgKeyIntervalSec, req.IntervalSec)
 	setConfigUpsert(h.db, cfgKeyFailureThreshold, req.FailureThreshold)
@@ -177,29 +166,12 @@ func (h *LineregHandler) UpdateConfig(c *gin.Context) {
 	setConfigUpsert(h.db, cfgKeyMaxConcurrent, req.MaxConcurrent)
 	// 立即应用（间隔需在下一轮探测循环生效，其余透传到 selector 即时生效）
 	setConfigUpsertString(h.db, cfgKeyToolFilter, req.ToolFilter)
-	setConfigUpsertString(h.db, cfgKeyRebindMode, req.RebindMode)
 	h.mgr.SetInterval(time.Duration(req.IntervalSec) * time.Second)
 	h.mgr.SetFailureThreshold(req.FailureThreshold)
 	h.mgr.SetTolerance(time.Duration(req.ToleranceMs) * time.Millisecond)
 	h.mgr.SetMaxConcurrent(req.MaxConcurrent)
 	h.mgr.SetToolFilter(req.ToolFilter)
-	h.mgr.SetRebindMode(req.RebindMode)
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已更新"})
-}
-
-// PendingRebinds 返回 manual 模式下待重绑的服务清单（svcID -> 目标线路）。
-func (h *LineregHandler) PendingRebinds(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": h.mgr.PendingRebinds()})
-}
-
-// ApplyRebinds 手动触发全部待重绑服务（manual 模式使用）。
-func (h *LineregHandler) ApplyRebinds(c *gin.Context) {
-	applied, err := h.mgr.ApplyPendingRebinds()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error(), "applied": applied})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已重绑", "applied": applied})
 }
 
 // LineHistory 返回指定线路的探测历史（延迟趋势），供前端趋势图使用。

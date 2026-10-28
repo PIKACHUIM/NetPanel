@@ -136,27 +136,16 @@ body::after {
   background: transparent !important;
 }
 
-/* ===== 非壁纸模式：内容区渐变光斑背景（给 card 的毛玻璃提供可模糊的素材） ===== */
-/* 必须是「有内容」的背景，纯色 + 低对比网格线模糊后看不到毛玻璃效果 */
+/* ===== 非壁纸（简约）模式：内容区使用纯色背景，不做透明/毛玻璃处理 ===== */
 /* 注意：不要用 background-attachment: fixed！它会破坏 backdrop-filter 在 Chromium 下的合成 */
 [data-theme="light"][data-wallpaper="none"] .ant-layout-content {
-  background-color: #f5f5f7 !important;
-  background-image:
-    radial-gradient(circle at 15% 20%, rgba(0, 113, 227, 0.08), transparent 45%),
-    radial-gradient(circle at 85% 30%, rgba(191, 90, 242, 0.06), transparent 45%),
-    linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px) !important;
-  background-size: auto, auto, 48px 48px, 48px 48px !important;
+  background: #f5f5f7 !important;
+  background-image: none !important;
 }
 
 [data-theme="dark"][data-wallpaper="none"] .ant-layout-content {
-  background-color: #0e0f14 !important;
-  background-image:
-    radial-gradient(circle at 15% 20%, rgba(0, 113, 227, 0.16), transparent 45%),
-    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.12), transparent 45%),
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) !important;
-  background-size: auto, auto, 48px 48px, 48px 48px !important;
+  background: #0e0f14 !important;
+  background-image: none !important;
 }
 
 /* ===== 滚动条美化 ===== */
@@ -195,22 +184,6 @@ body::after {
   from {
     opacity: 0;
     transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ===== 测速弹窗动画 ===== */
-.speedtest-row {
-  animation: speedtestRowIn 0.35s ease-out backwards;
-}
-
-@keyframes speedtestRowIn {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
   }
   to {
     opacity: 1;
@@ -560,34 +533,41 @@ body,
 /* ============================================================== */
 /* ===== 壁纸模式：统一毛玻璃效果（与侧边栏一致）               ===== */
 /* ===== 透明度 75%，blur(20px)，模糊+玻璃质感                  ===== */
+/* ===== 仅动漫壁纸模式启用，简约模式保持实色（见下方 none 规则） ===== */
 /* ============================================================== */
 
-/* 全局毛玻璃：任何模式下 card/table 始终保持毛玻璃（background 必须半透明才可见） */
-html body .ant-card,
-
-html body .dashboard-card,
-html body .ant-table-wrapper {
+/* 毛玻璃仅在动漫壁纸模式下启用 */
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-card,
+[data-wallpaper]:not([data-wallpaper="none"]) .dashboard-card,
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper {
   backdrop-filter: blur(20px) saturate(1.3) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.3) !important;
 }
 
+/* 简约模式：一律关闭毛玻璃 */
+[data-wallpaper="none"] .ant-card,
+[data-wallpaper="none"] .dashboard-card,
+[data-wallpaper="none"] .ant-table-wrapper {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 
-/* 亮色 + 无壁纸：card 半透明白 */
+/* 亮色 + 无壁纸：card 实色白 */
 [data-theme="light"][data-wallpaper="none"] .ant-card,
 [data-theme="light"][data-wallpaper="none"] .dashboard-card,
 [data-theme="light"][data-wallpaper="none"] .ant-table-wrapper {
-  background: rgba(255, 255, 255, 0.75) !important;
-  border: 1px solid rgba(255, 255, 255, 0.7) !important;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* 暗色 + 无壁纸：card 半透明深灰 */
+/* 暗色 + 无壁纸：card 实色深灰 */
 [data-theme="dark"][data-wallpaper="none"] .ant-card,
 [data-theme="dark"][data-wallpaper="none"] .dashboard-card,
 [data-theme="dark"][data-wallpaper="none"] .ant-table-wrapper {
-  background: rgba(23, 24, 31, 0.75) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  background: #17181f !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35) !important;
 }
 
 /* 暗色 + 壁纸：半透明 0.75（让毛玻璃效果可见） */
@@ -606,6 +586,15 @@ html body .ant-table-wrapper {
   background: rgba(255, 255, 255, 0.75) !important;
   border: 1px solid rgba(255, 255, 255, 0.6) !important;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+/* AI 对话面板：壁纸模式下提高不透明度，保证长文本可读性 */
+[data-theme="light"][data-wallpaper]:not([data-wallpaper="none"]) .ai-chat-panel {
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+
+[data-theme="dark"][data-wallpaper]:not([data-wallpaper="none"]) .ai-chat-panel {
+  background: rgba(23, 24, 31, 0.95) !important;
 }
 
 /* table-wrapper 圆角 */
@@ -638,33 +627,46 @@ html body .ant-table-wrapper {
 /* ============================================================== */
 
 /* -------- 表格外壳 & 表头 -------- */
-/* 表格外壳：统一毛玻璃 + 圆角 */
+/* 表格外壳：圆角（毛玻璃只在动漫壁纸模式启用） */
 html body .ant-table-wrapper {
-  backdrop-filter: blur(20px) saturate(1.3) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.3) !important;
   border-radius: 10px !important;
   overflow: hidden;
 }
 
-/* 表格本体透明，让 wrapper 的毛玻璃透上来 */
-html body .ant-table-wrapper .ant-table,
-html body .ant-table-wrapper .ant-table-container,
-html body .ant-table-wrapper .ant-table-content,
-html body .ant-table-wrapper .ant-table-body {
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper {
+  backdrop-filter: blur(20px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.3) !important;
+}
+
+/* 壁纸模式：表格本体透明，让 wrapper 的毛玻璃透上来 */
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper .ant-table,
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper .ant-table-container,
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper .ant-table-content,
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper .ant-table-body {
   background: transparent !important;
 }
 
-/* 表头半透明（粘性表头也一样好看） */
-[data-theme="light"] .ant-table-wrapper .ant-table-thead > tr > th {
-  background: rgba(255, 255, 255, 0.35) !important;
+/* 壁纸模式：表头半透明（粘性表头也一样好看） */
+[data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper .ant-table-thead > tr > th {
   backdrop-filter: blur(10px) !important;
   -webkit-backdrop-filter: blur(10px) !important;
+}
+[data-theme="light"][data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper .ant-table-thead > tr > th {
+  background: rgba(255, 255, 255, 0.35) !important;
   border-bottom-color: rgba(0, 0, 0, 0.06) !important;
 }
-[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th {
+[data-theme="dark"][data-wallpaper]:not([data-wallpaper="none"]) .ant-table-wrapper .ant-table-thead > tr > th {
   background: rgba(255, 255, 255, 0.04) !important;
-  backdrop-filter: blur(10px) !important;
-  -webkit-backdrop-filter: blur(10px) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* 简约模式：表头实色，表格保持不透明 */
+[data-theme="light"][data-wallpaper="none"] .ant-table-wrapper .ant-table-thead > tr > th {
+  background: #fafafa !important;
+  border-bottom-color: rgba(0, 0, 0, 0.06) !important;
+}
+[data-theme="dark"][data-wallpaper="none"] .ant-table-wrapper .ant-table-thead > tr > th {
+  background: #1f2029 !important;
   border-bottom-color: rgba(255, 255, 255, 0.06) !important;
 }
 
@@ -686,7 +688,42 @@ html body .ant-table-wrapper .ant-pagination {
 }
 
 /* -------- 表单控件（Input / InputNumber / TextArea / Password / Select / Picker / Cascader） -------- */
-/* 亮色：半透明白 */
+/* 简约模式（无壁纸）：控件实色化，去掉半透明背景与毛玻璃 */
+[data-theme="light"][data-wallpaper="none"] .ant-input,
+[data-theme="light"][data-wallpaper="none"] .ant-input-affix-wrapper,
+[data-theme="light"][data-wallpaper="none"] .ant-input-number,
+[data-theme="light"][data-wallpaper="none"] .ant-input-number-affix-wrapper,
+[data-theme="light"][data-wallpaper="none"] .ant-picker,
+[data-theme="light"][data-wallpaper="none"] .ant-cascader-picker,
+[data-theme="light"][data-wallpaper="none"] .ant-select:not(.ant-select-customize-input) .ant-select-selector,
+[data-theme="light"][data-wallpaper="none"] .ant-select-multiple .ant-select-selector,
+[data-theme="light"][data-wallpaper="none"] .ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked),
+[data-theme="light"][data-wallpaper="none"] .ant-upload.ant-upload-drag,
+[data-theme="light"][data-wallpaper="none"] .ant-upload-select {
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="dark"][data-wallpaper="none"] .ant-input,
+[data-theme="dark"][data-wallpaper="none"] .ant-input-affix-wrapper,
+[data-theme="dark"][data-wallpaper="none"] .ant-input-number,
+[data-theme="dark"][data-wallpaper="none"] .ant-input-number-affix-wrapper,
+[data-theme="dark"][data-wallpaper="none"] .ant-picker,
+[data-theme="dark"][data-wallpaper="none"] .ant-cascader-picker,
+[data-theme="dark"][data-wallpaper="none"] .ant-select:not(.ant-select-customize-input) .ant-select-selector,
+[data-theme="dark"][data-wallpaper="none"] .ant-select-multiple .ant-select-selector,
+[data-theme="dark"][data-wallpaper="none"] .ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked),
+[data-theme="dark"][data-wallpaper="none"] .ant-upload.ant-upload-drag,
+[data-theme="dark"][data-wallpaper="none"] .ant-upload-select {
+  background: #1e1f28 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* 亮色：半透明白（仅动漫壁纸模式） */
 [data-theme="light"] .ant-input,
 [data-theme="light"] .ant-input-affix-wrapper,
 [data-theme="light"] .ant-input-number,
@@ -819,23 +856,57 @@ html body .ant-table-wrapper .ant-pagination {
   border: 1px dashed rgba(255, 255, 255, 0.2) !important;
 }
 
-/* -------- 浮层（下拉/日期/级联）也做毛玻璃 -------- */
-[data-theme="light"] .ant-select-dropdown,
-[data-theme="light"] .ant-picker-dropdown .ant-picker-panel-container,
-[data-theme="light"] .ant-cascader-dropdown {
-  background: rgba(255, 255, 255, 0.75) !important;
+/* -------- 浮层（下拉/日期/级联/气泡/菜单）：仅动漫壁纸模式毛玻璃 -------- */
+/* 简约模式（data-wallpaper="none"）不适用，见下方「简约模式：浮层实色」 */
+[data-wallpaper]:not([data-wallpaper="none"]) :is(
+  .ant-dropdown-menu,
+  .ant-select-dropdown,
+  .ant-select-tree-dropdown,
+  .ant-tree-select-dropdown,
+  .ant-picker-panel-container,
+  .ant-cascader-dropdown,
+  .ant-cascader-menus,
+  .ant-popover-inner,
+  .ant-table-filter-dropdown,
+  .ant-menu-submenu-popup > .ant-menu
+) {
   backdrop-filter: blur(24px) saturate(1.4) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
-  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+}
+
+/* 壁纸 + 亮色：半透明白 */
+[data-theme="light"][data-wallpaper]:not([data-wallpaper="none"]) :is(
+  .ant-dropdown-menu,
+  .ant-select-dropdown,
+  .ant-select-tree-dropdown,
+  .ant-tree-select-dropdown,
+  .ant-picker-panel-container,
+  .ant-cascader-dropdown,
+  .ant-cascader-menus,
+  .ant-popover-inner,
+  .ant-table-filter-dropdown,
+  .ant-menu-submenu-popup > .ant-menu
+) {
+  background: rgba(255, 255, 255, 0.75) !important;
+  border-color: rgba(255, 255, 255, 0.8) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
 }
-[data-theme="dark"] .ant-select-dropdown,
-[data-theme="dark"] .ant-picker-dropdown .ant-picker-panel-container,
-[data-theme="dark"] .ant-cascader-dropdown {
+
+/* 壁纸 + 暗色：半透明深色 */
+[data-theme="dark"][data-wallpaper]:not([data-wallpaper="none"]) :is(
+  .ant-dropdown-menu,
+  .ant-select-dropdown,
+  .ant-select-tree-dropdown,
+  .ant-tree-select-dropdown,
+  .ant-picker-panel-container,
+  .ant-cascader-dropdown,
+  .ant-cascader-menus,
+  .ant-popover-inner,
+  .ant-table-filter-dropdown,
+  .ant-menu-submenu-popup > .ant-menu
+) {
   background: rgba(23, 24, 31, 0.8) !important;
-  backdrop-filter: blur(24px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
 }
 
@@ -865,4 +936,95 @@ html body .ant-drawer-header,
 html body .ant-drawer-body,
 html body .ant-drawer-footer {
   background: transparent !important;
+}
+
+/* -------- 简约模式（无壁纸）：所有浮层一律实色，不透明、无毛玻璃 -------- */
+/* 1) 关闭全部浮层的毛玻璃 */
+[data-wallpaper="none"] :is(
+  .ant-dropdown-menu,
+  .ant-select-dropdown,
+  .ant-select-tree-dropdown,
+  .ant-tree-select-dropdown,
+  .ant-picker-panel-container,
+  .ant-cascader-dropdown,
+  .ant-cascader-menus,
+  .ant-popover-inner,
+  .ant-table-filter-dropdown,
+  .ant-menu-submenu-popup > .ant-menu,
+  .ant-modal-content,
+  .ant-drawer-content,
+  .ant-notification-notice,
+  .ant-message-notice-content
+) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 2) 简约 + 亮色：纯白实底 */
+[data-theme="light"][data-wallpaper="none"] :is(
+  .ant-dropdown-menu,
+  .ant-select-dropdown,
+  .ant-select-tree-dropdown,
+  .ant-tree-select-dropdown,
+  .ant-picker-panel-container,
+  .ant-cascader-dropdown,
+  .ant-cascader-menus,
+  .ant-popover-inner,
+  .ant-table-filter-dropdown,
+  .ant-menu-submenu-popup > .ant-menu,
+  .ant-notification-notice,
+  .ant-message-notice-content
+) {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* 3) 简约 + 暗色：纯深灰实底 */
+[data-theme="dark"][data-wallpaper="none"] :is(
+  .ant-dropdown-menu,
+  .ant-select-dropdown,
+  .ant-select-tree-dropdown,
+  .ant-tree-select-dropdown,
+  .ant-picker-panel-container,
+  .ant-cascader-dropdown,
+  .ant-cascader-menus,
+  .ant-popover-inner,
+  .ant-table-filter-dropdown,
+  .ant-menu-submenu-popup > .ant-menu,
+  .ant-notification-notice,
+  .ant-message-notice-content
+) {
+  background: #1d1e26 !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 简约 + 暗色：气泡箭头与实底同色 */
+[data-theme="dark"][data-wallpaper="none"] .ant-popover-arrow::before,
+[data-theme="dark"][data-wallpaper="none"] .ant-dropdown-arrow::before {
+  background: #1d1e26 !important;
+}
+
+/* 4) Modal / Drawer：实底 + 阴影 */
+[data-theme="light"][data-wallpaper="none"] .ant-modal-content,
+[data-theme="light"][data-wallpaper="none"] .ant-drawer-content {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="dark"][data-wallpaper="none"] .ant-modal-content,
+[data-theme="dark"][data-wallpaper="none"] .ant-drawer-content {
+  background: #1d1e26 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* ===== 侧边栏菜单文案：固定 12 字符宽（= 6 个汉字），保证逐项对齐 ===== */
+.ant-layout-sider .ant-menu-title-content {
+  display: inline-block;
+  width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
 }

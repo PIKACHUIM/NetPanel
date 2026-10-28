@@ -133,6 +133,20 @@ func (m *Manager) GetBinaryPath() string {
 	return m.getBinaryPath()
 }
 
+// GetBinaryVersion 执行 cloudflared --version 返回版本描述；二进制缺失或执行失败返回空串。
+func (m *Manager) GetBinaryVersion() string {
+	if !m.isBinaryAvailable() {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, m.getBinaryPath(), "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // GetBinDir 返回 bin 目录路径（用于下载）
 func (m *Manager) GetBinDir() string {
 	return filepath.Join(m.dataDir, "bin")

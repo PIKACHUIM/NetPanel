@@ -28,7 +28,6 @@ import (
 	"github.com/netpanel/netpanel/pkg/sysutil"
 	"github.com/netpanel/netpanel/service/access"
 	"github.com/netpanel/netpanel/service/ai"
-	"github.com/netpanel/netpanel/service/autoheal"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
@@ -39,7 +38,6 @@ import (
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
-	"github.com/netpanel/netpanel/service/frpmaster"
 	"github.com/netpanel/netpanel/service/linereg"
 	"github.com/netpanel/netpanel/service/mcp"
 	"github.com/netpanel/netpanel/service/meshnode"
@@ -50,7 +48,6 @@ import (
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
-	"github.com/netpanel/netpanel/service/tunservice"
 	"github.com/netpanel/netpanel/service/waf"
 	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
@@ -240,7 +237,6 @@ func startServer() *http.Server {
 	portforwardMgr := portforward.NewManager(db, logPortforward)
 	stunMgr := stun.NewManager(db, logStun)
 	frpMgr := frp.NewManager(db, logFrp)
-	frpMasterMgr := frpmaster.NewManager(db, log)
 	npsMgr := nps.NewManager(db, logNps, *dataDir)
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
@@ -281,34 +277,6 @@ func startServer() *http.Server {
 	// 线路注册中心
 	lineregMgr := linereg.NewManager(db, log, 0)
 
-	// 自愈管理器（依赖 cftunnelMgr/portforwardMgr 已初始化）
-	autohealCfg := autoheal.Config{
-		CheckIntervalSec:  30,
-		RestartMaxRetries: 3,
-		CertWarnDays:      7,
-		ProbeFunc: autoheal.BuildProbeFunc(
-			db,
-			frpMgr,
-			cftunnelMgr,
-			portforwardMgr,
-		),
-		RestartFn: func(id uint, service string) error {
-			switch service {
-			case "frp_client":
-				return frpMgr.RestartClient(id)
-			case "cftunnel":
-				return cftunnelMgr.Restart(id)
-			case "portforward":
-				return portforwardMgr.Start(id)
-			default:
-				return fmt.Errorf("unknown service %s", service)
-			}
-		},
-	}
-	autohealMgr := autoheal.NewManager(db, log, syslogMgr, callbackMgr, autohealCfg)
-	// 切换落地：选线结果变化时热加载 Caddy 反代目标（域名层）与 DNS 解析（DNS 层）
-	lineregMgr.SetCaddyUpdater(caddyMgr.UpdateUpstream)
-	lineregMgr.SetDNSUpdater(dnsmasqMgr.SetRecord)
 	// 线路健康转换事件（进入不可达 / 恢复）→ 触发用户配置的 callback 任务
 	// （trigger_type: line_unreachable / line_recovered；UI 创建入口后续版本提供）
 	lineregMgr.SetHealthEventSink(func(ev linereg.LineHealthEvent) {
@@ -318,17 +286,8 @@ func startServer() *http.Server {
 		}
 		callbackMgr.Trigger(callback.TriggerEvent{Type: typ})
 	})
-	// 远程线路合并：frpc Master 在线节点作为候选线路参与自动测速选线
-	lineregMgr.SetRemoteLineProvider(frpMasterMgr.Lines)
-
-	// 穿透服务层（用户视角）：聚合各工具线路，支持统一启停
-	tunserviceMgr := tunservice.NewManager(db, log, lineregMgr,
-		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr)
-	// 端口层切换落地：选线变化时自动重绑未绑定 Caddy/DNS 的 TCP/UDP 穿透服务
-	lineregMgr.SetPortRebinder(tunserviceMgr.RebindPort)
-
 	// MCP 服务端（本地回环，供 AI 助手配置管理与异常诊断）
-	mcpSrv := mcp.NewServer(db, log, tunserviceMgr, lineregMgr,
+	mcpSrv := mcp.NewServer(db, log, lineregMgr,
 		frpMgr, npsMgr, easytierMgr, wireguardMgr, cftunnelMgr, portforwardMgr,
 		":18090", cfg.MCPToken)
 	if err := mcpSrv.Start(); err != nil {
@@ -361,7 +320,6 @@ func startServer() *http.Server {
 	dnsmasqMgr.StartAll()
 	certMgr.StartAll()
 	callbackMgr.Start()
-	autohealMgr.Start()
 	meshNodeMgr.Start()
 	aiMgr.Start()
 	lineregMgr.Start()
@@ -392,7 +350,6 @@ func startServer() *http.Server {
 		PortForwardMgr: portforwardMgr,
 		StunMgr:        stunMgr,
 		FrpMgr:         frpMgr,
-		FrpMasterMgr:   frpMasterMgr,
 		NpsMgr:         npsMgr,
 		EasytierMgr:    easytierMgr,
 		CftunnelMgr:    cftunnelMgr,
@@ -404,7 +361,6 @@ func startServer() *http.Server {
 		FirewallMgr:    firewallMgr,
 		WireguardMgr:   wireguardMgr,
 		MeshNodeMgr:    meshNodeMgr,
-		TunserviceMgr:  tunserviceMgr,
 		LineregMgr:     lineregMgr,
 		DnsmasqMgr:     dnsmasqMgr,
 		WolMgr:         wolMgr,
@@ -472,7 +428,7 @@ func startServer() *http.Server {
 	}()
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
-	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr, autohealMgr,
+	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
 		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr, lineregMgr, cftunnelMgr, certMgr, aiMgr, monitorMgr, mcpSrv,
 		syslogMgr, wafMgr)
 	// 把清理器的停止函数链入全局优雅关闭
@@ -559,7 +515,6 @@ func registerStopHandlers(
 	stunMgr interface{ StopAll() },
 	frpMgr interface{ StopAll() },
 	npsMgr interface{ StopAll() },
-	autohealMgr interface{ Stop() },
 	easytierMgr interface{ StopAll() },
 	ddnsMgr interface{ StopAll() },
 	caddyMgr interface{ StopAll() },
@@ -592,7 +547,6 @@ func registerStopHandlers(
 		storageMgr.StopAll()
 		dnsmasqMgr.StopAll()
 		callbackMgr.Stop()
-		autohealMgr.Stop()
 		wireguardMgr.StopAll()
 		meshNodeMgr.Stop()
 		lineregMgr.Stop()

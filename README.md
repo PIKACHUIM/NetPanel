@@ -236,7 +236,7 @@ NetPanel/
 │   ├── service/            # 功能服务：portforward / stun / frp / nps / cftunnel /
 │   │                       #   easytier / wireguard / meshnode / caddy / cert /
 │   │                       #   firewall / access / waf / mcp / linereg / selector /
-│   │                       #   tunservice / monitor / ddns / dnsmasq / cron /
+│   │                       #   monitor / ddns / dnsmasq / cron /
 │   │                       #   storage / wol / syslog / ai / oauth / callback ...
 │   ├── pkg/                # 公共库（config / logger / secret / sysutil / utils ...）
 │   └── embed/              # 前端静态文件嵌入（embed.go + dist/）

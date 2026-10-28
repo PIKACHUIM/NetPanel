@@ -19,6 +19,7 @@ import {
     Typography,
 } from 'antd'
 import {
+    CheckCircleOutlined,
     DeleteOutlined,
     DownloadOutlined,
     EditOutlined,
@@ -55,7 +56,7 @@ const CfTunnel: React.FC = () => {
     const [form] = Form.useForm()
     
     // 二进制检测和下载
-    const [binaryPath, setBinaryPath] = useState<string>('')
+    const [binaryVersion, setBinaryVersion] = useState<string>('')
     const [binaryExists, setBinaryExists] = useState(false)
     const [downloadInfo, setDownloadInfo] = useState<any>(null)
     const [downloading, setDownloading] = useState(false)
@@ -75,8 +76,10 @@ const CfTunnel: React.FC = () => {
         try {
             const pathRes = await cftunnelApi.getBinaryPath()
             const path = pathRes?.data?.binary_path || ''
-            setBinaryPath(path)
-            // 简单检测：如果路径存在且不为空，认为存在
+            const rawVersion = pathRes?.data?.version || ''
+            // 只保留版本号，如 "cloudflared version 2024.8.2 (built ...)" -> "2024.8.2"
+            const shortVersion = rawVersion.match(/version\s+(\S+)/)?.[1] || rawVersion
+            setBinaryVersion(shortVersion)
             setBinaryExists(!!path)
             
             const infoRes = await cftunnelApi.getDownloadInfo()
@@ -316,53 +319,40 @@ const CfTunnel: React.FC = () => {
 
     return (
         <div>
-            {!binaryExists && (
-                <Alert
-                    message={t('cftunnel.binaryNotFound')}
-                    description={
-                        <div>
-                            <p>{t('cftunnel.binaryNotFoundDesc')}</p>
-                            {binaryPath && <p><Text code>{binaryPath}</Text></p>}
-                            {downloadInfo?.supported && (
-                                <>
-                                    <p>{t('cftunnel.autoDownloadSupported')}</p>
-                                    <Button
-                                        type="primary"
-                                        icon={<DownloadOutlined/>}
-                                        onClick={downloadBinary}
-                                        loading={downloading}
-                                        disabled={downloading}
-                                    >
-                                        {t('cftunnel.downloadBinary')}
-                                    </Button>
-                                    {downloading && (
-                                        <Progress percent={downloadProgress} style={{marginTop: 12, maxWidth: 400}}/>
-                                    )}
-                                </>
-                            )}
-                            <p style={{marginTop: 12}}>
-                                {t('cftunnel.manualDownloadHint')}
-                                <Link href="https://github.com/cloudflare/cloudflared/releases" target="_blank" style={{marginLeft: 8}}>
-                                    GitHub Releases
-                                </Link>
-                            </p>
-                        </div>
-                    }
-                    type="warning"
-                    showIcon
-                    closable
-                    style={{marginBottom: 16}}
-                />
-            )}
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
+                <Space>
+                    <Button type="primary" icon={<PlusOutlined/>} onClick={openCreate}>
+                        {t('common.create')}
+                    </Button>
+                    <Button icon={<ReloadOutlined/>} onClick={load}>
+                        {t('common.refresh')}
+                    </Button>
+                </Space>
+                <Space>
+                    {binaryExists ? (
+                        <Tag color="blue" icon={<CheckCircleOutlined/>}>
+                            cloudflared {binaryVersion || ''}
+                        </Tag>
+                    ) : downloadInfo?.supported ? (
+                        <Button
+                            icon={<DownloadOutlined/>}
+                            onClick={downloadBinary}
+                            loading={downloading}
+                            disabled={downloading}
+                        >
+                            {t('cftunnel.downloadBinary')}
+                        </Button>
+                    ) : (
+                        <Link href="https://github.com/cloudflare/cloudflared/releases" target="_blank">
+                            {t('cftunnel.manualDownload')}
+                        </Link>
+                    )}
+                </Space>
+            </div>
 
-            <Space style={{marginBottom: 16}}>
-                <Button type="primary" icon={<PlusOutlined/>} onClick={openCreate}>
-                    {t('common.create')}
-                </Button>
-                <Button icon={<ReloadOutlined/>} onClick={load}>
-                    {t('common.refresh')}
-                </Button>
-            </Space>
+            {downloading && (
+                <Progress percent={downloadProgress} style={{marginBottom: 16}}/>
+            )}
 
             <Table
                 rowKey="id"

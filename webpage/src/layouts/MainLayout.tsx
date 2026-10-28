@@ -42,6 +42,7 @@ import {
     CodeOutlined,
     CloudOutlined,
     NotificationOutlined,
+    ContainerOutlined,
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {useAppStore, wallpaperList, hasWallpaper, getWallpaperBg} from '../store/appStore'
@@ -84,13 +85,16 @@ const MainLayout: React.FC = () => {
             label: t('menu.dashboard'),
         },
         {
-            key: 'port-mapping',
-            icon: <SwapOutlined/>,
-            label: t('menu.portMapping'),
+            key: 'tunnel',
+            icon: <CloudOutlined/>,
+            label: t('menu.tunnel'),
             children: [
                 {key: 'port-forward', icon: <NodeIndexOutlined/>, label: t('menu.portForward')},
                 {key: 'stun', icon: <WifiOutlined/>, label: t('menu.stun')},
-                {key: 'tunservice', icon: <ApartmentOutlined/>, label: t('menu.tunservice')},
+                {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
+                {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
+                {key: 'cftunnel', icon: <CloudOutlined/>, label: t('menu.cfTunnel')},
+                {key: 'wireguard', icon: <SafetyOutlined/>, label: t('menu.wireguard')},
             ],
         },
         {
@@ -98,7 +102,10 @@ const MainLayout: React.FC = () => {
             icon: <ApartmentOutlined/>,
             label: t('menu.networkGroup'),
             children: [
-                {key: 'wireguard', icon: <SafetyOutlined/>, label: t('menu.wireguard')},
+                {key: 'nps/client', icon: <ApiOutlined/>, label: t('menu.npsClient')},
+                {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
+                {key: 'easytier/client', icon: <ApiOutlined/>, label: t('menu.easytierClient')},
+                {key: 'easytier/server', icon: <CloudServerOutlined/>, label: t('menu.easytierServer')},
             ],
         },
         {
@@ -110,15 +117,6 @@ const MainLayout: React.FC = () => {
                 {key: 'mesh/tunnels', icon: <SwapOutlined/>, label: t('menu.meshTunnels')},
                 {key: 'mesh/topology', icon: <ApartmentOutlined/>, label: t('menu.meshTopology')},
                 {key: 'mesh/events', icon: <HistoryOutlined/>, label: t('menu.meshEvents')},
-            ],
-        },
-        {
-            key: 'frpmaster',
-            icon: <ClusterOutlined/>,
-            label: t('menu.frpmaster'),
-            children: [
-                {key: 'frp/master/nodes', icon: <ClusterOutlined/>, label: t('menu.frpmaster')},
-                {key: 'frp/master/pool', icon: <ApartmentOutlined/>, label: t('menu.pool')},
             ],
         },
         {
@@ -141,21 +139,6 @@ const MainLayout: React.FC = () => {
                 {key: 'ipdb', icon: <DatabaseOutlined/>, label: t('menu.ipdb')},
             ],
         },
-        // ── 内网穿透 ──
-        {
-            key: 'tunnel',
-            icon: <CloudOutlined/>,
-            label: t('menu.tunnel'),
-            children: [
-                {key: 'cftunnel', icon: <CloudOutlined/>, label: t('menu.cfTunnel')},
-                {key: 'frp/client', icon: <ApiOutlined/>, label: t('menu.frpc')},
-                {key: 'frp/server', icon: <CloudServerOutlined/>, label: t('menu.frps')},
-                {key: 'nps/client', icon: <ApiOutlined/>, label: t('menu.npsClient')},
-                {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
-                {key: 'easytier/client', icon: <ApiOutlined/>, label: t('menu.easytierClient')},
-                {key: 'easytier/server', icon: <CloudServerOutlined/>, label: t('menu.easytierServer')},
-            ],
-        },
         {
             key: 'intranet',
             icon: <ControlOutlined/>,
@@ -164,6 +147,7 @@ const MainLayout: React.FC = () => {
                 {key: 'dnsmasq', icon: <ControlOutlined/>, label: t('menu.dnsmasq')},
                 {key: 'wol', icon: <ThunderboltOutlined/>, label: t('menu.wol')},
                 {key: 'storage', icon: <FolderOpenOutlined/>, label: t('menu.storage')},
+                {key: 'docker/containers', icon: <ContainerOutlined/>, label: t('menu.dockerContainers')},
                 {key: 'cron', icon: <ClockCircleOutlined/>, label: t('menu.cron')},
             ],
         },
@@ -198,7 +182,6 @@ const MainLayout: React.FC = () => {
                 {key: 'ai/assistant', icon: <RobotOutlined/>, label: t('menu.aiAssistant')},
                 {key: 'ai/cron-task', icon: <ClockCircleOutlined/>, label: t('menu.aiCronTask')},
                 {key: 'ai/plugin', icon: <ApiOutlined/>, label: t('menu.aiPlugin')},
-                {key: 'ai/provider', icon: <CloudServerOutlined/>, label: t('menu.aiProvider')},
             ],
         },
         {
@@ -223,9 +206,9 @@ const MainLayout: React.FC = () => {
             label: t('menu.admin'),
             children: [
                 {key: 'admin/logs', icon: <FileTextOutlined/>, label: t('menu.adminLogs')},
-                {key: 'admin/audit', icon: <CloudOutlined/>, label: t('menu.adminAudit') || '审计日志'},
+                {key: 'admin/audit', icon: <CloudOutlined/>, label: t('menu.adminAudit')},
                 {key: 'admin/users', icon: <TeamOutlined/>, label: t('menu.adminUsers')},
-                {key: 'admin/oauth-providers', icon: <KeyOutlined/>, label: t('menu.oauthProviders') || 'OAuth 登录'},
+                {key: 'admin/oauth-providers', icon: <KeyOutlined/>, label: t('menu.oauthProviders')},
                 {key: 'settings', icon: <SettingOutlined/>, label: t('menu.settings')},
             ],
         },
@@ -571,11 +554,11 @@ const MainLayout: React.FC = () => {
 }
 
 function getOpenKeys(pathname: string): string[] {
-    if (pathname.startsWith('/frp/master')) return ['frpmaster']
-    if (pathname.startsWith('/cftunnel') || pathname.startsWith('/frp/client') || pathname.startsWith('/frp/server') || pathname.startsWith('/nps') || pathname.startsWith('/easytier')) return ['tunnel']
-    if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun') || pathname.startsWith('/tunservice')) return ['port-mapping']
-    if (pathname.startsWith('/wireguard')) return ['network']
+    if (pathname.startsWith('/cftunnel') || pathname.startsWith('/frp')) return ['tunnel']
+    if (pathname.startsWith('/wireguard')) return ['tunnel']
     if (pathname.startsWith('/mesh')) return ['mesh']
+    if (pathname.startsWith('/nps') || pathname.startsWith('/easytier')) return ['network']
+    if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun')) return ['tunnel']
     if (pathname.startsWith('/ddns') || pathname.startsWith('/caddy')) return ['web-service']
     if (pathname.startsWith('/ipdb') || pathname.startsWith('/access') || pathname.startsWith('/security')) return ['security']
     if (pathname.startsWith('/dnsmasq') || pathname.startsWith('/wol') || pathname.startsWith('/storage') || pathname.startsWith('/cron')) return ['intranet']

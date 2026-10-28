@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { Table, Button, Space, Modal, Form, Input, Tabs, Card, Switch, Popconfirm, message, Tag, Select } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, ToolOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, ToolOutlined, ApiOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { aiPluginApi } from '../api'
 import { useTableStyle } from '../hooks/useTableStyle'
+import AiProvider from './AiProvider'
 
 const { TextArea } = Input
 
@@ -18,6 +19,7 @@ const AiPlugin: React.FC = () => {
   const [activeTab, setActiveTab] = useState('skill')
 
   const fetchData = async () => {
+    if (activeTab === 'provider') return
     setLoading(true)
     try { const res: any = await aiPluginApi.list(activeTab); setData(res.data || []) }
     finally { setLoading(false) }
@@ -114,23 +116,30 @@ const AiPlugin: React.FC = () => {
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}><AppstoreOutlined /> {t('ai.plugin')}</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); setModalOpen(true) }}>
-          {t('ai.addPlugin')}
-        </Button>
+        {activeTab !== 'provider' && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); setModalOpen(true) }}>
+            {t('ai.addPlugin')}
+          </Button>
+        )}
       </div>
 
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
         { key: 'mcp', label: <span><ToolOutlined /> {t('ai.mcpPlugin')}</span> },
         { key: 'skill', label: <span><AppstoreOutlined /> {t('ai.skillPlugin')}</span> },
+        { key: 'provider', label: <span><ApiOutlined /> {t('ai.providerManage')}</span> },
       ]} />
 
-      <Table
-        {...tableStyle}
-        columns={activeTab === 'mcp' ? mcpColumns : skillColumns}
-        dataSource={data}
-        loading={loading}
-        rowKey="id"
-      />
+      {activeTab === 'provider' ? (
+        <AiProvider embedded />
+      ) : (
+        <Table
+          {...tableStyle}
+          columns={activeTab === 'mcp' ? mcpColumns : skillColumns}
+          dataSource={data}
+          loading={loading}
+          rowKey="id"
+        />
+      )}
 
       <Modal
         title={editRecord ? t('ai.editPlugin') : t('ai.addPlugin')}
