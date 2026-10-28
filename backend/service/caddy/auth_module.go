@@ -1,10 +1,11 @@
 package caddy
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/caddyserver/caddy/v2"
@@ -45,6 +46,10 @@ func getAuthDB() *gorm.DB {
 type SessionAuthMiddleware struct {
 	// PanelPort NetPanel 面板监听端口，用于拼装登录页地址
 	PanelPort int `json:"panel_port,omitempty"`
+	// AllowedHosts 受保护站点的 Host 白名单，防止 Host 头注入重定向地址。
+	AllowedHosts []string `json:"allowed_hosts,omitempty"`
+	// OAuthProvider 未授权时用于跳转的 Provider；为空时返回面板登录页。
+	OAuthProvider string `json:"oauth_provider,omitempty"`
 	// AllowedUserIDs 允许访问的用户 ID 列表，为空表示所有已登录用户均可访问
 	AllowedUserIDs []uint `json:"allowed_user_ids,omitempty"`
 }
@@ -57,62 +62,123 @@ func (SessionAuthMiddleware) CaddyModule() caddy.ModuleInfo {
 }
 
 func (m *SessionAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	if m.authorized(r) {
+	authenticated, authorized := m.authenticate(r)
+	if authenticated && authorized {
 		return next.ServeHTTP(w, r)
 	}
+	if authenticated {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("You are not allowed to access this resource.\n"))
+		return nil
+	}
 
-	w.Header().Set("Location", m.loginURL(r))
-	// 避免中间代理缓存这条重定向，否则登录后仍会被打回登录页
+	loginURL, validHost := m.loginURL(r)
 	w.Header().Set("Cache-Control", "no-store")
+	if !validHost {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The request host does not match this protected site.\n"))
+		return nil
+	}
+	w.Header().Set("Location", loginURL)
+	// 避免中间代理缓存这条重定向，否则登录后仍会被打回登录页。
 	w.WriteHeader(http.StatusFound)
 	return nil
 }
 
-// authorized 校验会话 Cookie 并确认用户仍处于启用状态且在允许列表内。
-func (m *SessionAuthMiddleware) authorized(r *http.Request) bool {
+// authenticate 校验签名会话和用户状态，并单独返回用户是否被该规则授权。
+func (m *SessionAuthMiddleware) authenticate(r *http.Request) (bool, bool) {
 	c, err := r.Cookie(session.CookieName)
 	if err != nil || c.Value == "" {
-		return false
+		return false, false
 	}
-	username, ok := session.Validate(c.Value)
+	sessionData, ok := session.ValidateData(c.Value)
 	if !ok {
-		return false
+		return false, false
 	}
 
 	db := getAuthDB()
 	if db == nil {
-		// 依赖未注入时保守拒绝：宁可不可用，也不能放行未经核实的会话
-		return false
+		return false, false
 	}
 	var user model.User
-	if err := db.Where("username = ? AND enable = ?", username, true).First(&user).Error; err != nil {
-		return false
+	if err := db.Where("username = ? AND enable = ?", sessionData.Username, true).First(&user).Error; err != nil {
+		return false, false
+	}
+	if sessionData.TokenVersion != user.TokenVersion {
+		return false, false
 	}
 
 	if len(m.AllowedUserIDs) == 0 {
-		return true
+		return true, true
 	}
 	for _, id := range m.AllowedUserIDs {
 		if id == user.ID {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return true, false
 }
 
-// loginURL 生成面板登录页地址，并把当前请求地址作为 redirect 参数带上。
-// redirect 值经过 URL 编码，防止站点 URI 中的 & / # 截断查询串。
-func (m *SessionAuthMiddleware) loginURL(r *http.Request) string {
+// loginURL 生成只指向已配置站点 Host 的登录页地址。
+func (m *SessionAuthMiddleware) loginURL(r *http.Request) (string, bool) {
+	requestHost := r.Host
+	if host, _, err := net.SplitHostPort(requestHost); err == nil {
+		requestHost = host
+	} else if strings.HasPrefix(requestHost, "[") && strings.HasSuffix(requestHost, "]") {
+		requestHost = strings.TrimSuffix(strings.TrimPrefix(requestHost, "["), "]")
+	}
+	requestHost = strings.ToLower(strings.TrimSuffix(requestHost, "."))
+	if requestHost == "" || strings.ContainsAny(requestHost, "@%/\\") {
+		return "", false
+	}
+	var trustedHost string
+	for _, configured := range m.AllowedHosts {
+		configured = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(configured), "."))
+		if configured == requestHost {
+			trustedHost = configured
+			break
+		}
+		if strings.HasPrefix(configured, "*.") {
+			suffix := configured[1:]
+			prefix := strings.TrimSuffix(requestHost, suffix)
+			if strings.HasSuffix(requestHost, suffix) && prefix != "" && !strings.Contains(prefix, ".") {
+				trustedHost = requestHost
+				break
+			}
+		}
+	}
+	if trustedHost == "" {
+		return "", false
+	}
+
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	host := r.Host
-	if h, _, err := net.SplitHostPort(r.Host); err == nil {
-		host = h
+	port := m.PanelPort
+	if port <= 0 {
+		port = 8080
 	}
-	back := url.QueryEscape(scheme + "://" + r.Host + r.URL.RequestURI())
-	return fmt.Sprintf("%s://%s:%d/login?redirect=%s", scheme, host, m.PanelPort, back)
+	query := url.Values{}
+	query.Set("redirect", scheme+"://"+r.Host+r.URL.RequestURI())
+	target := url.URL{
+		Scheme:   scheme,
+		Host:     net.JoinHostPort(trustedHost, strconv.Itoa(port)),
+		Path:     "/login",
+		RawQuery: query.Encode(),
+	}
+	if strings.Contains(trustedHost, ":") {
+		target.Host = net.JoinHostPort(trustedHost, strconv.Itoa(port))
+	}
+	if m.OAuthProvider != "" {
+		providerPath := "/api/v1/auth/oauth/" + m.OAuthProvider + "/authorize"
+		target.Path = providerPath
+		target.RawPath = "/api/v1/auth/oauth/" + url.PathEscape(m.OAuthProvider) + "/authorize"
+	}
+	return target.String(), true
 }
 
 var _ caddyhttp.MiddlewareHandler = (*SessionAuthMiddleware)(nil)

@@ -401,6 +401,9 @@ func (m *Manager) buildRoutes(site *model.CaddySite, deps *routeDeps) ([]interfa
 			"host": []string{site.Domain},
 		})
 	}
+	if deps != nil && deps.invalid[site.ID] {
+		return unavailableAuthRoutes(hostMatchers), nil
+	}
 
 	// 业务处理器
 	var mainHandlers []interface{}
@@ -505,11 +508,9 @@ func (m *Manager) buildRoutes(site *model.CaddySite, deps *routeDeps) ([]interfa
 
 	switch authMode {
 	case "basic_auth":
-		// Basic Auth: 在 handler 链前面插入 authentication handler
+		// Basic Auth: 即使认证配置无效或没有可用账号，也插入拒绝访问的 handler。
 		basicHandler := m.buildBasicAuthHandler(authRule)
-		if basicHandler != nil {
-			mainHandlers = append([]interface{}{basicHandler}, mainHandlers...)
-		}
+		mainHandlers = append([]interface{}{basicHandler}, mainHandlers...)
 		route := map[string]interface{}{"handle": mainHandlers}
 		if len(hostMatchers) > 0 {
 			route["match"] = hostMatchers
@@ -524,13 +525,15 @@ func (m *Manager) buildRoutes(site *model.CaddySite, deps *routeDeps) ([]interfa
 		// OIDC 登录: 重定向到 OAuth 授权页
 		return m.buildOIDCRoutes(hostMatchers, mainHandlers, authRule), nil
 
-	default:
-		// 无认证
+	case "":
+		// 未配置认证
 		route := map[string]interface{}{"handle": mainHandlers}
 		if len(hostMatchers) > 0 {
 			route["match"] = hostMatchers
 		}
 		return []interface{}{route}, nil
+	default:
+		return unavailableAuthRoutes(hostMatchers), nil
 	}
 }
 
@@ -551,59 +554,112 @@ type aclBinding struct {
 // 二者内部都是全表扫描再逐个 JSON 解析绑定关系，端口下 N 个站点就是 2N 次全表扫描。
 // 现改为按端口一次性加载，构建 map[siteID] 供 O(1) 查询。
 type routeDeps struct {
-	waf  map[uint]uint        // siteID -> WAF 配置 ID
-	auth map[uint]authBinding // siteID -> 认证规则
-	acl  map[uint]aclBinding  // siteID -> IP 黑白名单
+	waf     map[uint]uint        // siteID -> WAF 配置 ID
+	auth    map[uint]authBinding // siteID -> 认证规则
+	acl     map[uint]aclBinding  // siteID -> IP 黑白名单
+	invalid map[uint]bool        // 依赖查询失败或绑定冲突，站点必须失败关闭
 }
 
 // loadRouteDeps 一次性加载启用 WAF、认证规则与 IP 访问控制的绑定关系。
 func (m *Manager) loadRouteDeps(sites []model.CaddySite) *routeDeps {
 	deps := &routeDeps{
-		waf:  make(map[uint]uint),
-		auth: make(map[uint]authBinding),
-		acl:  make(map[uint]aclBinding),
+		waf:     make(map[uint]uint),
+		auth:    make(map[uint]authBinding),
+		acl:     make(map[uint]aclBinding),
+		invalid: make(map[uint]bool),
+	}
+	invalidateAll := func(reason string, err error) {
+		m.log.Errorf("[Caddy] 加载站点安全规则失败，相关站点将失败关闭: %s: %v", reason, err)
+		for _, site := range sites {
+			deps.invalid[site.ID] = true
+		}
 	}
 
 	var wafConfigs []model.WafConfig
-	m.db.Where("enable = ?", true).Find(&wafConfigs)
-	for _, cfg := range wafConfigs {
-		for _, sid := range parseSiteIDs(cfg.BindSiteIDs) {
-			if _, ok := deps.waf[sid]; !ok {
+	if err := m.db.Where("enable = ?", true).Find(&wafConfigs).Error; err != nil {
+		invalidateAll("WAF", err)
+	} else {
+		for _, cfg := range wafConfigs {
+			for _, sid := range uniqueSiteIDs(parseSiteIDs(cfg.BindSiteIDs)) {
+				if _, exists := deps.waf[sid]; exists {
+					deps.invalid[sid] = true
+					continue
+				}
 				deps.waf[sid] = cfg.ID
 			}
 		}
 	}
 
 	var rules []model.AccessRule
-	m.db.Where("enable = ?", true).Find(&rules)
+	if err := m.db.Where("enable = ?", true).Find(&rules).Error; err != nil {
+		invalidateAll("access rules", err)
+		return deps
+	}
 	for _, rule := range rules {
 		siteIDs := parseSiteIDs(rule.BindSiteIDs)
 		if len(siteIDs) == 0 {
+			if rule.AuthMode == "oidc" && strings.TrimSpace(rule.BindSiteIDs) == "" {
+				invalidateAll("OIDC rule without site binding", fmt.Errorf("rule %d has no bound sites", rule.ID))
+			}
+			if strings.TrimSpace(rule.BindSiteIDs) != "" && (rule.AuthMode != "" || rule.IPList != "" || rule.BindIPDBIDs != "") {
+				invalidateAll("invalid access-rule site binding", fmt.Errorf("rule %d has invalid BindSiteIDs", rule.ID))
+			}
 			continue
 		}
-		// IP 黑白名单：绑定到站点的规则需要在 Caddy 侧判定
-		if ips := access.ResolveIPs(m.db, rule); len(ips) > 0 {
-			mode := rule.Mode
-			if mode == "" {
-				mode = "blacklist"
-			}
+		siteIDs = uniqueSiteIDs(siteIDs)
+
+		ips, resolveErr := access.ResolveIPsChecked(m.db, rule)
+		mode := rule.Mode
+		if mode == "" && len(ips) > 0 {
+			mode = "blacklist"
+		}
+		invalidIPPolicy := (mode != "" && mode != "blacklist" && mode != "whitelist") || (mode == "whitelist" && len(ips) == 0)
+		if resolveErr != nil || invalidIPPolicy {
+			m.log.Errorf("[Caddy] IP ACL 规则 %d 无法安全解析，站点将失败关闭: %v", rule.ID, resolveErr)
 			for _, sid := range siteIDs {
-				if _, ok := deps.acl[sid]; !ok {
-					deps.acl[sid] = aclBinding{mode: mode, ips: ips}
+				deps.invalid[sid] = true
+			}
+		} else if len(ips) > 0 {
+			for _, sid := range siteIDs {
+				if _, exists := deps.acl[sid]; exists {
+					deps.invalid[sid] = true
+					continue
 				}
+				deps.acl[sid] = aclBinding{mode: mode, ips: ips}
 			}
 		}
-		// 登录认证：仅 auth_mode 非空时生效
 		if rule.AuthMode == "" {
 			continue
 		}
-		for _, sid := range siteIDs {
-			if _, ok := deps.auth[sid]; !ok {
-				deps.auth[sid] = authBinding{mode: rule.AuthMode, rule: rule}
+		if rule.AuthMode != "basic_auth" && rule.AuthMode != "page_login" && rule.AuthMode != "oidc" {
+			m.log.Errorf("[Caddy] 访问规则 %d 的认证模式无效: %q", rule.ID, rule.AuthMode)
+			for _, sid := range siteIDs {
+				deps.invalid[sid] = true
 			}
+			continue
+		}
+		for _, sid := range siteIDs {
+			if _, exists := deps.auth[sid]; exists {
+				deps.invalid[sid] = true
+				continue
+			}
+			deps.auth[sid] = authBinding{mode: rule.AuthMode, rule: rule}
 		}
 	}
 	return deps
+}
+
+func uniqueSiteIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	unique := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 // parseSiteIDs 解析 JSON 数组形式的站点绑定 ID 列表。
@@ -665,21 +721,64 @@ func orderTLSPolicies(policies []interface{}) []interface{} {
 	return append(matched, unmatched...)
 }
 
-// buildPageLoginRoutes 构建页面跳转登录的路由。
-//
-// 认证由 netpanel_session_auth 中间件完成：它会校验 Cookie 的 HMAC 签名、
-// 有效期以及用户是否仍然启用，未通过时 302 到面板登录页。
-// 不能仅靠 Caddy 的 header_regexp 匹配 Cookie 是否存在——那样任何人
-// 手工设置 netpanel_session=x 就能绕过认证。
-func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
+// parseAllowedUserIDs 解析允许用户列表；无效配置必须失败关闭。
+func parseAllowedUserIDs(raw string) ([]uint, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, true
+	}
 	var allowedIDs []uint
-	if rule.AllowedUserIDs != "" {
-		json.Unmarshal([]byte(rule.AllowedUserIDs), &allowedIDs)
+	if err := json.Unmarshal([]byte(raw), &allowedIDs); err != nil || allowedIDs == nil {
+		return nil, false
+	}
+	return allowedIDs, true
+}
+
+func hostPatterns(hostMatchers []interface{}) []string {
+	var hosts []string
+	for _, matcher := range hostMatchers {
+		entry, ok := matcher.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		switch values := entry["host"].(type) {
+		case []string:
+			hosts = append(hosts, values...)
+		case []interface{}:
+			for _, value := range values {
+				if host, ok := value.(string); ok {
+					hosts = append(hosts, host)
+				}
+			}
+		}
+	}
+	return hosts
+}
+
+func unavailableAuthRoutes(hostMatchers []interface{}) []interface{} {
+	route := map[string]interface{}{
+		"handle": []interface{}{map[string]interface{}{
+			"handler":     "static_response",
+			"status_code": "503",
+			"body":        "Authentication configuration is unavailable.",
+		}},
+	}
+	if len(hostMatchers) > 0 {
+		route["match"] = hostMatchers
+	}
+	return []interface{}{route}
+}
+
+// buildPageLoginRoutes 构建由 netpanel_session_auth 校验签名会话的页面登录路由。
+func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
+	allowedIDs, valid := parseAllowedUserIDs(rule.AllowedUserIDs)
+	if !valid {
+		return unavailableAuthRoutes(hostMatchers)
 	}
 
 	authHandler := map[string]interface{}{
-		"handler":    "netpanel_session_auth",
-		"panel_port": m.panelPort,
+		"handler":       "netpanel_session_auth",
+		"panel_port":    m.panelPort,
+		"allowed_hosts": hostPatterns(hostMatchers),
 	}
 	if len(allowedIDs) > 0 {
 		authHandler["allowed_user_ids"] = allowedIDs
@@ -696,22 +795,24 @@ func (m *Manager) buildPageLoginRoutes(hostMatchers []interface{}, mainHandlers 
 
 // buildBasicAuthHandler 构建 Caddy Basic Auth handler
 func (m *Manager) buildBasicAuthHandler(rule model.AccessRule) map[string]interface{} {
-	// 获取允许的用户列表
-	var allowedIDs []uint
-	if rule.AllowedUserIDs != "" {
-		json.Unmarshal([]byte(rule.AllowedUserIDs), &allowedIDs)
+	allowedIDs, valid := parseAllowedUserIDs(rule.AllowedUserIDs)
+	if !valid {
+		return map[string]interface{}{"handler": "static_response", "status_code": "503", "body": "Authentication configuration is unavailable."}
 	}
 
-	// 查询用户（如果有指定用户则只查询指定的，否则查询所有启用用户）
+	// 查询用户（如果有指定用户则只查询指定的，否则查询所有启用用户）。
 	var users []model.User
+	query := m.db.Where("enable = ?", true)
 	if len(allowedIDs) > 0 {
-		m.db.Where("id IN ? AND enable = ?", allowedIDs, true).Find(&users)
-	} else {
-		m.db.Where("enable = ?", true).Find(&users)
+		query = m.db.Where("id IN ? AND enable = ?", allowedIDs, true)
+	}
+	if err := query.Find(&users).Error; err != nil {
+		m.log.Errorf("[Caddy] Basic Auth 用户查询失败: %v", err)
+		return map[string]interface{}{"handler": "static_response", "status_code": "503", "body": "Authentication configuration is unavailable."}
 	}
 
 	if len(users) == 0 {
-		return nil
+		return map[string]interface{}{"handler": "static_response", "status_code": "503", "body": "No enabled accounts are available for authentication."}
 	}
 
 	// 构建 Caddy 的 basic_auth accounts
@@ -728,7 +829,7 @@ func (m *Manager) buildBasicAuthHandler(rule model.AccessRule) map[string]interf
 	}
 
 	if len(accounts) == 0 {
-		return nil
+		return map[string]interface{}{"handler": "static_response", "status_code": "503", "body": "No password accounts are available for Basic authentication."}
 	}
 
 	return map[string]interface{}{
@@ -1023,46 +1124,32 @@ func isLocalOrIP(domain string) bool {
 func (m *Manager) buildOIDCRoutes(hostMatchers []interface{}, mainHandlers []interface{}, rule model.AccessRule) []interface{} {
 	providerID := rule.OidcProviderID
 	if providerID == 0 {
-		// 未绑定 OIDC provider 时退回页面跳转登录。
-		// 传空的 AccessRule 而非 nil：buildPageLoginRoutes 的形参是值类型，
-		// 且 AllowedUserIDs 为空正好表示"不限定可登录用户"，
-		// 与该分支的语义一致（provider 缺失时无法按 provider 限定用户）。
-		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, model.AccessRule{})
+		// 未绑定 OIDC provider 时退回页面登录，同时保留允许用户列表。
+		return m.buildPageLoginRoutes(hostMatchers, mainHandlers, rule)
 	}
 	var provider model.OAuthProviderConfig
-	if err := m.db.First(&provider, providerID).Error; err != nil {
-		m.log.Errorf("[access] OIDC provider #%d not found", providerID)
-		return []interface{}{map[string]interface{}{"handle": mainHandlers}}
+	if err := m.db.First(&provider, providerID).Error; err != nil || !provider.Enable {
+		m.log.Errorf("[access] OIDC provider #%d is missing or disabled", providerID)
+		return unavailableAuthRoutes(hostMatchers)
 	}
-	redirectURL := fmt.Sprintf("{http.request.scheme}://{http.request.host}:%d/auth/oauth/%s/authorize?redirect={http.request.scheme}://{http.request.hostport}{http.request.uri}", m.panelPort, provider.Name)
-	redirectRoute := map[string]interface{}{
-		"match": []interface{}{
-			map[string]interface{}{
-				"not": []interface{}{
-					map[string]interface{}{
-						"header_regexp": map[string]interface{}{
-							"Cookie": map[string]interface{}{
-								"pattern": "netpanel_session=.+",
-							},
-						},
-					},
-				},
-			},
-		},
-		"handle": []interface{}{
-			map[string]interface{}{
-				"handler":     "static_response",
-				"status_code": "302",
-				"headers": map[string]interface{}{
-					"Location": []string{redirectURL},
-				},
-			},
-		},
+	allowedIDs, valid := parseAllowedUserIDs(rule.AllowedUserIDs)
+	if !valid {
+		m.log.Errorf("[access] OIDC rule has invalid allowed_user_ids: rule=%d", rule.ID)
+		return unavailableAuthRoutes(hostMatchers)
 	}
-	proxyRoute := map[string]interface{}{"handle": mainHandlers}
+	authHandler := map[string]interface{}{
+		"handler":        "netpanel_session_auth",
+		"panel_port":     m.panelPort,
+		"allowed_hosts":  hostPatterns(hostMatchers),
+		"oauth_provider": provider.Name,
+	}
+	if len(allowedIDs) > 0 {
+		authHandler["allowed_user_ids"] = allowedIDs
+	}
+	route := map[string]interface{}{"handle": append([]interface{}{authHandler}, mainHandlers...)}
 	if len(hostMatchers) > 0 {
-		redirectRoute["match"] = append(hostMatchers, redirectRoute["match"].([]interface{})...)
-		proxyRoute["match"] = hostMatchers
+		route["match"] = hostMatchers
 	}
-	return []interface{}{redirectRoute, proxyRoute}
+	return []interface{}{route}
+
 }

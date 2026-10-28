@@ -91,6 +91,19 @@ func TestValidateCredentials(t *testing.T) {
 	}
 }
 
+func TestReadOnlyWebDAVMethod(t *testing.T) {
+	for _, method := range []string{"GET", "HEAD", "OPTIONS", "PROPFIND"} {
+		if !isReadOnlyWebDAVMethod(method) {
+			t.Errorf("read-only WebDAV rejected %s", method)
+		}
+	}
+	for _, method := range []string{"PUT", "POST", "DELETE", "MOVE", "COPY", "PROPPATCH", "LOCK", "UNLOCK"} {
+		if isReadOnlyWebDAVMethod(method) {
+			t.Errorf("read-only WebDAV allowed %s", method)
+		}
+	}
+}
+
 func TestValidateListenAddrAndPort(t *testing.T) {
 	for _, ok := range []string{"", "0.0.0.0", "127.0.0.1", "::1"} {
 		if err := ValidateListenAddr(ok); err != nil {

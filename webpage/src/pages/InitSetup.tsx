@@ -12,8 +12,10 @@ const InitSetup: React.FC = () => {
   const navigate = useNavigate()
   const setToken = useAppStore(s => s.setToken)
   const setUsername = useAppStore(s => s.setUsername)
+  const setRoles = useAppStore(s => s.setRoles)
   const [checking, setChecking] = useState(true)
   const [initialized, setInitialized] = useState(false)
+  const [statusUnavailable, setStatusUnavailable] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [step, setStep] = useState(0)
   const [form] = Form.useForm()
@@ -21,11 +23,15 @@ const InitSetup: React.FC = () => {
   useEffect(() => {
     initApi.status()
       .then((res: any) => {
-        const init = res?.data?.initialized !== false
+        const init = res?.data?.initialized
+        if (typeof init !== 'boolean') {
+          setStatusUnavailable(true)
+          return
+        }
         setInitialized(init)
         if (init) navigate('/login', { replace: true })
       })
-      .catch(() => setInitialized(true))
+      .catch(() => setStatusUnavailable(true))
       .finally(() => setChecking(false))
   }, [navigate])
 
@@ -38,16 +44,21 @@ const InitSetup: React.FC = () => {
       })
       message.success(res?.message || '初始化完成')
       // 初始化成功后自动登录
-      const loginRes: any = await fetch('/api/v1/auth/login', {
+      const loginResponse = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: values.username.trim(), password: values.password }),
-      }).then(r => r.json())
-      if (loginRes?.data?.token) {
-        setToken(loginRes.data.token)
-        setUsername(loginRes.data.username)
+      })
+      const loginRes: any = await loginResponse.json()
+      if (!loginResponse.ok || !loginRes?.data?.token) {
+        message.warning('初始化已完成，请使用新账号登录')
+        navigate('/login', { replace: true })
+        return
       }
-      navigate('/dashboard', { replace: true })
+      setToken(loginRes.data.token)
+      setUsername(loginRes.data.username)
+      setRoles(loginRes.data.roles || '')
+      navigate('/onboarding', { replace: true })
     } catch (e: any) {
       message.error(e?.message || '初始化失败')
     } finally {
@@ -59,6 +70,14 @@ const InitSetup: React.FC = () => {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Spin size="large" />
+      </div>
+    )
+  }
+  if (statusUnavailable) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <Text>无法确认系统初始化状态，请检查服务连接后重试。</Text>
+        <Button onClick={() => window.location.reload()}>重试</Button>
       </div>
     )
   }
@@ -104,51 +123,50 @@ const InitSetup: React.FC = () => {
           style={{ marginBottom: 28 }}
         />
 
-        {step === 0 && (
-          <Form form={form} layout="vertical" onFinish={handleFinish} requiredMark={false}>
-            <Form.Item
-              name="username"
-              label="管理员用户名"
-              rules={[
-                { required: true, message: '请输入用户名' },
-                { min: 2, max: 50, message: '长度 2-50 位' },
-              ]}
-            >
-              <Input prefix={<UserOutlined />} placeholder="默认 admin" size="large" />
-            </Form.Item>
-            <Form.Item
-              name="password"
-              label="登录密码"
-              rules={[
-                { required: true, message: '请输入密码' },
-                { min: 8, message: '密码至少 8 位' },
-              ]}
-              extra="建议使用字母、数字与符号组合"
-            >
-              <Input.Password prefix={<LockOutlined />} placeholder="至少 8 位" size="large" />
-            </Form.Item>
-            <Form.Item
-              name="confirm"
-              label="确认密码"
-              dependencies={['password']}
-              rules={[
-                { required: true, message: '请再次输入密码' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (!value || getFieldValue('password') === value) return Promise.resolve()
-                    return Promise.reject(new Error('两次输入的密码不一致'))
-                  },
-                }),
-              ]}
-            >
-              <Input.Password prefix={<LockOutlined />} placeholder="再次输入密码" size="large" />
-            </Form.Item>
-            <Button type="primary" htmlType="submit" size="large" block loading={submitting}
-              onClick={() => setStep(1)}>
-              下一步：安全加固 →
-            </Button>
-          </Form>
-        )}
+        <Form form={form} layout="vertical" onFinish={handleFinish} requiredMark={false}
+          style={{ display: step === 0 ? 'block' : 'none' }}>
+          <Form.Item
+            name="username"
+            label="管理员用户名"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { min: 2, max: 50, message: '长度 2-50 位' },
+            ]}
+          >
+            <Input prefix={<UserOutlined />} placeholder="默认 admin" size="large" />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label="登录密码"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 8, message: '密码至少 8 位' },
+            ]}
+            extra="建议使用字母、数字与符号组合"
+          >
+            <Input.Password prefix={<LockOutlined />} placeholder="至少 8 位" size="large" />
+          </Form.Item>
+          <Form.Item
+            name="confirm"
+            label="确认密码"
+            dependencies={['password']}
+            rules={[
+              { required: true, message: '请再次输入密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('password') === value) return Promise.resolve()
+                  return Promise.reject(new Error('两次输入的密码不一致'))
+                },
+              }),
+            ]}
+          >
+            <Input.Password prefix={<LockOutlined />} placeholder="再次输入密码" size="large" />
+          </Form.Item>
+          <Button type="primary" htmlType="button" size="large" block loading={submitting}
+            onClick={() => { void form.validateFields().then(() => setStep(1)).catch(() => undefined) }}>
+            下一步：安全加固 →
+          </Button>
+        </Form>
 
         {step === 1 && (
           <div>

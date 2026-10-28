@@ -25,44 +25,52 @@ const MaxAge = 86400
 
 // Data 会话载荷。
 type Data struct {
-	Username  string `json:"u"`
-	ExpiresAt int64  `json:"e"`
+	Username     string `json:"u"`
+	ExpiresAt    int64  `json:"e"`
+	TokenVersion int    `json:"v"`
 }
 
 // Issue 生成签名后的 Cookie 值。
-func Issue(username string) string {
+func Issue(username string, tokenVersion int) string {
 	payload, _ := json.Marshal(Data{
-		Username:  username,
-		ExpiresAt: time.Now().Add(MaxAge * time.Second).Unix(),
+		Username:     username,
+		ExpiresAt:    time.Now().Add(MaxAge * time.Second).Unix(),
+		TokenVersion: tokenVersion,
 	})
 	return hex.EncodeToString(payload) + "." + sign(payload)
 }
 
 // Validate 校验 Cookie 值的签名与有效期，返回用户名。
 func Validate(cookie string) (string, bool) {
+	data, ok := ValidateData(cookie)
+	return data.Username, ok
+}
+
+// ValidateData 校验 Cookie 签名、有效期与携带的会话版本。
+func ValidateData(cookie string) (Data, bool) {
 	payloadHex, signature, ok := strings.Cut(cookie, ".")
 	if !ok {
-		return "", false
+		return Data{}, false
 	}
 
 	payload, err := hex.DecodeString(payloadHex)
 	if err != nil {
-		return "", false
+		return Data{}, false
 	}
 
 	// 使用 hmac.Equal 做定长比较，避免通过响应时间侧信道逐字节推断签名
 	if !hmac.Equal([]byte(signature), []byte(sign(payload))) {
-		return "", false
+		return Data{}, false
 	}
 
 	var data Data
 	if err := json.Unmarshal(payload, &data); err != nil {
-		return "", false
+		return Data{}, false
 	}
-	if time.Now().Unix() > data.ExpiresAt {
-		return "", false
+	if data.Username == "" || data.ExpiresAt <= time.Now().Unix() || data.TokenVersion < 0 {
+		return Data{}, false
 	}
-	return data.Username, true
+	return data, true
 }
 
 // sign 使用 session 专用派生子密钥做 HMAC-SHA256 签名。

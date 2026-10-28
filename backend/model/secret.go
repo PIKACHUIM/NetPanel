@@ -7,7 +7,7 @@
 // 这里提供 Secret 类型：
 //   - 序列化（写给前端）时输出掩码，不泄露原文；
 //   - 反序列化（前端提交）时按原文接收；空字符串表示"不修改"，由 handler 负责处理；
-//   - 数据库读写透明（实现 driver.Valuer 与 sql.Scanner），不改变既有存储格式。
+//   - 数据库读写透明（实现 driver.Valuer 与 sql.Scanner）；配置加密密钥时加密存储，否则明文存储。
 package model
 
 import (
@@ -55,8 +55,7 @@ func (s *Secret) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Value 实现 driver.Valuer：加密后存入数据库。
-// 密钥未初始化时退化为明文存储，兼容未启用加密的部署。
+// Value 实现 driver.Valuer：配置密钥时加密存储；未配置密钥时明文存储。
 func (s Secret) Value() (driver.Value, error) { return s.EncryptValue() }
 
 // Scan 实现 sql.Scanner：从数据库读取并解密。
@@ -75,7 +74,7 @@ func (s *Secret) Scan(src any) error {
 	return nil
 }
 
-// EncryptValue 加密 Secret 为 base64 密文字符串（未初始化密钥时原样返回）
+// EncryptValue 加密 Secret 为 base64 密文字符串。
 func (s Secret) EncryptValue() (string, error) {
 	if s == "" {
 		return "", nil

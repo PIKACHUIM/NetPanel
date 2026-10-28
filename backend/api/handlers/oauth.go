@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/api/middleware"
@@ -78,9 +81,19 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 	}
 
 	// 生成随机 state 防止 CSRF
-	state := generateState()
-	// 将 state 存入 cookie 用于验证（30分钟有效）
-	c.SetCookie("oauth_state", state, 1800, "/", "", false, true)
+	state, err := generateState()
+	if err != nil {
+		h.log.Errorf("[OAuth] 生成 state 失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "OAuth 状态生成失败"})
+		return
+	}
+	if redirect, valid := validateLoginRedirect(h.db, c.Query("redirect")); valid {
+		state += "." + base64.RawURLEncoding.EncodeToString([]byte(redirect))
+	}
+	// 每个并发授权流程使用独立的 state Cookie，避免多标签页互相覆盖。
+	secureCookie := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(oauthStateCookieName(state), state, 1800, "/api/v1/auth/oauth", "", secureCookie, true)
 
 	authURL := cfg.AuthCodeURL(state)
 	c.Redirect(http.StatusTemporaryRedirect, authURL)
@@ -95,15 +108,26 @@ func (h *OAuthHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	// 验证 state
+	// 验证浏览器绑定的 state，并取回其中经过站内路径校验的回跳地址。
 	state := c.Query("state")
-	cookieState, _ := c.Cookie("oauth_state")
+	cookieName := oauthStateCookieName(state)
+	cookieState, _ := c.Cookie(cookieName)
 	if state == "" || state != cookieState {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "OAuth state 验证失败"})
 		return
 	}
+	redirectPath := ""
+	if _, encodedPath, found := strings.Cut(state, "."); found {
+		if decodedPath, err := base64.RawURLEncoding.DecodeString(encodedPath); err == nil {
+			if validated, ok := validateLoginRedirect(h.db, string(decodedPath)); ok {
+				redirectPath = validated
+			}
+		}
+	}
 	// 清除 state cookie
-	c.SetCookie("oauth_state", "", -1, "/", "", false, true)
+	secureCookie := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(cookieName, "", -1, "/api/v1/auth/oauth", "", secureCookie, true)
 
 	// 检查错误
 	if errMsg := c.Query("error"); errMsg != "" {
@@ -155,18 +179,48 @@ func (h *OAuthHandler) Callback(c *gin.Context) {
 	}
 
 	// 设置平台访问控制 Cookie
-	middleware.SetSessionCookie(c, user.Username)
+	middleware.SetSessionCookie(c, user.Username, user.TokenVersion)
 
-	// 重定向到前端 OAuth 回调页面，携带 token
-	redirectURL := fmt.Sprintf("/oauth/callback?token=%s&username=%s", jwtToken, user.Username)
+	// 将短暂使用的 Token 放在 URL fragment 中，避免发送到服务端访问日志和 Referer。
+	redirectURL := fmt.Sprintf("/oauth/callback#token=%s&username=%s&roles=%s",
+		url.QueryEscape(jwtToken), url.QueryEscape(user.Username), url.QueryEscape(user.Roles))
+	if redirectPath != "" {
+		redirectURL += "&redirect=" + url.QueryEscape(redirectPath)
+	}
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
+func oauthStateCookieName(state string) string {
+	nonce, _, _ := strings.Cut(state, ".")
+	if len(nonce) != 32 {
+		return "oauth_state_invalid"
+	}
+	for _, char := range nonce {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return "oauth_state_invalid"
+		}
+	}
+	return "oauth_state_" + nonce
+}
+
+func safeOAuthRedirect(raw string) string {
+	if raw == "" || strings.Contains(raw, `\`) || strings.HasPrefix(raw, "//") {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
+		return ""
+	}
+	return parsed.RequestURI()
+}
+
 // generateState 生成随机 state
-func generateState() string {
+func generateState() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // ===== Provider CRUD 管理 =====

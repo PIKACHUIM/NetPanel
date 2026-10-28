@@ -99,7 +99,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// 公开路由（无需认证）
 	authHandler := handlers.NewAuthHandler(opts.DB, opts.Log)
 	apiV1.POST("/auth/login", authHandler.Login)
-	apiV1.POST("/auth/logout", authHandler.Logout)
+	apiV1.GET("/auth/redirect/validate", authHandler.ValidateRedirect)
 
 	// 首次初始化（无管理员时强制建首个管理员）
 	initHandler := handlers.NewInitHandler(opts.DB, opts.Log)
@@ -126,6 +126,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// 需要认证的路由
 	auth := apiV1.Group("")
 	auth.Use(middleware.JWTAuth(opts.DB))
+	auth.POST("/auth/logout", authHandler.Logout)
 
 	// 需要管理员权限的路由（在 JWTAuth 之上叠加 AdminOnly）。
 	// 用于系统管理接口，以及可在宿主机/受管主机执行命令、修改宿主网络状态、
@@ -265,8 +266,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/wireguard", wgHandler.List)
 	auth.GET("/wireguard/:id/status", wgHandler.GetStatus)
 	auth.GET("/wireguard/:id/peers", wgHandler.ListPeers)
-	auth.GET("/wireguard/:id/peers/:pid/config", wgHandler.GetPeerConfig)
-	auth.GET("/wireguard/:id/peers/:pid/qrcode", wgHandler.GetPeerQRCode)
+	admin.GET("/wireguard/:id/peers/:pid/config", wgHandler.GetPeerConfig)
+	admin.GET("/wireguard/:id/peers/:pid/qrcode", wgHandler.GetPeerQRCode)
 	admin.POST("/wireguard", wgHandler.Create)
 	admin.PUT("/wireguard/:id", wgHandler.Update)
 	admin.DELETE("/wireguard/:id", wgHandler.Delete)
@@ -337,6 +338,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.GET("/domain/certs", certHandler.List)
 	auth.GET("/domain/certs/:id/status", certHandler.GetStatus)
 	admin.POST("/domain/certs", certHandler.Create)
+	admin.GET("/domain/certs/:id/download", certHandler.Download)
 	admin.PUT("/domain/certs/:id", certHandler.Update)
 	admin.DELETE("/domain/certs/:id", certHandler.Delete)
 	admin.POST("/domain/certs/:id/apply", certHandler.Apply)
@@ -537,11 +539,11 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/ai/conversations/:id/stream", aiHandler.StreamMessage)
 	auth.GET("/ai/conversations/:id/export", aiHandler.ExportConversation)
 	auth.POST("/ai/conversations/import", aiHandler.ImportConversation)
-	// AI 助理
+	// AI 助理模板所有登录用户可读，变更仅管理员可执行。
 	auth.GET("/ai/assistants", aiHandler.ListAssistants)
-	auth.POST("/ai/assistants", aiHandler.CreateAssistant)
-	auth.PUT("/ai/assistants/:id", aiHandler.UpdateAssistant)
-	auth.DELETE("/ai/assistants/:id", aiHandler.DeleteAssistant)
+	admin.POST("/ai/assistants", aiHandler.CreateAssistant)
+	admin.PUT("/ai/assistants/:id", aiHandler.UpdateAssistant)
+	admin.DELETE("/ai/assistants/:id", aiHandler.DeleteAssistant)
 	// AI 定时任务（可在宿主机触发任务）
 	auth.GET("/ai/cron-tasks", aiHandler.ListCronTasks)
 	auth.GET("/ai/cron-tasks/:id/logs", aiHandler.ListCronLogs)

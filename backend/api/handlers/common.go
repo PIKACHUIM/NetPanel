@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/netpanel/netpanel/model"
+	"gorm.io/gorm"
 )
 
 // parseUintParam 解析路径参数为 uint。
@@ -28,6 +31,40 @@ func parseUintParam(c *gin.Context, name string) (uint, bool) {
 		return 0, false
 	}
 	return uint(v), true
+}
+
+// preserveEmptySecretFields 保留更新请求中省略或回显掩码的 Secret 字段。
+// Secret.UnmarshalJSON 将掩码转换为空值，避免把掩码当作真实密钥写入；此处将空值合并为原值。
+func preserveEmptySecretFields(db *gorm.DB, id uint, dst any) error {
+	value := reflect.ValueOf(dst)
+	if value.Kind() != reflect.Pointer || value.IsNil() || value.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("secret merge target must be a non-nil struct pointer")
+	}
+	secretType := reflect.TypeOf(model.Secret(""))
+	hasSecret := false
+	for i := 0; i < value.Elem().NumField(); i++ {
+		if value.Elem().Type().Field(i).Type == secretType {
+			hasSecret = true
+			break
+		}
+	}
+	if !hasSecret {
+		return nil
+	}
+	existing := reflect.New(value.Elem().Type())
+	if err := db.First(existing.Interface(), id).Error; err != nil {
+		return err
+	}
+	for i := 0; i < value.Elem().NumField(); i++ {
+		if value.Elem().Type().Field(i).Type != secretType {
+			continue
+		}
+		field := value.Elem().Field(i)
+		if field.IsZero() {
+			field.Set(existing.Elem().Field(i))
+		}
+	}
+	return nil
 }
 
 // diffJSON 将 before/after 转为 JSON 并做基础脱敏（替换 token/secret 类字段）。

@@ -280,7 +280,7 @@ func CORS() gin.HandlerFunc {
 		origin := c.GetHeader("Origin")
 		if origin != "" {
 			for _, allowed := range origins {
-				if allowed == origin || allowed == "*" {
+				if allowed == origin {
 					c.Header("Access-Control-Allow-Origin", origin)
 					c.Header("Access-Control-Allow-Credentials", "true")
 					c.Header("Vary", "Origin")

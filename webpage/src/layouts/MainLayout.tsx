@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react'
+import React, {useEffect, useState} from 'react'
 import {Outlet, useLocation, useNavigate} from 'react-router-dom'
 import type {MenuProps} from 'antd'
 import {Avatar, Dropdown, Layout, Menu, Popover, Space, theme as antTheme, Tooltip, Typography,} from 'antd'
@@ -47,6 +47,7 @@ import {useTranslation} from 'react-i18next'
 import {useAppStore, wallpaperList, hasWallpaper, getWallpaperBg} from '../store/appStore'
 import type {WallpaperKey} from '../store/appStore'
 import i18n from '../i18n'
+import request from '../api/request'
 
 const {Sider, Header, Content} = Layout
 const {Text} = Typography
@@ -70,8 +71,11 @@ const MainLayout: React.FC = () => {
 
     // 根据当前路径计算选中的菜单项
     const selectedKey = location.pathname.replace(/^\//, '') || 'dashboard'
-    const openKeys = getOpenKeys(location.pathname)
+    const [openKeys, setOpenKeys] = useState<string[]>(() => getOpenKeys(location.pathname))
 
+    useEffect(() => {
+        setOpenKeys(getOpenKeys(location.pathname))
+    }, [location.pathname])
 
     const menuItems: MenuProps['items'] = [
         {
@@ -247,7 +251,8 @@ const MainLayout: React.FC = () => {
             icon: <LogoutOutlined/>,
             label: t('common.logout'),
             danger: true,
-            onClick: () => {
+            onClick: async () => {
+                await request.post('/v1/auth/logout', {}, {timeout: 5000}).catch(() => undefined)
                 logout()
                 navigate('/login')
             },
@@ -367,7 +372,8 @@ const MainLayout: React.FC = () => {
                             theme={isDark ? 'dark' : 'light'}
                             mode="inline"
                             selectedKeys={[selectedKey]}
-                            defaultOpenKeys={openKeys}
+                            openKeys={openKeys}
+                            onOpenChange={setOpenKeys}
                             items={menuItems}
                             onClick={({key}) => navigate(`/${key}`)}
                             style={{
@@ -565,16 +571,18 @@ const MainLayout: React.FC = () => {
 }
 
 function getOpenKeys(pathname: string): string[] {
-    if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun') || pathname.startsWith('/frp')) return ['port-mapping']
-    if (pathname.startsWith('/nps') || pathname.startsWith('/easytier') || pathname.startsWith('/wireguard')) return ['network']
-    if (pathname.startsWith('/mesh')) return ['mesh']
     if (pathname.startsWith('/frp/master')) return ['frpmaster']
+    if (pathname.startsWith('/cftunnel') || pathname.startsWith('/frp/client') || pathname.startsWith('/frp/server') || pathname.startsWith('/nps') || pathname.startsWith('/easytier')) return ['tunnel']
+    if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun') || pathname.startsWith('/tunservice')) return ['port-mapping']
+    if (pathname.startsWith('/wireguard')) return ['network']
+    if (pathname.startsWith('/mesh')) return ['mesh']
     if (pathname.startsWith('/ddns') || pathname.startsWith('/caddy')) return ['web-service']
     if (pathname.startsWith('/ipdb') || pathname.startsWith('/access') || pathname.startsWith('/security')) return ['security']
     if (pathname.startsWith('/dnsmasq') || pathname.startsWith('/wol') || pathname.startsWith('/storage') || pathname.startsWith('/cron')) return ['intranet']
     if (pathname.startsWith('/domain')) return ['domain']
     if (pathname.startsWith('/callback')) return ['callback']
     if (pathname.startsWith('/ai')) return ['ai']
+    if (pathname.startsWith('/monitor')) return ['monitor']
     if (pathname.startsWith('/admin') || pathname.startsWith('/settings')) return ['admin']
     return []
 }

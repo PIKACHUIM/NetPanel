@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -26,6 +27,7 @@ type resolvedRule struct {
 	BindSites []siteMatch
 	// 解析后的允许用户 ID 列表
 	ParsedAllowedUserIDs []uint
+	invalid              bool
 }
 
 // siteMatch 站点匹配信息
@@ -39,6 +41,7 @@ type Manager struct {
 	db           *gorm.DB
 	log          *logrus.Logger
 	rules        []resolvedRule
+	rulesLoadErr bool
 	mu           sync.RWMutex
 	// excludePaths 不受访问控制影响的路径前缀（可通过 SetExcludePaths 配置）
 	excludePaths []string
@@ -67,63 +70,144 @@ func (m *Manager) SetExcludePaths(paths []string) {
 //
 // 面板侧 Gin 中间件与 Caddy 站点级 ACL 都需要这份列表，抽出来避免两处逻辑漂移。
 func ResolveIPs(db *gorm.DB, rule model.AccessRule) []string {
+	ips, _ := ResolveIPsChecked(db, rule)
+	return ips
+}
+
+// ResolveIPsChecked 解析 IP/CIDR，并将输入格式或数据库失败反馈给授权调用方。
+func ResolveIPsChecked(db *gorm.DB, rule model.AccessRule) ([]string, error) {
 	var manualIPs []string
 	if rule.IPList != "" {
-		json.Unmarshal([]byte(rule.IPList), &manualIPs)
+		if err := json.Unmarshal([]byte(rule.IPList), &manualIPs); err != nil || manualIPs == nil {
+			return nil, fmt.Errorf("invalid manual IP list in access rule %d", rule.ID)
+		}
 	}
 
 	var ipdbIPs []string
 	if rule.BindIPDBIDs != "" {
 		var ipdbIDs []uint
-		if err := json.Unmarshal([]byte(rule.BindIPDBIDs), &ipdbIDs); err == nil && len(ipdbIDs) > 0 {
+		if err := json.Unmarshal([]byte(rule.BindIPDBIDs), &ipdbIDs); err != nil || ipdbIDs == nil {
+			return nil, fmt.Errorf("invalid IPDB binding in access rule %d", rule.ID)
+		}
+		if len(ipdbIDs) > 0 {
 			var entries []model.IPDBEntry
-			db.Where("id IN ?", ipdbIDs).Find(&entries)
-			for _, e := range entries {
-				if e.CIDR == "" {
-					continue
-				}
-				// 一条记录可能包含逗号分隔的多个 IP/CIDR
-				for _, cidr := range strings.Split(e.CIDR, ",") {
+			if err := db.Where("id IN ?", ipdbIDs).Find(&entries).Error; err != nil {
+				return nil, fmt.Errorf("load IPDB entries for access rule %d: %w", rule.ID, err)
+			}
+			if len(entries) != len(uniqueUintIDs(ipdbIDs)) {
+				return nil, fmt.Errorf("missing IPDB entry in access rule %d", rule.ID)
+			}
+			for _, entry := range entries {
+				added := 0
+				for _, cidr := range strings.Split(entry.CIDR, ",") {
 					if cidr = strings.TrimSpace(cidr); cidr != "" {
 						ipdbIPs = append(ipdbIPs, cidr)
+						added++
 					}
+				}
+				if added == 0 {
+					return nil, fmt.Errorf("empty IPDB entry %d in access rule %d", entry.ID, rule.ID)
 				}
 			}
 		}
 	}
 
-	return append(manualIPs, ipdbIPs...)
+	ips := append(manualIPs, ipdbIPs...)
+	for _, ip := range ips {
+		if net.ParseIP(ip) == nil {
+			if _, _, err := net.ParseCIDR(ip); err != nil {
+				return nil, fmt.Errorf("invalid IP/CIDR %q in access rule %d", ip, rule.ID)
+			}
+		}
+	}
+	return ips, nil
+}
+
+func uniqueUintIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	unique := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 func (m *Manager) loadRules() {
 	var rules []model.AccessRule
-	m.db.Where("enable = ?", true).Find(&rules)
+	if err := m.db.Where("enable = ?", true).Find(&rules).Error; err != nil {
+		m.log.Errorf("[访问控制] 加载规则失败，暂时拒绝所有请求: %v", err)
+		m.mu.Lock()
+		m.rules = nil
+		m.rulesLoadErr = true
+		m.mu.Unlock()
+		return
+	}
 
 	resolved := make([]resolvedRule, 0, len(rules))
 	for _, rule := range rules {
 		r := resolvedRule{AccessRule: rule}
 
 		// 1~3. 解析手动输入与 IPDB 绑定的 IP 并合并（与 Caddy 站点级 ACL 共用同一实现）
-		r.AllIPs = ResolveIPs(m.db, rule)
+		ips, err := ResolveIPsChecked(m.db, rule)
+		if err != nil {
+			m.log.Errorf("[访问控制] 规则 %d 数据无效，将失败关闭: %v", rule.ID, err)
+			r.invalid = true
+		}
+		r.AllIPs = ips
+		if r.Mode == "" && len(ips) > 0 {
+			r.Mode = "blacklist"
+		}
+		switch r.Mode {
+		case "", "blacklist":
+		case "whitelist":
+			if len(ips) == 0 {
+				m.log.Errorf("[访问控制] 白名单规则 %d 未配置任何 IP，将失败关闭", rule.ID)
+				r.invalid = true
+			}
+		default:
+			m.log.Errorf("[访问控制] 规则 %d 的 IP 策略无效，将失败关闭", rule.ID)
+			r.invalid = true
+		}
 
-		// 4. 解析绑定的站点
-		if rule.BindSiteIDs != "" {
+		// 4. 解析绑定的站点；无效 JSON、查询失败或目标不存在时必须失败关闭。
+		if strings.TrimSpace(rule.BindSiteIDs) != "" {
 			var siteIDs []uint
-			if err := json.Unmarshal([]byte(rule.BindSiteIDs), &siteIDs); err == nil && len(siteIDs) > 0 {
+			if err := json.Unmarshal([]byte(rule.BindSiteIDs), &siteIDs); err != nil || siteIDs == nil || len(siteIDs) == 0 {
+				m.log.Errorf("[访问控制] 规则 %d 的站点绑定无效，将失败关闭", rule.ID)
+				r.invalid = true
+			} else {
+				siteIDs = uniqueUintIDs(siteIDs)
 				var sites []model.CaddySite
-				m.db.Where("id IN ?", siteIDs).Find(&sites)
-				for _, s := range sites {
-					r.BindSites = append(r.BindSites, siteMatch{
-						Domain: s.Domain,
-						Port:   s.Port,
-					})
+				if err := m.db.Where("id IN ?", siteIDs).Find(&sites).Error; err != nil || len(sites) != len(siteIDs) {
+					m.log.Errorf("[访问控制] 规则 %d 的站点绑定无法完整解析，将失败关闭: %v", rule.ID, err)
+					r.invalid = true
+				} else {
+					for _, site := range sites {
+						r.BindSites = append(r.BindSites, siteMatch{Domain: site.Domain, Port: site.Port})
+					}
 				}
 			}
 		}
 
+		if r.AuthMode != "" && r.AuthMode != "basic_auth" && r.AuthMode != "page_login" && r.AuthMode != "oidc" {
+			m.log.Errorf("[访问控制] 规则 %d 的认证模式无效，将失败关闭", rule.ID)
+			r.invalid = true
+		}
+		if r.AuthMode == "oidc" && strings.TrimSpace(r.BindSiteIDs) == "" {
+			m.log.Errorf("[访问控制] OIDC 规则 %d 未绑定站点，将失败关闭", rule.ID)
+			r.invalid = true
+		}
+
 		// 5. 解析允许的用户 ID 列表
 		if rule.AllowedUserIDs != "" {
-			json.Unmarshal([]byte(rule.AllowedUserIDs), &r.ParsedAllowedUserIDs)
+			if err := json.Unmarshal([]byte(rule.AllowedUserIDs), &r.ParsedAllowedUserIDs); err != nil || r.ParsedAllowedUserIDs == nil {
+				m.log.Errorf("[访问控制] 规则 %d 的用户白名单无效，将失败关闭", rule.ID)
+				r.invalid = true
+			}
 		}
 
 		resolved = append(resolved, r)
@@ -131,6 +215,7 @@ func (m *Manager) loadRules() {
 
 	m.mu.Lock()
 	m.rules = resolved
+	m.rulesLoadErr = false
 	m.mu.Unlock()
 }
 
@@ -167,7 +252,14 @@ func (m *Manager) GinMiddleware() gin.HandlerFunc {
 
 		m.mu.RLock()
 		rules := m.rules
+		rulesLoadErr := m.rulesLoadErr
 		m.mu.RUnlock()
+		if rulesLoadErr {
+			c.Header("Cache-Control", "no-store")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "访问控制规则暂不可用"})
+			c.Abort()
+			return
+		}
 
 		for _, rule := range rules {
 			if !rule.Enable {
@@ -180,6 +272,12 @@ func (m *Manager) GinMiddleware() gin.HandlerFunc {
 					// 当前请求不属于绑定的站点，跳过此规则
 					continue
 				}
+			}
+			if rule.invalid {
+				c.Header("Cache-Control", "no-store")
+				c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "访问控制规则配置无效"})
+				c.Abort()
+				return
 			}
 
 			// === IP 访问控制 ===
@@ -284,16 +382,16 @@ func (m *Manager) handlePageLogin(c *gin.Context, rule resolvedRule) bool {
 	cookie, err := c.Cookie(session.CookieName)
 	if err != nil || cookie == "" {
 		// 重定向到登录页面（带回跳地址）
-		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
+		redirectURL := fmt.Sprintf("/login?redirect=%s", url.QueryEscape(c.Request.URL.RequestURI()))
 		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 		c.Abort()
 		return false
 	}
 
 	// 验证 session cookie（使用 HMAC 签名验证）
-	username, valid := session.Validate(cookie)
+	sessionData, valid := session.ValidateData(cookie)
 	if !valid {
-		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
+		redirectURL := fmt.Sprintf("/login?redirect=%s", url.QueryEscape(c.Request.URL.RequestURI()))
 		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 		c.Abort()
 		return false
@@ -301,8 +399,8 @@ func (m *Manager) handlePageLogin(c *gin.Context, rule resolvedRule) bool {
 
 	// 查找用户
 	var user model.User
-	if err := m.db.Where("username = ? AND enable = ?", username, true).First(&user).Error; err != nil {
-		redirectURL := fmt.Sprintf("/login?redirect=%s", c.Request.URL.RequestURI())
+	if err := m.db.Where("username = ? AND enable = ?", sessionData.Username, true).First(&user).Error; err != nil || user.TokenVersion != sessionData.TokenVersion {
+		redirectURL := fmt.Sprintf("/login?redirect=%s", url.QueryEscape(c.Request.URL.RequestURI()))
 		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 		c.Abort()
 		return false

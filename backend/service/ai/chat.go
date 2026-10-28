@@ -170,7 +170,7 @@ func (m *Manager) ExportConversation(id uint) ([]byte, error) {
 }
 
 // ImportConversation 导入对话
-func (m *Manager) ImportConversation(data []byte) (*model.AiConversation, error) {
+func (m *Manager) ImportConversation(data []byte, userID uint) (*model.AiConversation, error) {
 	var importData struct {
 		Conversation model.AiConversation `json:"conversation"`
 		Messages     []model.AiMessage    `json:"messages"`
@@ -182,6 +182,7 @@ func (m *Manager) ImportConversation(data []byte) (*model.AiConversation, error)
 	// 创建新对话（重置 ID）
 	conv := importData.Conversation
 	conv.ID = 0
+	conv.UserID = userID
 	if err := m.db.Create(&conv).Error; err != nil {
 		return nil, err
 	}

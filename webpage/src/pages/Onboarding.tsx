@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Row, Col, Typography, Button, Steps, message, Tag, Spin } from 'antd'
+import { Alert, Card, Row, Col, Typography, Button, message, Tag, Spin } from 'antd'
 import {
   CloudOutlined,
   SafetyOutlined,
@@ -26,18 +26,26 @@ interface NetworkInfo {
 // 基于网络环境探测结果，推荐最合适的使用场景
 const Onboarding: React.FC = () => {
   const navigate = useNavigate()
-  const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [networkError, setNetworkError] = useState(false)
   const [netInfo, setNetInfo] = useState<NetworkInfo | null>(null)
 
-  useEffect(() => {
-    // 标记已看过引导
-    try { localStorage.setItem('netpanel-onboarded', '1') } catch { /* ignore */ }
-
+  const checkNetwork = () => {
+    setLoading(true)
+    setNetworkError(false)
+    setNetInfo(null)
     initApi.networkInfo()
-      .then((res: any) => setNetInfo(res?.data))
-      .catch(() => {})
+      .then((res: any) => {
+        if (res?.data) setNetInfo(res.data)
+        else setNetworkError(true)
+      })
+      .catch(() => setNetworkError(true))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    try { localStorage.setItem('netpanel-onboarded', '1') } catch { /* ignore */ }
+    checkNetwork()
   }, [])
 
   const finish = () => {
@@ -60,8 +68,9 @@ const Onboarding: React.FC = () => {
       // 加载失败时显示默认推荐
       cards.push({
         icon: <CloudOutlined style={{ fontSize: 26, color: '#0071e3' }} />,
-        title: '接入公网（推荐先做）',
-        desc: '使用 CF 隧道将内网服务安全暴露到公网，无需公网 IP 与端口映射。',
+        title: '接入公网（通用建议）',
+        tag: networkError ? '未完成检测' : undefined,
+        desc: '当前无法确认网络条件。Cloudflare Tunnel 可作为免公网 IPv4 的备选方式，部署前请检查 Cloudflare 账号和域名要求。',
         action: () => navigate('/cftunnel', { replace: true }),
         actionText: '开始配置 →',
       })
@@ -157,22 +166,31 @@ const Onboarding: React.FC = () => {
           <Title level={3} style={{ marginBottom: 4 }}>欢迎使用 NetPanel</Title>
           <Text type="secondary">
             {netInfo?.has_ipv4
-              ? `已检测到公网 IP · ${netInfo.public_ip_v4}`
-              : '正在为你推荐最佳使用方式'}
+              ? `已检测到公网 IPv4 · ${netInfo.public_ip_v4}`
+              : networkError ? '检测服务暂不可用 · 以下展示通用建议' : '未检测到公网 IPv4 · 可先比较隧道与组网方案'}
           </Text>
-          <div style={{ maxWidth: 320, margin: '20px auto 0' }}>
-            <Steps size="small" current={step} items={[{ title: '入门' }, { title: '进阶' }, { title: '完成' }]} />
-          </div>
+          <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+            先选择连接方式，再配置访问范围与安全策略；高级协议仍可从主导航进入。
+          </Text>
+          {networkError && (
+            <Alert
+              showIcon
+              type="warning"
+              style={{ marginTop: 16, textAlign: 'left' }}
+              message="网络环境检测失败"
+              description={<span>以下仅为通用建议，检测恢复后可重新确认网络条件。 <Button type="link" size="small" onClick={checkNetwork}>重新检测</Button></span>}
+            />
+          )}
         </div>
 
         <Row gutter={[16, 16]}>
-          {cards.map((c, i) => (
+          {cards.map(c => (
             <Col xs={24} md={8} key={c.title}>
               <Card hoverable size="small" style={{ borderRadius: 'var(--radius-md)', height: '100%' }}
-                onClick={() => { setStep(Math.min(i + 1, 2)); c.action() }}>
+                onClick={c.action}>
                 <div style={{ marginBottom: 12 }}>
                   {c.icon}
-                  {c.tag && <Tag color={c.tag === '推荐' ? 'blue' : c.tag.includes('不可用') ? 'orange' : 'green'} style={{ marginLeft: 8, fontSize: 11 }}>{c.tag}</Tag>}
+                  {c.tag && <Tag color={c.tag === '推荐' ? 'blue' : c.tag.includes('不可用') || c.tag.includes('未完成') ? 'orange' : 'green'} style={{ marginLeft: 8, fontSize: 11 }}>{c.tag}</Tag>}
                 </div>
                 <b>{c.title}</b>
                 <Paragraph type="secondary" style={{ fontSize: 12.5, marginTop: 8, marginBottom: 10 }}>{c.desc}</Paragraph>

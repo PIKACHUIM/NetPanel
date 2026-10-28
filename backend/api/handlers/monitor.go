@@ -74,7 +74,7 @@ func (h *MonitorHandler) ListServers(c *gin.Context) {
 		return
 	}
 	
-	c.JSON(http.StatusOK, servers)
+	c.JSON(http.StatusOK, maskSensitiveResponse(c, servers))
 }
 
 // GetServer 获取服务器详情
@@ -87,7 +87,7 @@ func (h *MonitorHandler) GetServer(c *gin.Context) {
 		return
 	}
 	
-	c.JSON(http.StatusOK, server)
+	c.JSON(http.StatusOK, maskSensitiveResponse(c, server))
 }
 
 // CreateServer 创建服务器
@@ -117,6 +117,10 @@ func (h *MonitorHandler) UpdateServer(c *gin.Context) {
 	}
 	
 	server.ID = uint(id)
+	if err := preserveEmptySecretFields(h.manager.DB, server.ID, &server); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "服务器不存在"})
+		return
+	}
 	if err := h.manager.UpdateServer(&server); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -206,7 +210,7 @@ func (h *MonitorHandler) ListProbes(c *gin.Context) {
 		return
 	}
 	
-	c.JSON(http.StatusOK, probes)
+	c.JSON(http.StatusOK, maskSensitiveResponse(c, probes))
 }
 
 // CreateProbe 创建探测配置

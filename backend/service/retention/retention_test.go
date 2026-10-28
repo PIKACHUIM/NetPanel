@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/glebarez/sqlite"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/netpanel/netpanel/model"
@@ -17,6 +17,11 @@ func testDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get database connection: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(
 		&model.MonitorMetric{},
 		&model.MonitorProbeResult{},

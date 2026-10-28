@@ -17,8 +17,13 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 	dbPath := filepath.Join(dataDir, "netpanel.db")
 
 	// 确保目录存在
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return nil, fmt.Errorf("创建数据目录失败: %w", err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(dataDir, 0700); err != nil {
+			return nil, fmt.Errorf("设置数据目录权限失败: %w", err)
+		}
 	}
 
 	// pragma 通过 DSN 传入，确保在每个连接建立时生效（连接池多连接下
@@ -45,6 +50,14 @@ func InitDB(dataDir string) (*gorm.DB, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(dbPath, 0600); err != nil {
+			if sqlDB, dbErr := db.DB(); dbErr == nil {
+				sqlDB.Close()
+			}
+			return nil, fmt.Errorf("设置数据库文件权限失败: %w", err)
+		}
 	}
 
 	// 配置连接池：WAL 模式允许多连接并发读，读不再互相排队；

@@ -299,6 +299,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	if req.Roles != user.Roles {
 		updates["roles"] = req.Roles
+		updates["is_admin"] = hasRoleToken(req.Roles, model.RoleAdmin)
 		revoke = true // 角色变更应立即让旧令牌失效，否则旧令牌仍带旧角色
 	}
 	if req.Enable != nil {

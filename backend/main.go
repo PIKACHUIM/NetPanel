@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -26,8 +27,8 @@ import (
 	"github.com/netpanel/netpanel/pkg/svcutil"
 	"github.com/netpanel/netpanel/pkg/sysutil"
 	"github.com/netpanel/netpanel/service/access"
-	"github.com/netpanel/netpanel/service/autoheal"
 	"github.com/netpanel/netpanel/service/ai"
+	"github.com/netpanel/netpanel/service/autoheal"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/netpanel/netpanel/service/cert"
@@ -167,8 +168,12 @@ func startServer() *http.Server {
 	}
 
 	// 确保数据目录存在
-	if err := os.MkdirAll(*dataDir, 0755); err != nil {
+	if err := os.MkdirAll(*dataDir, 0700); err != nil {
 		log.Fatalf("创建数据目录失败: %v", err)
+	}
+
+	if err := os.Chmod(*dataDir, 0700); err != nil && runtime.GOOS != "windows" {
+		log.Fatalf("设置数据目录权限失败: %v", err)
 	}
 
 	// 初始化配置
@@ -181,6 +186,20 @@ func startServer() *http.Server {
 	}
 	log.Infof("[系统核心] 签名密钥已加载（指纹 %s）", secret.Fingerprint())
 
+	// 敏感字段加密为可选功能：显式配置 NETPANEL_SECRET_KEY 或数据目录中的
+	// secret.key 时启用加密；两者均不存在时以明文存储，便于无密钥部署。
+	if err := crypto.InitKeyFromDataDir(*dataDir); err != nil {
+		log.Fatalf("敏感配置加密密钥初始化失败: %v", err)
+	}
+	if crypto.IsInitialized() {
+		log.Infof("[init] 敏感配置字段加密已启用")
+	} else {
+		log.Warn("[init] 未配置敏感配置加密密钥；敏感字段将以明文存储，请确保数据目录和备份安全")
+		if _, err := os.Stat(filepath.Join(*dataDir, "netpanel.db")); err == nil {
+			log.Warn("[init] 数据库已存在且未加载加密密钥；若其凭据曾加密，将显示为不可解读的数据，需恢复原密钥")
+		}
+	}
+
 	// 初始化数据库
 	db, err := model.InitDB(*dataDir)
 	if err != nil {
@@ -189,12 +208,6 @@ func startServer() *http.Server {
 
 	// 初始化系统日志管理器，并注入全局日志写入器
 	// 必须在各服务 logger 创建之前完成，确保 DBHook 能正常写入
-	// 初始化加密模块（敏感配置 AES-256-GCM 加密存储）
-	if err := crypto.InitKey(); err != nil {
-		log.Warnf("[init] %v，敏感配置将以明文存储", err)
-	} else {
-		log.Infof("[init] 加密模块已初始化")
-	}
 
 	syslogMgr := syslog.NewManager(db, log)
 	logger.SetDBWriter(syslogMgr)

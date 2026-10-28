@@ -31,7 +31,7 @@ func (h *EasytierHandler) List(c *gin.Context) {
 	for i := range clients {
 		clients[i].Status = h.mgr.GetClientStatus(clients[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": clients})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, clients)})
 }
 
 func (h *EasytierHandler) Create(c *gin.Context) {
@@ -56,8 +56,12 @@ func (h *EasytierHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.StopClient(uint(id))
 	req.ID = uint(id)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "EasyTier 客户端配置不存在"})
+		return
+	}
+	h.mgr.StopClient(uint(id))
 	h.db.Save(&req)
 	if req.Enable {
 		h.mgr.StartClient(uint(id))
@@ -133,7 +137,7 @@ func (h *EasytierServerHandler) List(c *gin.Context) {
 	for i := range servers {
 		servers[i].Status = h.mgr.GetServerStatus(servers[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": servers})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, servers)})
 }
 
 func (h *EasytierServerHandler) Create(c *gin.Context) {
@@ -158,8 +162,12 @@ func (h *EasytierServerHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.StopServer(uint(id))
 	req.ID = uint(id)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "EasyTier 服务端配置不存在"})
+		return
+	}
+	h.mgr.StopServer(uint(id))
 	h.db.Save(&req)
 	if req.Enable {
 		h.mgr.StartServer(uint(id))

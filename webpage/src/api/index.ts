@@ -108,7 +108,10 @@ export const cftunnelApi = {
   getLogs: (id: number) => request.get(`/v1/cftunnel/${id}/logs`),
   getBinaryPath: () => request.get('/v1/cftunnel/binary'),
   getDownloadInfo: () => request.get('/v1/cftunnel/download/info'),
-  downloadBinary: () => '/api/v1/cftunnel/download', // 返回 SSE 流式 URL
+  downloadBinary: (token: string) => fetch('/api/v1/cftunnel/download', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  }),
 }
 
 // ===== 穿透服务（统一内网穿透管理） =====
@@ -203,6 +206,7 @@ export const domainCertApi = {
   apply: (id: number) => request.post(`/v1/domain/certs/${id}/apply`),
   renew: (id: number) => request.post(`/v1/domain/certs/${id}/renew`),
   getStatus: (id: number) => request.get(`/v1/domain/certs/${id}/status`),
+  download: (id: number) => request.get(`/v1/domain/certs/${id}/download`, { responseType: 'blob' }) as unknown as Promise<Blob>,
   // ACME 分步操作
   stepCreateOrder: (id: number) => request.post(`/v1/domain/certs/${id}/step/create-order`),
   stepSetDNS: (id: number) => request.post(`/v1/domain/certs/${id}/step/set-dns`),
@@ -345,6 +349,12 @@ export const callbackTaskApi = {
   delete: (id: number) => request.delete(`/v1/callback/tasks/${id}`),
 }
 
+// ===== 认证 =====
+export const authApi = {
+  login: (data: any) => request.post('/v1/auth/login', data),
+  validateRedirect: (url: string) => request.get('/v1/auth/redirect/validate', { params: { url } }),
+}
+
 // ===== 系统 =====
 export const systemApi = {
   getInfo: () => request.get('/v1/system/info'),
@@ -354,7 +364,6 @@ export const systemApi = {
   changePassword: (data: any) => request.post('/v1/system/change-password', data),
   getInterfaces: () => request.get('/v1/system/interfaces'),
   getIPv6Info: () => request.get('/v1/system/ipv6'),
-  login: (data: any) => request.post('/v1/auth/login', data),
 }
 
 // ===== 系统管理（日志 + 用户）=====

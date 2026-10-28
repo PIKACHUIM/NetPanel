@@ -77,7 +77,7 @@ func (h *FrpcHandler) List(c *gin.Context) {
 	for i := range configs {
 		configs[i].Status = h.mgr.GetClientStatus(configs[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": configs})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, configs)})
 }
 
 func (h *FrpcHandler) Create(c *gin.Context) {
@@ -102,8 +102,12 @@ func (h *FrpcHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.StopClient(uint(id))
 	req.ID = uint(id)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "FRP 客户端配置不存在"})
+		return
+	}
+	h.mgr.StopClient(uint(id))
 	h.db.Save(&req)
 	logger.WriteLog("info", "frp", fmt.Sprintf("修改FRP客户端 [%d] %s", id, req.Name))
 	if req.Enable {
@@ -155,7 +159,7 @@ func (h *FrpcHandler) ListProxies(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var proxies []model.FrpcProxy
 	h.db.Where("frpc_id = ?", id).Find(&proxies)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": proxies})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, proxies)})
 }
 
 func (h *FrpcHandler) CreateProxy(c *gin.Context) {
@@ -326,8 +330,12 @@ func (h *FrpsHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.StopServer(uint(id))
 	req.ID = uint(id)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "FRP 服务端配置不存在"})
+		return
+	}
+	h.mgr.StopServer(uint(id))
 	h.db.Save(&req)
 	logger.WriteLog("info", "frp", fmt.Sprintf("修改FRP服务端 [%d] %s", id, req.Name))
 	if req.Enable {

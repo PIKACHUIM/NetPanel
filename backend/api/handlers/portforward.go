@@ -55,7 +55,7 @@ func (h *PortForwardHandler) List(c *gin.Context) {
 	for i := range rules {
 		rules[i].Status = h.mgr.GetStatus(rules[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rules})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, rules)})
 }
 
 // Create 创建端口转发规则

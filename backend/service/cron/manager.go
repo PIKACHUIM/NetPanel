@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/safehttp"
 	"github.com/netpanel/netpanel/service/cert"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/netpanel/netpanel/service/wol"
@@ -214,21 +215,20 @@ func (l *limitedWriter) Write(p []byte) (int, error) {
 }
 
 func (m *Manager) runHTTP(url, method, body string) (string, error) {
+	method = strings.ToUpper(strings.TrimSpace(method))
 	if method == "" {
-		method = "GET"
+		method = http.MethodGet
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	var req *http.Request
-	var err error
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions:
+	default:
+		return "", fmt.Errorf("HTTP 方法不支持: %s", method)
+	}
+	var payload io.Reader
 	if body != "" {
-		req, err = http.NewRequest(method, url, strings.NewReader(body))
-	} else {
-		req, err = http.NewRequest(method, url, nil)
+		payload = strings.NewReader(body)
 	}
-	if err != nil {
-		return "", err
-	}
-	resp, err := client.Do(req)
+	resp, err := safehttp.Do(context.Background(), method, url, payload, 30*time.Second)
 	if err != nil {
 		return "", err
 	}

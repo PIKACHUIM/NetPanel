@@ -8,6 +8,7 @@ package safehttp
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -121,10 +122,15 @@ func NewClient(timeout time.Duration) *http.Client {
 
 // Get 校验 URL 后发起 GET 请求。
 func Get(ctx context.Context, rawURL string, timeout time.Duration) (*http.Response, error) {
+	return Do(ctx, http.MethodGet, rawURL, nil, timeout)
+}
+
+// Do 校验目标 URL 后发起请求，适用于受控的管理员配置任务。
+func Do(ctx context.Context, method, rawURL string, body io.Reader, timeout time.Duration) (*http.Response, error) {
 	if _, err := ValidateURL(rawURL); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
@@ -15,6 +16,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -463,11 +466,11 @@ func (p *dnspodRecordProvider) ListRecords(domain string) ([]ProviderRecord, err
 	var result struct {
 		Response struct {
 			RecordList []struct {
-				RecordId   uint   `json:"RecordId"`
-				Type       string `json:"Type"`
-				SubDomain  string `json:"Name"`
-				Value      string `json:"Value"`
-				TTL        int    `json:"TTL"`
+				RecordId  uint   `json:"RecordId"`
+				Type      string `json:"Type"`
+				SubDomain string `json:"Name"`
+				Value     string `json:"Value"`
+				TTL       int    `json:"TTL"`
 			} `json:"RecordList"`
 			Error *struct{ Message string } `json:"Error"`
 		} `json:"Response"`
@@ -653,8 +656,8 @@ func (h *DomainAccountHandler) Update(c *gin.Context) {
 		return
 	}
 	req.ID = uint(id)
-	// 如果 Secret 是掩码则保留原值
-	if strings.HasPrefix(req.AccessSecret.String(), "****") {
+	// 空值或掩码表示不修改 Secret，避免回显后保存导致密钥丢失。
+	if req.AccessSecret.IsEmpty() || strings.HasPrefix(req.AccessSecret.String(), "****") {
 		req.AccessSecret = existing.AccessSecret
 	}
 	if err := h.repo.Update(c.Request.Context(), uint(id), &req); err != nil {
@@ -1110,7 +1113,11 @@ func NewCertAccountHandler(db *gorm.DB, log *logrus.Logger, certMgr *cert.Manage
 
 func (h *CertAccountHandler) List(c *gin.Context) {
 	var accounts []model.CertAccount
-	h.db.Order("id desc").Find(&accounts)
+	if err := h.db.Order("id desc").Find(&accounts).Error; err != nil {
+		h.log.Errorf("获取证书账号失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取证书账号失败"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": accounts})
 }
 
@@ -1133,7 +1140,15 @@ func (h *CertAccountHandler) Update(c *gin.Context) {
 		return
 	}
 	req.ID = uint(id)
-	h.db.Save(&req)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "证书账号不存在"})
+		return
+	}
+	if err := h.db.Save(&req).Error; err != nil {
+		h.log.Errorf("更新证书账号失败 [%d]: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "更新证书账号失败"})
+		return
+	}
 	logger.WriteLog("info", "cert", fmt.Sprintf("更新证书账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
@@ -1156,7 +1171,7 @@ func (h *CertAccountHandler) Verify(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "证书服务未初始化"})
 		return
 	}
-	if err := h.certMgr.VerifyAccount(account.Email, account.Type, account.EabKid, account.EabHmacKey); err != nil {
+	if err := h.certMgr.VerifyAccount(account.Email, account.Type, account.EabKid, account.EabHmacKey.String()); err != nil {
 		h.log.Warnf("[证书账号] 验证账号失败: id=%d type=%s email=%s err=%v", id, account.Type, account.Email, err)
 		c.JSON(http.StatusOK, gin.H{"code": 400, "message": err.Error()})
 		return
@@ -1181,7 +1196,7 @@ func NewCertHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config, certMgr
 func (h *CertHandler) List(c *gin.Context) {
 	var certs []model.DomainCert
 	h.db.Order("id desc").Find(&certs)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": certs})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, certs)})
 }
 
 func (h *CertHandler) Create(c *gin.Context) {
@@ -1241,6 +1256,64 @@ func extractRootDomain(domain string) string {
 		return domain
 	}
 	return strings.Join(parts[len(parts)-2:], ".")
+}
+
+func (h *CertHandler) Download(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	var cert model.DomainCert
+	if err := h.db.First(&cert, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "证书不存在"})
+		return
+	}
+	certPEM, keyPEM := cert.CertContent, cert.KeyContent
+	if cert.CertFile != "" && cert.KeyFile != "" {
+		certBytes, certErr := os.ReadFile(filepath.Clean(cert.CertFile))
+		keyBytes, keyErr := os.ReadFile(filepath.Clean(cert.KeyFile))
+		if certErr == nil && keyErr == nil {
+			certPEM, keyPEM = string(certBytes), string(keyBytes)
+		} else if certPEM == "" || keyPEM == "" {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "证书文件不可用"})
+			return
+		}
+	}
+	if certPEM == "" || keyPEM == "" {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "证书内容不可用"})
+		return
+	}
+	var archiveBuffer bytes.Buffer
+	zipWriter := zip.NewWriter(&archiveBuffer)
+	for name, content := range map[string]string{"certificate.pem": certPEM, "private-key.pem": keyPEM} {
+		entry, err := zipWriter.Create(name)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成证书归档失败"})
+			return
+		}
+		if _, err := entry.Write([]byte(content)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "写入证书归档失败"})
+			return
+		}
+	}
+	if err := zipWriter.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "完成证书归档失败"})
+		return
+	}
+	filename := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == '\r' || r == '\n' || r == '"' {
+			return '_'
+		}
+		return r
+	}, cert.Name)
+	if filename == "" {
+		filename = fmt.Sprintf("certificate-%d", id)
+	}
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, filename))
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	logger.WriteLog("warn", "cert", fmt.Sprintf("用户 %s 下载证书及私钥 [%d]", c.GetString("username"), id))
+	c.Data(http.StatusOK, "application/zip", archiveBuffer.Bytes())
 }
 
 func (h *CertHandler) Update(c *gin.Context) {
@@ -1520,9 +1593,10 @@ func (h *IPDBHandler) Delete(c *gin.Context) {
 
 // parseIPsFromLine 从一行文本中解析出所有 IP/CIDR，支持空格、逗号、分号分隔多个 IP 段
 // 行格式示例：
-//   192.168.1.0/24
-//   192.168.1.0/24 10.0.0.0/8
-//   192.168.1.0/24,10.0.0.0/8;172.16.0.0/12
+//
+//	192.168.1.0/24
+//	192.168.1.0/24 10.0.0.0/8
+//	192.168.1.0/24,10.0.0.0/8;172.16.0.0/12
 func parseIPsFromLine(line string) []string {
 	// 统一将逗号、分号替换为空格，再按空格分割
 	replacer := strings.NewReplacer(",", " ", ";", " ")
@@ -1553,9 +1627,10 @@ func parseIPsFromLine(line string) []string {
 // parseTextToCIDRs 将文本内容解析为 IP/CIDR 列表
 // 支持每行多个 IP/CIDR（空格/逗号/分号分隔），行尾可附加 location 和 tags（会被忽略）
 // 格式：
-//   CIDR1 CIDR2 CIDR3
-//   CIDR1,CIDR2 location tags
-//   # 注释行
+//
+//	CIDR1 CIDR2 CIDR3
+//	CIDR1,CIDR2 location tags
+//	# 注释行
 func parseTextToCIDRs(text string) []string {
 	var cidrs []string
 	scanner := bufio.NewScanner(strings.NewReader(text))

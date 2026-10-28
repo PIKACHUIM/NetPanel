@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/netpanel/netpanel/api/middleware"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/service/ai"
 	"github.com/sirupsen/logrus"
@@ -109,9 +110,35 @@ func (h *AiHandler) TestProvider(c *gin.Context) {
 
 // ===== Conversation（对话）=====
 
+func (h *AiHandler) authorizeConversation(c *gin.Context, id uint) (*model.AiConversation, bool) {
+	var conv model.AiConversation
+	if id == 0 || h.db.First(&conv, id).Error != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "对话不存在"})
+		return nil, false
+	}
+	if middleware.IsCurrentUserAdmin(c) {
+		return &conv, true
+	}
+	userID, ok := middleware.CurrentUserID(c)
+	if !ok || conv.UserID != userID {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "对话不存在"})
+		return nil, false
+	}
+	return &conv, true
+}
+
 func (h *AiHandler) ListConversations(c *gin.Context) {
-	list, err := h.aiMgr.ListConversations()
-	if err != nil {
+	query := h.db.Model(&model.AiConversation{}).Order("updated_at desc")
+	if !middleware.IsCurrentUserAdmin(c) {
+		userID, ok := middleware.CurrentUserID(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登录"})
+			return
+		}
+		query = query.Where("user_id = ?", userID)
+	}
+	var list []model.AiConversation
+	if err := query.Find(&list).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -127,6 +154,9 @@ func (h *AiHandler) CreateConversation(c *gin.Context) {
 	if conv.Title == "" {
 		conv.Title = "新对话"
 	}
+	if userID, ok := middleware.CurrentUserID(c); ok {
+		conv.UserID = userID
+	}
 	if err := h.aiMgr.CreateConversation(&conv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -135,13 +165,22 @@ func (h *AiHandler) CreateConversation(c *gin.Context) {
 }
 
 func (h *AiHandler) UpdateConversation(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "对话 ID 无效"})
+		return
+	}
+	existing, ok := h.authorizeConversation(c, uint(id))
+	if !ok {
+		return
+	}
 	var conv model.AiConversation
 	if err := c.ShouldBindJSON(&conv); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 	conv.ID = uint(id)
+	conv.UserID = existing.UserID
 	if err := h.aiMgr.UpdateConversation(&conv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -150,7 +189,14 @@ func (h *AiHandler) UpdateConversation(c *gin.Context) {
 }
 
 func (h *AiHandler) DeleteConversation(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "对话 ID 无效"})
+		return
+	}
+	if _, ok := h.authorizeConversation(c, uint(id)); !ok {
+		return
+	}
 	if err := h.aiMgr.DeleteConversation(uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -159,7 +205,14 @@ func (h *AiHandler) DeleteConversation(c *gin.Context) {
 }
 
 func (h *AiHandler) ListMessages(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "对话 ID 无效"})
+		return
+	}
+	if _, ok := h.authorizeConversation(c, uint(id)); !ok {
+		return
+	}
 	msgs, err := h.aiMgr.ListMessages(uint(id))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -170,7 +223,14 @@ func (h *AiHandler) ListMessages(c *gin.Context) {
 
 // SendMessage 发送消息（非流式）
 func (h *AiHandler) SendMessage(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "对话 ID 无效"})
+		return
+	}
+	if _, ok := h.authorizeConversation(c, uint(id)); !ok {
+		return
+	}
 	var body struct {
 		Content string `json:"content"`
 	}
@@ -189,18 +249,20 @@ func (h *AiHandler) SendMessage(c *gin.Context) {
 
 // StreamMessage SSE 流式发送消息
 func (h *AiHandler) StreamMessage(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "对话 ID 无效"})
+		return
+	}
+	conv, ok := h.authorizeConversation(c, uint(id))
+	if !ok {
+		return
+	}
 	var body struct {
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.Content == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "content 不能为空"})
-		return
-	}
-
-	conv, err := h.aiMgr.GetConversation(uint(id))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "对话不存在"})
 		return
 	}
 
@@ -292,7 +354,14 @@ func (h *AiHandler) StreamMessage(c *gin.Context) {
 
 // ExportConversation 导出对话
 func (h *AiHandler) ExportConversation(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "对话 ID 无效"})
+		return
+	}
+	if _, ok := h.authorizeConversation(c, uint(id)); !ok {
+		return
+	}
 	data, err := h.aiMgr.ExportConversation(uint(id))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -304,12 +373,14 @@ func (h *AiHandler) ExportConversation(c *gin.Context) {
 
 // ImportConversation 导入对话
 func (h *AiHandler) ImportConversation(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "读取请求体失败"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "读取请求失败或导入文件超过 2 MiB"})
 		return
 	}
-	conv, err := h.aiMgr.ImportConversation(body)
+	userID, _ := middleware.CurrentUserID(c)
+	conv, err := h.aiMgr.ImportConversation(body, userID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return

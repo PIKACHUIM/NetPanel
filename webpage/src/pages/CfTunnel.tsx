@@ -30,6 +30,7 @@ import {
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {cftunnelApi} from '../api'
+import {useAppStore} from '../store/appStore'
 import StatusTag from '../components/StatusTag'
 
 const {Option} = Select
@@ -43,6 +44,7 @@ const modeColor: Record<string, string> = {
 
 const CfTunnel: React.FC = () => {
     const {t} = useTranslation()
+    const token = useAppStore(state => state.token)
     const [data, setData] = useState<any[]>([])
     const [loading, setLoading] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)
@@ -169,39 +171,59 @@ const CfTunnel: React.FC = () => {
             message.error(t('cftunnel.downloadFailed') + ': ' + t('common.unsupported'))
             return
         }
+        if (!token) {
+            message.error(t('login.loginFailed'))
+            return
+        }
 
         setDownloading(true)
         setDownloadProgress(0)
         message.loading({content: t('cftunnel.downloadingBinary'), key: 'download', duration: 0})
+        let completed = false
 
-        const url = cftunnelApi.downloadBinary()
-        const eventSource = new EventSource(url)
-
-        eventSource.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data)
-                if (data.error) {
-                    message.error({content: t('cftunnel.downloadFailed') + ': ' + data.error, key: 'download'})
-                    setDownloading(false)
-                    eventSource.close()
-                } else if (data.done) {
-                    message.success({content: t('cftunnel.downloadSuccess'), key: 'download'})
-                    setDownloading(false)
-                    setDownloadProgress(100)
-                    eventSource.close()
-                    checkBinary() // 重新检测
-                } else if (data.percent !== undefined) {
-                    setDownloadProgress(Math.round(data.percent))
-                }
-            } catch (e) {
-                console.error('解析下载进度失败:', e)
+        try {
+            const response = await cftunnelApi.downloadBinary(token)
+            if (!response.ok) {
+                throw new Error((await response.text()) || `HTTP ${response.status}`)
             }
-        }
+            if (!response.body) throw new Error('浏览器不支持流式下载')
 
-        eventSource.onerror = () => {
-            message.error({content: t('cftunnel.downloadFailed'), key: 'download'})
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            const handleFrame = (frame: string) => {
+                const data = frame.split(/\r?\n/)
+                    .filter(line => line.startsWith('data:'))
+                    .map(line => line.slice(5).trimStart())
+                    .join('\n')
+                if (!data) return
+                const event = JSON.parse(data)
+                if (event.error) throw new Error(event.error)
+                if (event.done) {
+                    completed = true
+                    setDownloadProgress(100)
+                    message.success({content: t('cftunnel.downloadSuccess'), key: 'download'})
+                } else if (event.percent !== undefined) {
+                    setDownloadProgress(Math.round(event.percent))
+                }
+            }
+
+            while (true) {
+                const {value, done} = await reader.read()
+                buffer += value ? decoder.decode(value, {stream: !done}) : decoder.decode()
+                const frames = buffer.split(/\r?\n\r?\n/)
+                buffer = frames.pop() || ''
+                for (const frame of frames) handleFrame(frame)
+                if (done) break
+            }
+            if (buffer.trim()) handleFrame(buffer)
+            if (!completed) throw new Error('下载连接提前结束')
+            void checkBinary()
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error)
+            message.error({content: t('cftunnel.downloadFailed') + ': ' + detail, key: 'download'})
+        } finally {
             setDownloading(false)
-            eventSource.close()
         }
     }
 

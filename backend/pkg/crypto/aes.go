@@ -8,6 +8,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 )
 
@@ -25,16 +27,59 @@ var (
 	keyInitialized bool
 )
 
-// InitKey 从环境变量加载并验证加密密钥
+// InitKey 从环境变量加载并验证加密密钥。
+// 此函数主要供测试和显式环境配置场景使用。
 func InitKey() error {
 	key := os.Getenv(EnvSecretKey)
 	if key == "" {
-		return errors.New("secret key not found: set " + EnvSecretKey + " environment variable")
+		return errors.New("secret key not found: set " + EnvSecretKey + " or use InitKeyFromDataDir")
 	}
-	if len([]byte(key)) < MinKeyLength {
-		return errors.New("secret key too short: must be at least " + strconv.Itoa(MinKeyLength) + " bytes")
+	return setKey([]byte(key))
+}
+
+// InitKeyFromDataDir 加载用户提供的加密密钥；未提供密钥时关闭字段级加密。
+// secret.key 与 NETPANEL_SECRET_KEY 同时缺失时，Secret 字段将以明文存储。
+func InitKeyFromDataDir(dataDir string) error {
+	if key := os.Getenv(EnvSecretKey); key != "" {
+		return setKey([]byte(key))
 	}
-	globalKey = []byte(key)
+
+	keyPath := filepath.Join(dataDir, "secret.key")
+	key, err := os.ReadFile(keyPath)
+	if err == nil {
+		if err := setKey(key); err != nil {
+			return errors.New("invalid persisted secret key: " + err.Error())
+		}
+		if runtime.GOOS != "windows" {
+			if err := os.Chmod(keyPath, 0600); err != nil {
+				return errors.New("secure secret key file permissions: " + err.Error())
+			}
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return errors.New("read persisted secret key: " + err.Error())
+	}
+
+	clearKey()
+	return nil
+}
+
+func clearKey() {
+	for i := range globalKey {
+		globalKey[i] = 0
+	}
+	globalKey = nil
+	keyInitialized = false
+}
+
+func setKey(key []byte) error {
+	if len(key) != MinKeyLength {
+		globalKey = nil
+		keyInitialized = false
+		return errors.New("secret key must be exactly " + strconv.Itoa(MinKeyLength) + " bytes for AES-256")
+	}
+	globalKey = append(globalKey[:0], key...)
 	keyInitialized = true
 	return nil
 }
@@ -94,10 +139,10 @@ func Decrypt(ciphertextB64 string) (string, error) {
 	return string(plaintext), nil
 }
 
-// EncryptIfKeyAvailable 有密钥则加密，否则返回原值（兼容未配置密钥场景）
+// EncryptIfKeyAvailable 加密明文；密钥未初始化时失败关闭。
 func EncryptIfKeyAvailable(plaintext string) (string, error) {
 	if !keyInitialized {
-		return plaintext, nil
+		return "", errors.New("crypto: key not initialized; refusing plaintext fallback")
 	}
 	return Encrypt(plaintext)
 }

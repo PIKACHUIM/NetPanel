@@ -1,7 +1,6 @@
 package model
 
 import (
-	"os"
 	"testing"
 
 	"github.com/netpanel/netpanel/pkg/crypto"
@@ -10,13 +9,10 @@ import (
 // TestSecretValueScanEncrypted 验证 Value/Scan 真的走了加解密：
 // 写入数据库的值必须是密文，读回来必须还原为原文。
 func TestSecretValueScanEncrypted(t *testing.T) {
+	t.Setenv(crypto.EnvSecretKey, "0123456789abcdef0123456789abcdef")
 	if err := crypto.InitKey(); err != nil {
-		t.Setenv(crypto.EnvSecretKey, "0123456789abcdef0123456789abcdef")
-		if err := crypto.InitKey(); err != nil {
-			t.Fatalf("InitKey: %v", err)
-		}
+		t.Fatalf("InitKey: %v", err)
 	}
-	_ = os.Getenv(crypto.EnvSecretKey)
 
 	const plain = "s3cr3t-password"
 	enc, err := Secret(plain).Value()
@@ -41,6 +37,55 @@ func TestSecretValueScanEncrypted(t *testing.T) {
 }
 
 // TestSecretScanLegacyPlaintext 兼容启用加密前的历史明文数据。
+func TestSecretValueWithoutKeyStoresPlaintext(t *testing.T) {
+	t.Setenv(crypto.EnvSecretKey, "")
+	if err := crypto.InitKeyFromDataDir(t.TempDir()); err != nil {
+		t.Fatalf("initialize plaintext mode: %v", err)
+	}
+	if crypto.IsInitialized() {
+		t.Fatal("encryption unexpectedly enabled without a key")
+	}
+
+	const plain = "s3cr3t-password"
+	stored, err := Secret(plain).Value()
+	if err != nil {
+		t.Fatalf("Value without key: %v", err)
+	}
+	if stored != plain {
+		t.Fatalf("Value without key = %v, want plaintext %q", stored, plain)
+	}
+	var got Secret
+	if err := got.Scan(stored); err != nil {
+		t.Fatalf("Scan plaintext: %v", err)
+	}
+	if got.String() != plain {
+		t.Fatalf("Scan plaintext = %q, want %q", got, plain)
+	}
+}
+
+func TestSecretEncryptedValueWithoutKeyRemainsOpaque(t *testing.T) {
+	t.Setenv(crypto.EnvSecretKey, "0123456789abcdef0123456789abcdef")
+	if err := crypto.InitKey(); err != nil {
+		t.Fatalf("initialize encryption: %v", err)
+	}
+	stored, err := Secret("encrypted-credential").Value()
+	if err != nil {
+		t.Fatalf("encrypt credential: %v", err)
+	}
+
+	t.Setenv(crypto.EnvSecretKey, "")
+	if err := crypto.InitKeyFromDataDir(t.TempDir()); err != nil {
+		t.Fatalf("disable encryption: %v", err)
+	}
+	var got Secret
+	if err := got.Scan(stored); err != nil {
+		t.Fatalf("scan opaque ciphertext: %v", err)
+	}
+	if got.String() != stored {
+		t.Fatalf("value without the original key = %q, want opaque stored ciphertext", got)
+	}
+}
+
 func TestSecretScanLegacyPlaintext(t *testing.T) {
 	var s Secret
 	if err := s.Scan("legacy-plain-value"); err != nil {

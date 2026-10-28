@@ -5,6 +5,7 @@ import { UserOutlined, LockOutlined, WifiOutlined, GlobalOutlined, SkinOutlined 
 import { useTranslation } from 'react-i18next'
 import { useAppStore, wallpaperList, getWallpaperBg } from '../store/appStore'
 import request from '../api/request'
+import { authApi } from '../api'
 import i18n from '../i18n'
 import { useTableStyle } from '../hooks/useTableStyle'
 
@@ -155,31 +156,77 @@ const LoginPage: React.FC = () => {
   const [providers, setProviders] = useState<OAuthProvider[]>([])
   const [visible, setVisible] = useState(false)
 
-  // 判断是否为站点认证模式
-  const redirectUrl = searchParams.get('redirect') || ''
-  const isSiteAuth = redirectUrl.startsWith('http://') || redirectUrl.startsWith('https://')
-  const siteHost = isSiteAuth ? (() => { try { return new URL(redirectUrl).host } catch { return redirectUrl } })() : ''
+  const rawRedirect = searchParams.get('redirect') || ''
+  const localRedirect = (() => {
+    if (!rawRedirect) return ''
+    try {
+      const target = new URL(rawRedirect, window.location.origin)
+      if (!['http:', 'https:'].includes(target.protocol) || target.origin !== window.location.origin || target.username || target.password) return ''
+      return `${target.pathname}${target.search}${target.hash}`
+    } catch {
+      return ''
+    }
+  })()
+  const externalRedirectCandidate = (() => {
+    if (!/^https?:\/\//i.test(rawRedirect)) return ''
+    try {
+      const target = new URL(rawRedirect)
+      if (!['http:', 'https:'].includes(target.protocol) || target.origin === window.location.origin || target.username || target.password) return ''
+      return target.href
+    } catch {
+      return ''
+    }
+  })()
+  const [redirectValidation, setRedirectValidation] = useState({ target: '', valid: false, complete: false })
+  const checkingRedirect = Boolean(externalRedirectCandidate) &&
+    (redirectValidation.target !== externalRedirectCandidate || !redirectValidation.complete)
+  const trustedRedirect = redirectValidation.target === externalRedirectCandidate && redirectValidation.valid
+    ? externalRedirectCandidate
+    : ''
+  const redirectUrl = localRedirect || trustedRedirect
+  const oauthRedirect = redirectUrl
+  const isSiteAuth = Boolean(externalRedirectCandidate && trustedRedirect)
+  const siteHost = isSiteAuth ? new URL(trustedRedirect).host : ''
 
   // 主题相关
   const isDark = uiMode === 'dark'
   const animeBg = getWallpaperBg(wallpaper)
 
   useEffect(() => {
-    // 如果用户已登录且是站点认证模式，直接跳转（cookie 已存在）
-    if (token && isSiteAuth) {
-      window.location.href = redirectUrl
+    if (!externalRedirectCandidate) {
+      setRedirectValidation({ target: '', valid: false, complete: true })
       return
     }
-    // 如果用户已登录且不是站点认证，跳转到面板
-    if (token && !isSiteAuth) {
-      navigate('/dashboard', { replace: true })
+    let active = true
+    setRedirectValidation({ target: externalRedirectCandidate, valid: false, complete: false })
+    authApi.validateRedirect(externalRedirectCandidate)
+      .then((res: any) => {
+        if (active) setRedirectValidation({ target: externalRedirectCandidate, valid: Boolean(res?.data?.valid), complete: true })
+      })
+      .catch(() => {
+        if (active) setRedirectValidation({ target: externalRedirectCandidate, valid: false, complete: true })
+      })
+    return () => { active = false }
+  }, [externalRedirectCandidate])
+
+  useEffect(() => {
+    if (!token || checkingRedirect) return
+    if (redirectUrl) {
+      window.location.assign(redirectUrl)
       return
     }
+    let hasSeenOnboarding = false
+    try { hasSeenOnboarding = localStorage.getItem('netpanel-onboarded') === '1' } catch { /* ignore */ }
+    navigate(hasSeenOnboarding ? '/dashboard' : '/onboarding', { replace: true })
+  }, [token, checkingRedirect, redirectUrl, navigate])
+
+  useEffect(() => {
+    if (token) return
     setVisible(true)
     request.get('/v1/auth/oauth/providers').then((res: any) => {
       if (res.data) setProviders(res.data)
     }).catch(() => {})
-  }, [])
+  }, [token])
 
   useEffect(() => { i18n.changeLanguage(language) }, [language])
 
@@ -187,16 +234,17 @@ const LoginPage: React.FC = () => {
     setLoading(true)
     try {
       const res: any = await request.post('/v1/auth/login', values)
-      if (isSiteAuth) {
-        message.success(t('login.loginSuccess'))
-        window.location.href = redirectUrl
-        return
-      }
       setToken(res.data?.token)
       setUsername(values.username)
       setRoles(res.data?.roles || '')
       message.success(t('login.loginSuccess'))
-      navigate(redirectUrl || '/dashboard')
+      if (redirectUrl) {
+        window.location.assign(redirectUrl)
+        return
+      }
+      let hasSeenOnboarding = false
+      try { hasSeenOnboarding = localStorage.getItem('netpanel-onboarded') === '1' } catch { /* ignore */ }
+      navigate(hasSeenOnboarding ? '/dashboard' : '/onboarding', { replace: true })
     } catch {
     } finally {
       setLoading(false)
@@ -204,7 +252,9 @@ const LoginPage: React.FC = () => {
   }
 
   const handleOAuthLogin = (provider: OAuthProvider) => {
-    window.location.href = `/api/v1/auth/oauth/${provider.name}/authorize`
+    const authorizeUrl = `/api/v1/auth/oauth/${encodeURIComponent(provider.name)}/authorize`
+    const redirectQuery = oauthRedirect ? `?redirect=${encodeURIComponent(oauthRedirect)}` : ''
+    window.location.assign(`${authorizeUrl}${redirectQuery}`)
   }
 
   // 颜色变量
@@ -462,7 +512,7 @@ const LoginPage: React.FC = () => {
           </Form.Item>
           <Form.Item style={{ marginBottom: 16 }}>
             <Button
-              type="primary" htmlType="submit" block loading={loading}
+              type="primary" htmlType="submit" block loading={loading} disabled={checkingRedirect}
               style={{
                 height: 46, borderRadius: 10, fontSize: 15, fontWeight: 600,
                 background: 'linear-gradient(135deg, #0071e3 0%, #0958d9 100%)',
@@ -482,7 +532,7 @@ const LoginPage: React.FC = () => {
             </Divider>
             <Space wrap style={{ width: '100%', justifyContent: 'center' }}>
               {providers.map(p => (
-                <Button key={p.id} shape="round" onClick={() => handleOAuthLogin(p)}
+                <Button key={p.id} shape="round" disabled={checkingRedirect} onClick={() => handleOAuthLogin(p)}
                   style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: rightTextColor }}>
                   {p.name}
                 </Button>

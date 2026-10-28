@@ -31,7 +31,7 @@ func (h *TunserviceHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": views})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, views)})
 }
 
 // Get 返回单个穿透服务详情（含线路实时状态）
@@ -42,7 +42,7 @@ func (h *TunserviceHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": view})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, view)})
 }
 
 func (h *TunserviceHandler) Create(c *gin.Context) {

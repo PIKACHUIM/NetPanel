@@ -1,5 +1,6 @@
 import React from 'react'
-import { Card, Col, Row, Typography, Collapse, Tag, Space } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import { Button, Card, Col, Row, Typography, Collapse, Tag, Space } from 'antd'
 import {
   RocketOutlined, CloudOutlined, SafetyOutlined, LinkOutlined,
   GlobalOutlined, TeamOutlined, QuestionCircleOutlined,
@@ -8,12 +9,12 @@ import {
 const { Title, Text, Paragraph } = Typography
 
 const helpItems = [
-  { icon: <RocketOutlined style={{ color: '#0071e3' }} />, title: '快速上手', desc: '从安装到接入公网的完整流程，5 分钟跑通 NetPanel 核心功能。' },
-  { icon: <CloudOutlined style={{ color: '#ff9f0a' }} />, title: 'Cloudflare 隧道', desc: 'Quick / Named 两种隧道的创建、配置与常见报错排查。' },
-  { icon: <SafetyOutlined style={{ color: '#34c759' }} />, title: '安全中心', desc: 'WAF 规则、封禁策略、黑白名单与拦截页面的配置说明。' },
-  { icon: <LinkOutlined style={{ color: '#bf5af2' }} />, title: 'NPS / FRP / EasyTier', desc: '各穿透协议的服务端部署、客户端接入与性能对比。' },
-  { icon: <GlobalOutlined style={{ color: '#0a84ff' }} />, title: 'DDNS 与域名解析', desc: '绑定 Cloudflare / DNSPod 等解析商，动态 IP 自动更新。' },
-  { icon: <TeamOutlined style={{ color: '#f472b6' }} />, title: '账号与权限', desc: '多管理员协作、最后管理员保护、改名与密码重置规则。' },
+  { icon: <RocketOutlined style={{ color: '#0071e3' }} />, title: '快速上手', desc: '根据当前网络条件选择接入方式，再逐步完成配置与验证。', path: '/onboarding', action: '打开引导' },
+  { icon: <CloudOutlined style={{ color: '#ff9f0a' }} />, title: 'Cloudflare 隧道', desc: '管理免端口映射的隧道，并检查域名与访问规则。', path: '/cftunnel', action: '管理隧道' },
+  { icon: <SafetyOutlined style={{ color: '#34c759' }} />, title: '安全中心', desc: '查看 WAF 规则、封禁策略、黑白名单与拦截状态。', path: '/security/waf', action: '查看安全状态' },
+  { icon: <LinkOutlined style={{ color: '#bf5af2' }} />, title: '穿透与组网', desc: '按部署条件管理 FRP、NPS、EasyTier 与 WireGuard。', path: '/frp/client', action: '查看连接' },
+  { icon: <GlobalOutlined style={{ color: '#0a84ff' }} />, title: 'DDNS 与域名解析', desc: '管理动态域名、解析账号与证书生命周期。', path: '/ddns', action: '管理域名服务' },
+  { icon: <TeamOutlined style={{ color: '#f472b6' }} />, title: '账号与权限', desc: '管理用户、角色与 OAuth 登录配置。', path: '/admin/users', action: '管理用户' },
 ]
 
 const faqs = [
@@ -25,6 +26,8 @@ const faqs = [
 ]
 
 const Help: React.FC = () => {
+  const navigate = useNavigate()
+
   return (
     <div style={{ padding: 4 }}>
       <Title level={4} style={{ marginBottom: 2 }}>帮助与说明</Title>
@@ -33,10 +36,13 @@ const Help: React.FC = () => {
       <Row gutter={[14, 14]} style={{ marginTop: 18 }}>
         {helpItems.map(item => (
           <Col xs={24} sm={12} lg={8} key={item.title}>
-            <Card size="small" hoverable style={{ borderRadius: 'var(--radius-md)', height: '100%' }}>
+            <Card size="small" style={{ borderRadius: 'var(--radius-md)', height: '100%' }}>
               <div style={{ fontSize: 20, marginBottom: 8 }}>{item.icon}</div>
               <b style={{ fontSize: 14 }}>{item.title}</b>
-              <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>{item.desc}</Paragraph>
+              <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6, marginBottom: 8 }}>{item.desc}</Paragraph>
+              <Button type="link" size="small" onClick={() => navigate(item.path)} style={{ paddingInline: 0 }}>
+                {item.action} →
+              </Button>
             </Card>
           </Col>
         ))}

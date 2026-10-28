@@ -130,7 +130,7 @@ func (m *Manager) checkCertWarnings() {
 		return
 	}
 	for _, c := range certs {
-		if c.ExpireAt.IsZero() {
+		if c.ExpireAt == nil || c.ExpireAt.IsZero() {
 			continue
 		}
 		days := int(time.Until(*c.ExpireAt).Hours() / 24)

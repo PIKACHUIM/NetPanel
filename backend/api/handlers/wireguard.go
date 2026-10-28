@@ -34,7 +34,7 @@ func (h *WireguardHandler) List(c *gin.Context) {
 	for i := range configs {
 		configs[i].Status = h.mgr.GetStatus(configs[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": configs})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, configs)})
 }
 
 func (h *WireguardHandler) Create(c *gin.Context) {
@@ -130,7 +130,7 @@ func (h *WireguardHandler) ListPeers(c *gin.Context) {
 	wgID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var peers []model.WireguardPeer
 	h.db.Where("wireguard_id = ?", wgID).Order("id desc").Find(&peers)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": peers})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, peers)})
 }
 
 func (h *WireguardHandler) CreatePeer(c *gin.Context) {

@@ -805,7 +805,7 @@ type CertAccount struct {
 	EabMode string `gorm:"size:20;default:'manual'" json:"eab_mode"`
 	// EAB（External Account Binding）凭据
 	EabKid     string `gorm:"size:255" json:"eab_kid"`
-	EabHmacKey string `gorm:"size:500" json:"eab_hmac_key"`
+	EabHmacKey Secret `gorm:"size:500" json:"eab_hmac_key"`
 	// 环境选择：production（正式环境）/ staging（测试环境）
 	Env string `gorm:"size:20;default:'production'" json:"env"`
 	// 是否使用代理：none（否）/ proxy（是）/ reverse_proxy（是（反向代理））
@@ -945,7 +945,7 @@ type StorageConfig struct {
 	ListenPort int    `json:"listen_port"`
 	RootPath   string `gorm:"size:500;not null" json:"root_path"`
 	Username   string `gorm:"size:100" json:"username"`
-	Password   string `gorm:"size:255" json:"password"`
+	Password   Secret `gorm:"size:255" json:"password"`
 	ReadOnly   bool   `gorm:"default:false" json:"read_only"`
 	Status     string `gorm:"size:20;default:'stopped'" json:"status"`
 	LastError  string `gorm:"type:text" json:"last_error"`
@@ -1317,6 +1317,7 @@ type AiProvider struct {
 // AiConversation AI 对话会话
 type AiConversation struct {
 	BaseModel
+	UserID       uint   `gorm:"index;not null;default:0" json:"-"`
 	Title        string `gorm:"size:200" json:"title"`
 	ModelName    string `gorm:"size:100" json:"model_name"`
 	ProviderID   uint   `gorm:"index" json:"provider_id"`

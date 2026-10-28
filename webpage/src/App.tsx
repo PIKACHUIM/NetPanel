@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { Spin } from 'antd'
+import { Button, Spin } from 'antd'
 import MainLayout from './layouts/MainLayout'
 import LoginPage from './pages/Login'
 import InitSetup from './pages/InitSetup'
@@ -79,16 +79,27 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return <>{children}</>
 }
 
-// 初始化守卫：未初始化时强制跳转初始化向导
+// 初始化守卫：状态未知时禁止跳过初始化检查。
 const InitGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [state, setState] = useState<'loading' | 'init' | 'done'>('loading')
-  useEffect(() => {
+  const [state, setState] = useState<'loading' | 'init' | 'done' | 'error'>('loading')
+  const checkStatus = () => {
+    setState('loading')
     initApi.status()
-      .then((res: any) => setState(res?.data?.initialized === false ? 'init' : 'done'))
-      .catch(() => setState('done'))
-  }, [])
+      .then((res: any) => {
+        const initialized = res?.data?.initialized
+        setState(typeof initialized === 'boolean' ? (initialized ? 'done' : 'init') : 'error')
+      })
+      .catch(() => setState('error'))
+  }
+  useEffect(() => { checkStatus() }, [])
   if (state === 'loading') return <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>
   if (state === 'init') return <Navigate to="/setup" replace />
+  if (state === 'error') return (
+    <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+      <span>无法确认初始化状态，请检查服务连接后重试。</span>
+      <Button onClick={checkStatus}>重新检查</Button>
+    </div>
+  )
   return <>{children}</>
 }
 
@@ -96,7 +107,7 @@ const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/setup" element={<InitSetup />} />
-      <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
       <Route path="/login" element={<InitGuard><LoginPage /></InitGuard>} />
       <Route path="/oauth/callback" element={<Suspense fallback={<PageLoader />}><OAuthCallback /></Suspense>} />
       <Route

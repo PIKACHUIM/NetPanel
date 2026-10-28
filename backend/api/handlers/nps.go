@@ -31,7 +31,7 @@ func (h *NpsServerHandler) List(c *gin.Context) {
 	for i := range configs {
 		configs[i].Status = h.mgr.GetServerStatus(configs[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": configs})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, configs)})
 }
 
 func (h *NpsServerHandler) Create(c *gin.Context) {
@@ -58,8 +58,12 @@ func (h *NpsServerHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.StopServer(uint(id))
 	req.ID = uint(id)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "NPS 服务端配置不存在"})
+		return
+	}
+	h.mgr.StopServer(uint(id))
 	h.db.Save(&req)
 	logger.WriteLog("info", "nps", fmt.Sprintf("修改NPS服务端 [%d]", id))
 	if req.Enable {
@@ -115,7 +119,7 @@ func (h *NpsClientHandler) List(c *gin.Context) {
 	for i := range configs {
 		configs[i].Status = h.mgr.GetClientStatus(configs[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": configs})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, configs)})
 }
 
 func (h *NpsClientHandler) Create(c *gin.Context) {
@@ -142,8 +146,12 @@ func (h *NpsClientHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.StopClient(uint(id))
 	req.ID = uint(id)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "NPS 客户端配置不存在"})
+		return
+	}
+	h.mgr.StopClient(uint(id))
 	h.db.Save(&req)
 	logger.WriteLog("info", "nps", fmt.Sprintf("修改NPS客户端 [%d]", id))
 	if req.Enable {
@@ -187,7 +195,7 @@ func (h *NpsClientHandler) ListTunnels(c *gin.Context) {
 	clientID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var tunnels []model.NpsTunnel
 	h.db.Where("nps_client_id = ?", clientID).Order("id desc").Find(&tunnels)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tunnels})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, tunnels)})
 }
 
 func (h *NpsClientHandler) CreateTunnel(c *gin.Context) {

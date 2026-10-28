@@ -540,10 +540,24 @@ const DomainCert: React.FC = () => {
               )}
             </>
           )}
-          {r.cert_file && (
+          {(r.cert_file || (r.cert_content && r.key_content)) && (
             <Tooltip title={t('domainCert.downloadCert')}>
-              <Button size="small" icon={<DownloadOutlined />}
-                onClick={() => window.open(`/api/v1/domain/certs/${r.id}/download`, '_blank')} />
+              <Button size="small" icon={<DownloadOutlined />} onClick={async () => {
+                try {
+                  const blob = await domainCertApi.download(r.id)
+                  const url = URL.createObjectURL(blob)
+                  const link = document.createElement('a')
+                  link.href = url
+                  const safeName = String(r.name || `certificate-${r.id}`).replace(/[\/\\\r\n]/g, '_')
+                  link.download = `${safeName}.zip`
+                  document.body.appendChild(link)
+                  link.click()
+                  link.remove()
+                  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+                } catch {
+                  message.error(t('common.failed'))
+                }
+              }} />
             </Tooltip>
           )}
           <Tooltip title={t('common.edit')}>

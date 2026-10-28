@@ -168,32 +168,38 @@ const AiChat: React.FC = () => {
 
       const decoder = new TextDecoder()
       let fullContent = ''
+      let buffer = ''
+      let streamDone = false
+
+      const consumeFrame = (frame: string) => {
+        const payload = frame.split(/\r?\n/)
+          .filter(line => line.startsWith('data:'))
+          .map(line => line.slice(5).trimStart())
+          .join('\n')
+        if (!payload) return
+        if (payload === '[DONE]') {
+          streamDone = true
+          return
+        }
+        const chunk = JSON.parse(payload)
+        if (chunk.error) throw new Error(chunk.error)
+        const delta = chunk.choices?.[0]?.delta?.content
+        if (delta) {
+          fullContent += delta
+          setStreamContent(fullContent)
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
-
-        const text = decoder.decode(value, { stream: true })
-        const lines = text.split('\n')
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const data = line.slice(6)
-          if (data === '[DONE]') break
-
-          try {
-            const chunk = JSON.parse(data)
-            if (chunk.error) {
-              message.error(chunk.error)
-              break
-            }
-            if (chunk.choices?.[0]?.delta?.content) {
-              fullContent += chunk.choices[0].delta.content
-              setStreamContent(fullContent)
-            }
-          } catch {}
-        }
+        buffer += value ? decoder.decode(value, { stream: !done }) : decoder.decode()
+        const frames = buffer.split(/\r?\n\r?\n/)
+        buffer = frames.pop() || ''
+        for (const frame of frames) consumeFrame(frame)
+        if (streamDone || done) break
       }
+      if (!streamDone && buffer.trim()) consumeFrame(buffer)
+      if (!streamDone) throw new Error('响应流意外结束')
 
       if (fullContent) {
         setMessages((prev) => [...prev, { role: 'assistant', content: fullContent }])

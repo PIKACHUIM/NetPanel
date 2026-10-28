@@ -84,7 +84,7 @@ func (m *Manager) Start(id uint) error {
 	if err != nil {
 		return m.failStart(id, err)
 	}
-	if err := ValidateCredentials(cfg.Username, cfg.Password, cfg.Protocol); err != nil {
+	if err := ValidateCredentials(cfg.Username, cfg.Password.String(), cfg.Protocol); err != nil {
 		return m.failStart(id, err)
 	}
 	if err := ValidateListenAddr(cfg.ListenAddr); err != nil {
@@ -129,9 +129,13 @@ func (m *Manager) startWebDAV(id uint, cfg *model.StorageConfig) error {
 		// 基础认证。凭据已由 ValidateCredentials 保证非空；
 		// 比较使用常量时间函数，避免通过响应时间侧信道逐字节推断口令。
 		user, pass, ok := r.BasicAuth()
-		if !ok || !constantTimeEqual(user, cfg.Username) || !constantTimeEqual(pass, cfg.Password) {
+		if !ok || !constantTimeEqual(user, cfg.Username) || !constantTimeEqual(pass, cfg.Password.String()) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="WebDAV"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if cfg.ReadOnly && !isReadOnlyWebDAVMethod(r.Method) {
+			http.Error(w, "Read-only share", http.StatusForbidden)
 			return
 		}
 		handler.ServeHTTP(w, r)
@@ -174,7 +178,7 @@ func (m *Manager) startSFTP(id uint, cfg *model.StorageConfig) error {
 	// 登录（连口令都不校验），等于把共享目录以匿名 SFTP 暴露出去。
 	sshConfig := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			if constantTimeEqual(c.User(), cfg.Username) && constantTimeEqual(string(pass), cfg.Password) {
+			if constantTimeEqual(c.User(), cfg.Username) && constantTimeEqual(string(pass), cfg.Password.String()) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("用户名或密码错误")
@@ -209,7 +213,7 @@ func (m *Manager) startSFTP(id uint, cfg *model.StorageConfig) error {
 				// 监听器被关闭，正常退出
 				return
 			}
-			go m.handleSFTPConn(conn, sshConfig, cfg.RootPath)
+			go m.handleSFTPConn(conn, sshConfig, cfg.RootPath, cfg.ReadOnly)
 		}
 	}()
 
@@ -217,7 +221,7 @@ func (m *Manager) startSFTP(id uint, cfg *model.StorageConfig) error {
 }
 
 // handleSFTPConn 处理单个 SFTP 连接
-func (m *Manager) handleSFTPConn(conn net.Conn, config *ssh.ServerConfig, rootPath string) {
+func (m *Manager) handleSFTPConn(conn net.Conn, config *ssh.ServerConfig, rootPath string, readOnly bool) {
 	defer conn.Close()
 
 	// SSH 握手
@@ -278,14 +282,21 @@ func (m *Manager) handleSFTPConn(conn net.Conn, config *ssh.ServerConfig, rootPa
 				}
 			}()
 
-			// 启动 SFTP 服务
-			server, err := sftp.NewServer(ch,
-				sftp.WithServerWorkingDirectory(rootPath),
-			)
-			if err != nil {
-				m.log.Errorf("[SFTP] 创建 SFTP 服务失败: %v", err)
+			sessionRoot, rootErr := os.OpenRoot(rootPath)
+			if rootErr != nil {
+				m.log.Warnf("[SFTP] 打开共享根目录失败: %v", rootErr)
 				return
 			}
+			defer sessionRoot.Close()
+
+			// 使用 os.Root 将每次文件操作限制在共享根目录内；只读策略在文件系统层强制执行。
+			fs := &rootedSFTPFS{root: sessionRoot, readOnly: readOnly}
+			server := sftp.NewRequestServer(ch, sftp.Handlers{
+				FileGet:  fs,
+				FilePut:  fs,
+				FileCmd:  fs,
+				FileList: fs,
+			}, sftp.WithStartDirectory("/"))
 
 			if err := server.Serve(); err != nil && err != io.EOF {
 				m.log.Debugf("[SFTP] 服务结束: %v", err)
@@ -427,7 +438,8 @@ func (m *Manager) startSMB(id uint, cfg *model.StorageConfig) error {
 		exec.Command("useradd", "-M", "-s", "/sbin/nologin", "--", cfg.Username).Run()
 		// 设置 Samba 密码
 		cmd := exec.Command("smbpasswd", "-a", "-s", "--", cfg.Username)
-		cmd.Stdin = strings.NewReader(cfg.Password + "\n" + cfg.Password + "\n")
+		password := cfg.Password.String()
+		cmd.Stdin = strings.NewReader(password + "\n" + password + "\n")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			m.log.Warnf("[SMB] 设置 Samba 用户密码失败: %v, output: %s", err, string(out))
 		}

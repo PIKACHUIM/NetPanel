@@ -36,7 +36,7 @@ func (h *CaddyHandler) List(c *gin.Context) {
 	for i := range sites {
 		sites[i].Status = h.mgr.GetStatus(sites[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": sites})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, sites)})
 }
 
 func (h *CaddyHandler) Create(c *gin.Context) {
@@ -416,7 +416,7 @@ func (h *StorageHandler) List(c *gin.Context) {
 		configs[i].Status = h.mgr.GetStatus(configs[i].ID)
 		// 凭据不回显：网络存储密码属敏感信息，列表接口不应返回明文
 		if configs[i].Password != "" {
-			configs[i].Password = "******"
+			configs[i].Password = model.Secret("******")
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": configs})
@@ -435,11 +435,19 @@ func (h *StorageHandler) Create(c *gin.Context) {
 		// 启动失败（根目录非法 / 未配置凭据等）必须回传给调用方，
 		// 否则前端会显示"创建成功"而实际未生效
 		if err := h.mgr.Start(cfg.ID); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "data": cfg, "message": "创建成功但启动失败: " + err.Error()})
+			response := cfg
+			if response.Password != "" {
+				response.Password = model.Secret("******")
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "data": response, "message": "创建成功但启动失败: " + err.Error()})
 			return
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": cfg, "message": "创建成功"})
+	response := cfg
+	if response.Password != "" {
+		response.Password = model.Secret("******")
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": response, "message": "创建成功"})
 }
 
 func (h *StorageHandler) Update(c *gin.Context) {
@@ -454,8 +462,8 @@ func (h *StorageHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	// 密码回显为掩码时保留原值，避免「查看后保存」把密码清空
-	if strings.HasPrefix(req.Password, "****") {
+	// 空值或掩码表示不修改密码；密码只能通过明确提交新值来轮换。
+	if req.Password.IsEmpty() || strings.HasPrefix(string(req.Password), "****") {
 		req.Password = existing.Password
 	}
 	h.mgr.Stop(uint(id))
@@ -483,7 +491,11 @@ func (h *StorageHandler) Update(c *gin.Context) {
 			return
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
+	response := req
+	if response.Password != "" {
+		response.Password = model.Secret("******")
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": response, "message": "更新成功"})
 }
 
 func (h *StorageHandler) Delete(c *gin.Context) {

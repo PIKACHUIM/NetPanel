@@ -84,6 +84,15 @@ func ValidateCredentials(username, password, protocol string) error {
 	return nil
 }
 
+func isReadOnlyWebDAVMethod(method string) bool {
+	switch method {
+	case "GET", "HEAD", "OPTIONS", "PROPFIND":
+		return true
+	default:
+		return false
+	}
+}
+
 // ValidateListenAddr 校验监听地址必须是合法 IP（或留空表示 0.0.0.0）。
 func ValidateListenAddr(addr string) error {
 	addr = strings.TrimSpace(addr)

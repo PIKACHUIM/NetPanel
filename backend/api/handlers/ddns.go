@@ -36,7 +36,7 @@ func (h *DDNSHandler) List(c *gin.Context) {
 	for i := range tasks {
 		tasks[i].Status = h.mgr.GetStatus(tasks[i].ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tasks})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": maskSensitiveResponse(c, tasks)})
 }
 
 func (h *DDNSHandler) Create(c *gin.Context) {
@@ -64,8 +64,12 @@ func (h *DDNSHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.mgr.Stop(uint(id))
 	req.ID = uint(id)
+	if err := preserveEmptySecretFields(h.db, req.ID, &req); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "DDNS 任务不存在"})
+		return
+	}
+	h.mgr.Stop(uint(id))
 	if err := h.repo.Update(c.Request.Context(), uint(id), &req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return

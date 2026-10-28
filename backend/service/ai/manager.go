@@ -57,6 +57,13 @@ func (m *Manager) CreateProvider(p *model.AiProvider) error {
 
 // UpdateProvider 更新 API 来源
 func (m *Manager) UpdateProvider(p *model.AiProvider) error {
+	var existing model.AiProvider
+	if err := m.db.First(&existing, p.ID).Error; err != nil {
+		return err
+	}
+	if p.ApiKey.IsEmpty() {
+		p.ApiKey = existing.ApiKey
+	}
 	return m.db.Save(p).Error
 }
 

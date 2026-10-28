@@ -837,20 +837,30 @@ func (m *Manager) RecordEvent(nodeID uint, nodeName, eventType, message string) 
 
 // PingTarget 从本机 ping 目标URL，返回延迟（毫秒）
 func (m *Manager) PingTarget(targetURL string) (int, error) {
+	target, err := url.Parse(strings.TrimSpace(targetURL))
+	if err != nil || (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" || target.User != nil {
+		return -1, fmt.Errorf("目标必须是有效的 http/https URL")
+	}
 	start := time.Now()
-	pingURL := strings.TrimRight(targetURL, "/") + "/api/v1/system/info"
+	pingURL := strings.TrimRight(target.String(), "/") + "/api/v1/system/info"
 
-	req, err := http.NewRequestWithContext(m.ctx, "GET", pingURL, nil)
+	req, err := http.NewRequestWithContext(m.ctx, http.MethodGet, pingURL, nil)
 	if err != nil {
 		return -1, err
 	}
+	client := *m.client
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 3 || !strings.EqualFold(req.URL.Host, target.Host) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
 
-	resp, err := m.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return -1, err
 	}
 	defer resp.Body.Close()
-	io.ReadAll(resp.Body)
 
 	latency := int(time.Since(start).Milliseconds())
 	return latency, nil

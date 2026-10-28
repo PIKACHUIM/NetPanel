@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Row, Col, Typography, Spin, Tooltip, Button, theme as antTheme, Tag, Badge } from 'antd'
 import {
   ReloadOutlined, CloudServerOutlined,
@@ -67,7 +68,7 @@ interface FirewallStats {
 interface ServiceStatus {
   name: string
   type: string
-  status: string
+  status: 'running' | 'stopped' | 'error'
   count: number
   running: number
   names: string[]  // 已有配置的名称列表
@@ -137,17 +138,18 @@ const serviceGroupColor: Record<string, { main: string; bg: string; border: stri
 
 // 环形进度条（SVG实现，更精致）
 const RingProgress: React.FC<{
-  value: number
+  value: number | null
   size?: number
   strokeWidth?: number
   label: string
   subtitle?: string
   icon: React.ReactNode
 }> = ({ value, size = 120, strokeWidth = 8, label, subtitle, icon }) => {
-  const { main, glow, track } = getResourceColor(value)
+  const normalizedValue = value ?? 0
+  const { main, glow, track } = getResourceColor(normalizedValue)
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
-  const dashOffset = circumference * (1 - Math.min(value, 100) / 100)
+  const dashOffset = circumference * (1 - Math.min(normalizedValue, 100) / 100)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
@@ -182,7 +184,7 @@ const RingProgress: React.FC<{
         }}>
           <span style={{ color: main, fontSize: 16, lineHeight: 1 }}>{icon}</span>
           <span style={{ fontSize: 18, fontWeight: 700, color: main, lineHeight: 1 }}>
-            {Math.round(value)}%
+            {value == null ? '—' : `${Math.round(value)}%`}
           </span>
         </div>
       </div>
@@ -201,6 +203,7 @@ const RingProgress: React.FC<{
 // 服务卡片
 const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean; hasWp?: boolean }> = ({ svc, isDark, hasWp }) => {
   const isRunning = svc.running > 0
+  const hasError = svc.status === 'error'
   const hasConfig = svc.count > 0
   const colors = serviceGroupColor[svc.type] || { main: '#0071e3', bg: 'rgba(0,113,227,0.08)', border: 'rgba(0,113,227,0.2)' }
   const percent = hasConfig ? Math.round((svc.running / svc.count) * 100) : 0
@@ -211,8 +214,8 @@ const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean; hasWp?: boole
       style={{
       padding: '12px 14px',
       borderRadius: 12,
-      border: `1px solid ${isRunning ? colors.border : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-      background: isRunning ? colors.bg : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+      border: `1px solid ${hasError ? 'rgba(212,136,6,0.35)' : isRunning ? colors.border : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+      background: hasError ? 'rgba(212,136,6,0.06)' : isRunning ? colors.bg : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
       cursor: 'default',
       transition: 'all 0.2s ease',
       position: 'relative',
@@ -248,22 +251,22 @@ const ServiceCard: React.FC<{ svc: ServiceStatus; isDark: boolean; hasWp?: boole
         }}>
           {serviceIcons[svc.type] || <ApiOutlined />}
         </span>
-        {hasConfig ? (
-          isRunning
+        {hasError
+          ? <ExclamationCircleOutlined style={{ color: '#d48806', fontSize: 12 }} />
+          : hasConfig && (isRunning
             ? <CheckCircleFilled style={{ color: colors.main, fontSize: 12 }} />
-            : <MinusCircleFilled style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontSize: 12 }} />
-        ) : null}
+            : <MinusCircleFilled style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontSize: 12 }} />)}
       </div>
 
       {/* 服务名 + 运行数 */}
       <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3, marginBottom: 2 }}>{svc.name}</div>
       <div style={{
         fontSize: 11,
-        color: isRunning ? colors.main : isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
-        fontWeight: isRunning ? 500 : 400,
+        color: hasError ? '#d48806' : isRunning ? colors.main : isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
+        fontWeight: isRunning || hasError ? 500 : 400,
         marginBottom: 8,
       }}>
-        {hasConfig ? `${svc.running}/${svc.count} 运行` : '未配置'}
+        {hasError ? '状态读取失败' : hasConfig ? `${svc.running}/${svc.count} 运行` : '未配置'}
       </div>
 
       {/* 进度条（有配置时显示实际进度，未配置时显示带纹理的空状态） */}
@@ -365,13 +368,14 @@ const InfoItem: React.FC<{
 const MiniResourceCard: React.FC<{
   icon: React.ReactNode
   label: string
-  value: number
+  value: number | null
   subtitle: string
   color: string
   isDark: boolean
   hasWp?: boolean
 }> = ({ icon, label, value, subtitle, color, isDark, hasWp }) => {
-  const { main, track } = getResourceColor(value)
+  const normalizedValue = value ?? 0
+  const { main, track } = getResourceColor(normalizedValue)
   const finalColor = color || main
   return (
     <div style={{
@@ -392,7 +396,7 @@ const MiniResourceCard: React.FC<{
           <span style={{ fontSize: 12, fontWeight: 600 }}>{label}</span>
         </div>
         <span style={{ fontSize: 18, fontWeight: 700, color: finalColor, lineHeight: 1 }}>
-          {Math.round(value)}%
+          {value == null ? '—' : `${Math.round(value)}%`}
         </span>
       </div>
       {/* 进度条 */}
@@ -403,7 +407,7 @@ const MiniResourceCard: React.FC<{
         marginBottom: 5,
       }}>
         <div style={{
-          height: '100%', width: `${Math.min(value, 100)}%`, borderRadius: 3,
+          height: '100%', width: `${Math.min(normalizedValue, 100)}%`, borderRadius: 3,
           background: `linear-gradient(90deg, ${finalColor}cc, ${finalColor})`,
           transition: 'width 0.8s cubic-bezier(0.4,0,0.2,1)',
         }} />
@@ -445,6 +449,7 @@ const MiniInfoCard: React.FC<{
 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { theme, wallpaper } = useAppStore()
   const { token } = antTheme.useToken()
   const [info, setInfo] = useState<SystemInfo | null>(null)
@@ -455,14 +460,22 @@ const Dashboard: React.FC = () => {
   const [wafStats, setWafStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [requestBusy, setRequestBusy] = useState(false)
+  const [failedEndpointCount, setFailedEndpointCount] = useState(0)
+  const [lastSuccessfulRefresh, setLastSuccessfulRefresh] = useState<Date | null>(null)
+  const requestInFlight = useRef(false)
+  const mounted = useRef(false)
 
   const isDark = theme?.includes('dark') || token.colorBgBase === '#000'
   const hasWp = hasWallpaper(wallpaper)
 
-  const fetchInfo = useCallback(async (isManual = false) => {
+  const fetchInfo = useCallback(async (isManual = false): Promise<number> => {
+    if (requestInFlight.current) return -1
+    requestInFlight.current = true
+    setRequestBusy(true)
     if (isManual) setRefreshing(true)
+    let failureCount = 0
     try {
-      // 并行请求所有数据
       const [infoRes, statsRes, ...svcResults] = await Promise.allSettled([
         systemApi.getInfo(),
         systemApi.getStats(),
@@ -482,44 +495,12 @@ const Dashboard: React.FC = () => {
         accessApi.list(),
         wolApi.list(),
       ])
+      if (!mounted.current) return 1
+      if (infoRes.status === 'fulfilled') setInfo((infoRes.value as any).data)
+      else failureCount++
+      if (statsRes.status === 'fulfilled') setStats((statsRes.value as any).data)
+      else failureCount++
 
-      if (infoRes.status === 'fulfilled') {
-        setInfo((infoRes.value as any).data)
-      }
-      if (statsRes.status === 'fulfilled') {
-        setStats((statsRes.value as any).data)
-      }
-      // 获取网络接口
-      try {
-        const ifaceRes = await systemApi.getInterfaces()
-        setNetInterfaces((ifaceRes as any).data || [])
-      } catch { /* ignore */ }
-
-      // 获取防火墙状态
-      try {
-        const [backendRes, rulesRes] = await Promise.allSettled([
-          firewallApi.detectBackend(),
-          firewallApi.list(),
-        ])
-        const backend = backendRes.status === 'fulfilled' ? (backendRes.value as any).data?.backend || 'unknown' : 'unknown'
-        const rules: any[] = rulesRes.status === 'fulfilled' ? (rulesRes.value as any).data || [] : []
-        setFirewallStats({
-          backend,
-          total: rules.length,
-          enabled: rules.filter((r: any) => r.enable).length,
-          applied: rules.filter((r: any) => r.apply_status === 'applied').length,
-          pending: rules.filter((r: any) => r.apply_status === 'pending').length,
-          error: rules.filter((r: any) => r.apply_status === 'error').length,
-        })
-      } catch { /* ignore */ }
-
-      // 获取安全中心态势（WAF）
-      try {
-        const wafRes = await wafSecurityApi.stats()
-        setWafStats((wafRes as any).data || null)
-      } catch { /* ignore */ }
-
-      // 服务列表顺序与上面 svcResults 对应
       const svcDefs = [
         { name: '端口转发', type: 'port_forward' },
         { name: 'STUN穿透', type: 'stun' },
@@ -537,48 +518,105 @@ const Dashboard: React.FC = () => {
         { name: '访问控制', type: 'access' },
         { name: '网络唤醒', type: 'wol' },
       ]
-
-          const updatedServices: ServiceStatus[] = svcDefs.map((def, idx) => {
+      const updatedServices: ServiceStatus[] = svcDefs.map((def, idx) => {
         const result = svcResults[idx]
         if (result.status === 'fulfilled') {
           const list: any[] = (result.value as any).data || []
-          let running = 0
-          if (def.type === 'access') {
-            // 访问控制只有 enable 字段
-            running = list.filter((item: any) => item.enable === true).length
-          } else if (def.type === 'wol') {
-            // WOL 是设备列表，不是运行服务，count 显示设备数，running 固定为 0
-            running = 0
-          } else {
-            running = list.filter((item: any) => item.status === 'running').length
-          }
-          const names: string[] = list
-            .map((item: any) => item.name || item.hostname || item.domain || '')
-            .filter(Boolean)
+          const running = def.type === 'access'
+            ? list.filter((item: any) => item.enable === true).length
+            : def.type === 'wol' ? 0 : list.filter((item: any) => item.status === 'running').length
+          const names: string[] = list.map((item: any) => item.name || item.hostname || item.domain || '').filter(Boolean)
           return { name: def.name, type: def.type, status: running > 0 ? 'running' : 'stopped', count: list.length, running, names }
         }
-        return { name: def.name, type: def.type, status: 'stopped', count: 0, running: 0, names: [] }
+        failureCount++
+        return { name: def.name, type: def.type, status: 'error', count: 0, running: 0, names: [] }
       })
       setServices(updatedServices)
+
+      try {
+        const ifaceRes = await systemApi.getInterfaces()
+        if (mounted.current) setNetInterfaces((ifaceRes as any).data || [])
+      } catch {
+        failureCount++
+        if (mounted.current) setNetInterfaces([])
+      }
+      if (!mounted.current) return failureCount
+
+      const [backendRes, rulesRes] = await Promise.allSettled([firewallApi.detectBackend(), firewallApi.list()])
+      if (!mounted.current) return failureCount
+      if (backendRes.status === 'fulfilled' && rulesRes.status === 'fulfilled') {
+        const rules: any[] = (rulesRes.value as any).data || []
+        setFirewallStats({
+          backend: (backendRes.value as any).data?.backend || 'unknown',
+          total: rules.length,
+          enabled: rules.filter((rule: any) => rule.enable).length,
+          applied: rules.filter((rule: any) => rule.apply_status === 'applied').length,
+          pending: rules.filter((rule: any) => rule.apply_status === 'pending').length,
+          error: rules.filter((rule: any) => rule.apply_status === 'error').length,
+        })
+      } else {
+        failureCount += Number(backendRes.status === 'rejected') + Number(rulesRes.status === 'rejected')
+        setFirewallStats(null)
+      }
+
+      try {
+        const wafRes = await wafSecurityApi.stats()
+        if (!mounted.current) return failureCount
+        setWafStats((wafRes as any).data || null)
+      } catch {
+        failureCount++
+        if (mounted.current) setWafStats(null)
+      }
     } catch {
-      // ignore
+      failureCount++
     } finally {
-      setLoading(false)
-      if (isManual) setRefreshing(false)
+      requestInFlight.current = false
+      if (mounted.current) {
+        setRequestBusy(false)
+        setLoading(false)
+        setFailedEndpointCount(failureCount)
+        if (failureCount === 0) setLastSuccessfulRefresh(new Date())
+        if (isManual) setRefreshing(false)
+      }
     }
+    return failureCount
   }, [])
 
   useEffect(() => {
-    fetchInfo()
-    const timer = setInterval(() => fetchInfo(), 10000)
-    return () => clearInterval(timer)
+    mounted.current = true
+    let timer: number | undefined
+    let polling = false
+    const poll = async () => {
+      if (!mounted.current || polling) return
+      if (document.visibilityState === 'hidden') {
+        timer = window.setTimeout(() => { void poll() }, 10000)
+        return
+      }
+      polling = true
+      const failures = await fetchInfo()
+      polling = false
+      if (mounted.current) timer = window.setTimeout(() => { void poll() }, failures > 0 ? 30000 : 10000)
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (timer !== undefined) window.clearTimeout(timer)
+        void poll()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    void poll()
+    return () => {
+      mounted.current = false
+      if (timer !== undefined) window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [fetchInfo])
 
   const runningCount = services.filter(s => s.running > 0).length
   const totalCount = services.length
-  const cpuUsage = stats?.cpu_usage ?? 0
-  const memUsage = stats?.mem_percent ?? 0
-  const diskUsage = stats?.disk_percent ?? 0
+  const cpuUsage = stats?.cpu_usage ?? null
+  const memUsage = stats?.mem_percent ?? null
+  const diskUsage = stats?.disk_percent ?? null
 
   if (loading) {
     return (
@@ -628,14 +666,23 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
-        <Button
-          icon={<ReloadOutlined spin={refreshing} />}
-          onClick={() => fetchInfo(true)}
-          size="small"
-          style={{ borderRadius: 8 }}
-        >
-          刷新
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {lastSuccessfulRefresh ? `最近完整刷新 ${lastSuccessfulRefresh.toLocaleTimeString()}` : '尚无完整刷新成功'}
+          </Text>
+          {failedEndpointCount > 0 && <Tag color="orange" style={{ marginInlineEnd: 0 }}>部分数据不可用 · {failedEndpointCount}</Tag>}
+          <Button size="small" onClick={() => navigate('/onboarding')} style={{ borderRadius: 8 }}>快速入门</Button>
+          <Button size="small" onClick={() => navigate('/help')} style={{ borderRadius: 8 }}>帮助</Button>
+          <Button
+            icon={<ReloadOutlined spin={refreshing} />}
+            onClick={() => { void fetchInfo(true) }}
+            disabled={requestBusy || refreshing}
+            size="small"
+            style={{ borderRadius: 8 }}
+          >
+            刷新
+          </Button>
+        </div>
       </div>
 
       {/* ── 顶部资源概览横条 ── */}
@@ -916,7 +963,7 @@ borderRadius: 4, fontFamily: "'MapleMono', monospace",
                   fontSize: 12,
                 }}>
                   <FireOutlined style={{ fontSize: 16 }} />
-                  防火墙数据加载中...
+                  防火墙数据暂不可用，请稍后刷新。
                 </div>
               )}
             </div>
@@ -934,13 +981,13 @@ borderRadius: 4, fontFamily: "'MapleMono', monospace",
                 <RingProgress
                   value={memUsage}
                   label="内存"
-                  subtitle={`${formatBytes(stats?.mem_used ?? 0)} / ${formatBytes(stats?.mem_total ?? 0)}`}
+                  subtitle={stats ? `${formatBytes(stats.mem_used)} / ${formatBytes(stats.mem_total)}` : '资源数据暂不可用'}
                   icon={<DatabaseOutlined />}
                 />
                 <RingProgress
                   value={diskUsage}
                   label="磁盘"
-                  subtitle={`${formatBytes(stats?.disk_used ?? 0)} / ${formatBytes(stats?.disk_total ?? 0)}`}
+                  subtitle={stats ? `${formatBytes(stats.disk_used)} / ${formatBytes(stats.disk_total)}` : '资源数据暂不可用'}
                   icon={<HddOutlined />}
                 />
               </div>

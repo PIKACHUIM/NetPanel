@@ -692,7 +692,7 @@ func (m *Manager) getAccountInfo(cert *model.DomainCert) (email, eabKid, eabHmac
 	if cert.CertAccountID > 0 && cert.CertAccount.ID > 0 {
 		email = cert.CertAccount.Email
 		eabKid = cert.CertAccount.EabKid
-		eabHmacKey = cert.CertAccount.EabHmacKey
+		eabHmacKey = cert.CertAccount.EabHmacKey.String()
 	}
 	if email == "" {
 		email = "admin@netpanel.local"
