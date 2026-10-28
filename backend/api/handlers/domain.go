@@ -1208,6 +1208,25 @@ func (h *CertHandler) Create(c *gin.Context) {
 	cert.Status = "pending"
 	cert.AcmeStep = 0
 
+	// IP 证书：Domains 存 IP 列表，逐个校验合法性
+	if cert.CertType == "acme-ip" {
+		var ips []string
+		if err := json.Unmarshal([]byte(cert.Domains), &ips); err != nil || len(ips) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "IP 证书需要至少一个合法 IP（JSON 数组）"})
+			return
+		}
+		for _, ip := range ips {
+			if net.ParseIP(ip) == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": fmt.Sprintf("%s 不是合法的 IP 地址", ip)})
+				return
+			}
+		}
+		if cert.CA != "" && strings.ToLower(cert.CA) != "letsencrypt" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "IP 证书目前仅 Let's Encrypt 支持（shortlived profile）"})
+			return
+		}
+	}
+
 	// 如果是 ACME 类型且使用 DNS 验证，校验域名是否在 DNS 域名解析中
 	if cert.CertType != "manual" && cert.ChallengeType == "dns" && cert.DomainAccountID > 0 {
 		var domains []string
@@ -1341,6 +1360,18 @@ func (h *CertHandler) Apply(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.log.Infof("触发证书申请: %d", id)
 	logger.WriteLog("info", "cert", fmt.Sprintf("触发证书申请 [%d]", id))
+
+	// IP 证书走独立的同步流程（HTTP-01 挑战 + shortlived profile）
+	var cert model.DomainCert
+	if err := h.db.First(&cert, id).Error; err == nil && cert.CertType == "acme-ip" {
+		go func() {
+			if err := h.certMgr.ApplyIPCert(uint(id)); err != nil {
+				h.log.Errorf("IP 证书申请失败 [%d]: %v", id, err)
+			}
+		}()
+		c.JSON(http.StatusOK, gin.H{"code": 200, "message": "IP 证书申请任务已提交"})
+		return
+	}
 
 	go func() {
 		if err := h.certMgr.StartApply(uint(id)); err != nil {

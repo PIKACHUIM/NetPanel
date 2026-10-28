@@ -180,7 +180,7 @@ func (m *Manager) processAcmeFlowTasks() {
 // checkAndRenew 检查并自动续期即将到期的证书
 func (m *Manager) checkAndRenew() {
 	var certs []model.DomainCert
-	m.db.Where("auto_renew = ? AND status = ? AND cert_type = ?", true, "valid", "acme").Find(&certs)
+	m.db.Where("auto_renew = ? AND status = ? AND cert_type IN ?", true, "valid", []string{"acme", "acme-ip"}).Find(&certs)
 
 	for _, c := range certs {
 		if c.ExpireAt == nil || c.ExpireAt.IsZero() {
@@ -190,9 +190,20 @@ func (m *Manager) checkAndRenew() {
 		if renewDays <= 0 {
 			renewDays = 7
 		}
+		isIPCert := c.CertType == "acme-ip"
+		if isIPCert && renewDays > ipCertRenewDays {
+			// IP 证书是 shortlived profile，有效期仅约 6 天，阈值不能超过 2 天
+			renewDays = ipCertRenewDays
+		}
 		if time.Until(*c.ExpireAt) < time.Duration(renewDays)*24*time.Hour {
 			m.log.Infof("[证书][%s] 即将到期（%s），提前 %d 天自动续期", c.Name, c.ExpireAt.Format("2006-01-02"), renewDays)
-			if err := m.StartApply(c.ID); err != nil {
+			var err error
+			if isIPCert {
+				err = m.ApplyIPCert(c.ID)
+			} else {
+				err = m.StartApply(c.ID)
+			}
+			if err != nil {
 				m.log.Errorf("[证书][%s] 自动续期失败: %v", c.Name, err)
 			}
 		}
