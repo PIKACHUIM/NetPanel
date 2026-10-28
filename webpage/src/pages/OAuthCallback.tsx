@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 const OAuthCallback: React.FC = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { setToken, setUsername, setRoles } = useAppStore()
+  const { setToken, setUsername, setRoles, setIsAdmin } = useAppStore()
   const processed = useRef(false)
 
   useEffect(() => {
@@ -45,6 +45,7 @@ const OAuthCallback: React.FC = () => {
       setToken(token)
       setUsername(username)
       setRoles(roles)
+      setIsAdmin(roles.split(',').includes('admin'))
       message.success(t('login.loginSuccess'))
       const finishLogin = (target: string) => {
         if (target) {
@@ -68,7 +69,7 @@ const OAuthCallback: React.FC = () => {
       message.error(t('login.loginFailed') || '登录失败')
       navigate('/login', { replace: true })
     }
-  }, [setToken, setUsername, setRoles, navigate, t])
+  }, [setToken, setUsername, setRoles, setIsAdmin, navigate, t])
 
   return (
     <div style={{

@@ -267,7 +267,7 @@ const MonitorProbes: React.FC = () => {
           </Button>
         }
       >
-        <Table columns={columns} dataSource={probes} rowKey="id" loading={loading} />
+        <Table columns={columns} dataSource={probes} rowKey="id" loading={loading} scroll={{ x: 900 }} />
       </Card>
 
       <Modal

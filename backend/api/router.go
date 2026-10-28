@@ -352,6 +352,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	// 计划任务（写操作限管理员：shell 类型可在宿主机执行任意命令）
 	cronHandler := handlers.NewCronHandler(opts.DB, opts.Log, opts.CronMgr)
 	auth.GET("/cron", cronHandler.List)
+	auth.GET("/cron/capabilities", cronHandler.Capabilities)
 	admin.POST("/cron", cronHandler.Create)
 	admin.PUT("/cron/:id", cronHandler.Update)
 	admin.DELETE("/cron/:id", cronHandler.Delete)

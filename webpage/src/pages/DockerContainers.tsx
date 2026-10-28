@@ -33,14 +33,18 @@ const DockerContainers: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [showAll, setShowAll] = useState(true)
   const [acting, setActing] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const res: any = await dockerApi.list(showAll)
       setData((res?.data ?? []) as Container[])
+      setLoadError('')
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || t('docker.loadFailed')
+      setData([])
+      setLoadError(msg)
       message.error(msg)
     } finally {
       setLoading(false)
@@ -176,7 +180,7 @@ const DockerContainers: React.FC = () => {
         size="small"
         scroll={{ x: 900 }}
         pagination={{ pageSize: 20 }}
-        locale={{ emptyText: t('docker.empty') }}
+        locale={{ emptyText: loadError || t('docker.empty') }}
         {...tableStyle}
       />
     </div>

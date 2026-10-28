@@ -18,7 +18,8 @@ const Cron: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<any>(null)
   const [form] = Form.useForm()
-  const [taskType, setTaskType] = useState('shell')
+  const [taskType, setTaskType] = useState('http')
+  const [shellEnabled, setShellEnabled] = useState(false)
   const [certList, setCertList] = useState<any[]>([])
   const [ddnsList, setDdnsList] = useState<any[]>([])
   const [wolList, setWolList] = useState<any[]>([])
@@ -29,7 +30,10 @@ const Cron: React.FC = () => {
     try { const res: any = await cronApi.list(); setData(res.data || []) }
     finally { setLoading(false) }
   }
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => {
+    void fetchData()
+    cronApi.capabilities().then((res: any) => setShellEnabled(Boolean(res.data?.shell_enabled))).catch(() => setShellEnabled(false))
+  }, [])
 
   // 加载关联数据列表（打开弹窗时）
   const loadTargetLists = async () => {
@@ -67,6 +71,28 @@ const Cron: React.FC = () => {
     return map[v] || v
   }
 
+  const handleRunNow = async (id: number) => {
+    const previousRun = data.find(task => task.id === id)?.last_run_time || ''
+    await cronApi.runNow(id)
+    message.info(t('cron.runSubmitted'))
+    for (let attempt = 0; attempt < 15; attempt++) {
+      await new Promise(resolve => window.setTimeout(resolve, 1000))
+      const res: any = await cronApi.list()
+      const tasks = res.data || []
+      setData(tasks)
+      const current = tasks.find((task: any) => task.id === id)
+      if (current?.last_run_time && current.last_run_time !== previousRun) {
+        if (current.last_run_result?.startsWith('错误') || current.last_run_result?.startsWith('执行失败')) {
+          message.error(t('cron.runFailed'))
+        } else {
+          message.success(t('cron.runCompleted'))
+        }
+        return
+      }
+    }
+    message.warning(t('cron.runStillRunning'))
+  }
+
   const columns = [
     { title: t('common.status'), dataIndex: 'status', width: 100, render: (s: string) => <StatusTag status={s} /> },
     { title: t('common.enable'), dataIndex: 'enable', width: 80, render: (v: boolean, r: any) => <Switch size="small" checked={v} onChange={async (c) => { c ? await cronApi.enable(r.id) : await cronApi.disable(r.id); fetchData() }} /> },
@@ -74,9 +100,10 @@ const Cron: React.FC = () => {
     { title: t('cron.cronExpr'), dataIndex: 'cron_expr', render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
     { title: t('cron.taskType'), dataIndex: 'task_type', render: (v: string) => <Tag>{getTaskTypeLabel(v)}</Tag> },
     { title: t('cron.lastRunTime'), dataIndex: 'last_run_time', render: (v: string) => v ? dayjs(v).format('MM-DD HH:mm:ss') : '-' },
+    { title: t('cron.lastRunResult'), dataIndex: 'last_run_result', width: 260, render: (v: string) => v ? <Typography.Text type={v.startsWith('错误') || v.startsWith('执行失败') ? 'danger' : 'secondary'} ellipsis={{ tooltip: v }}>{v}</Typography.Text> : '-' },
     { title: t('common.action'), width: 180, render: (_: any, r: any) => (
       <Space size={4}>
-        <Button size="small" type="primary" onClick={async () => { await cronApi.runNow(r.id); message.success('已触发执行') }}>{t('cron.runNow')}</Button>
+        <Button size="small" type="primary" onClick={() => handleRunNow(r.id)}>{t('cron.runNow')}</Button>
         <Button size="small" icon={<EditOutlined />} onClick={() => { setEditRecord(r); setTaskType(r.task_type || 'shell'); form.setFieldsValue(r); loadTargetLists(); setModalOpen(true) }} />
         <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await cronApi.delete(r.id); fetchData() }}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm>
       </Space>
@@ -87,7 +114,7 @@ const Cron: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('cron.title')}</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); form.setFieldsValue({ enable: true, task_type: 'shell' }); setTaskType('shell'); loadTargetLists(); setModalOpen(true) }}>{t('common.create')}</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); const initialType = shellEnabled ? 'shell' : 'http'; form.setFieldsValue({ enable: true, task_type: initialType, cron_expr: '0 * * * * *' }); setTaskType(initialType); loadTargetLists(); setModalOpen(true) }}>{t('common.create')}</Button>
       </div>
       <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={tableStyle} pagination={{ pageSize: 20 }} />
       <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={520} destroyOnHidden>
@@ -99,7 +126,7 @@ const Cron: React.FC = () => {
           </Form.Item>
           <Form.Item name="task_type" label={t('cron.taskType')} rules={[{ required: true }]}>
             <Select onChange={(v) => { setTaskType(v); form.setFieldValue('target_id', undefined) }} style={{ width: '100%' }}>
-              <Option value="shell">{t('cron.typeShell')}</Option>
+              <Option value="shell" disabled={!shellEnabled && taskType !== 'shell'}>{t('cron.typeShell')}{!shellEnabled && taskType !== 'shell' ? ` (${t('cron.shellDisabled')})` : ''}</Option>
               <Option value="http">{t('cron.typeHttp')}</Option>
               <Option value="renew_cert">{t('cron.typeRenewCert')}</Option>
               <Option value="update_ddns">{t('cron.typeUpdateDdns')}</Option>

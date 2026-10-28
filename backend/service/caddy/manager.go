@@ -936,6 +936,7 @@ func (m *Manager) adminRequest(method, path string, body interface{}) error {
 	if err != nil {
 		return fmt.Errorf("创建请求失败: %w", err)
 	}
+	req.Header.Set("Origin", m.admin.baseURL)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

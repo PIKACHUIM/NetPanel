@@ -34,6 +34,10 @@ export const frpcApi = {
   stop: (id: number) => request.post(`/v1/frpc/${id}/stop`),
   speedtest: () => request.get('/v1/frpc/speedtest'),
   restart: (id: number) => request.post(`/v1/frpc/${id}/restart`),
+  listProxies: (id: number) => request.get(`/v1/frpc/${id}/proxies`),
+  createProxy: (id: number, data: any) => request.post(`/v1/frpc/${id}/proxies`, data),
+  updateProxy: (id: number, proxyId: number, data: any) => request.put(`/v1/frpc/${id}/proxies/${proxyId}`, data),
+  deleteProxy: (id: number, proxyId: number) => request.delete(`/v1/frpc/${id}/proxies/${proxyId}`),
 }
 
 // ===== FRP 服务端 =====
@@ -242,6 +246,7 @@ export const dnsmasqApi = {
 // ===== 计划任务 =====
 export const cronApi = {
   list: () => request.get('/v1/cron'),
+  capabilities: () => request.get('/v1/cron/capabilities'),
   create: (data: any) => request.post('/v1/cron', data),
   update: (id: number, data: any) => request.put(`/v1/cron/${id}`, data),
   delete: (id: number) => request.delete(`/v1/cron/${id}`),
@@ -447,6 +452,7 @@ export function createRemoteTunnelApi(tunnelType: string, nodeId: number, isLoca
     start: (id: number) => meshNodeApi.proxyPost(nodeId, `${basePath}/${id}/start`),
     stop: (id: number) => meshNodeApi.proxyPost(nodeId, `${basePath}/${id}/stop`),
     restart: (id: number) => meshNodeApi.proxyPost(nodeId, `${basePath}/${id}/restart`),
+    speedtest: () => meshNodeApi.proxyGet(nodeId, '/frpc/speedtest'),
     // FRP 客户端代理管理
     listProxies: (frpcId: number) => meshNodeApi.proxyGet(nodeId, `/frpc/${frpcId}/proxies`),
     createProxy: (frpcId: number, data: any) => meshNodeApi.proxyPost(nodeId, `/frpc/${frpcId}/proxies`, data),

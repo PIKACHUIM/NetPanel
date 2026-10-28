@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -235,16 +236,18 @@ func TestTCPForwardKeepaliveAndRelay(t *testing.T) {
 	}
 	defer f.Close()
 
-	// 保活：绑定监听端口拨号（SO_REUSEPORT），应拿到服务器回显的映射地址
-	info, err := f.Keepalive()
-	if err != nil {
-		t.Fatalf("TCP Keepalive 失败: %v", err)
-	}
-	if info == nil {
-		t.Fatal("TCP Keepalive 应返回映射地址（测试服务器支持 STUN-over-TCP）")
-	}
-	if info.IP != "9.9.9.9" || info.Port != 44444 {
-		t.Errorf("映射地址错误: got %s:%d", info.IP, info.Port)
+	// Windows 不支持 SO_REUSEPORT，平台实现明确降级；其它平台应拿到映射地址。
+	if runtime.GOOS != "windows" {
+		info, err := f.Keepalive()
+		if err != nil {
+			t.Fatalf("TCP Keepalive 失败: %v", err)
+		}
+		if info == nil {
+			t.Fatal("TCP Keepalive 应返回映射地址（测试服务器支持 STUN-over-TCP）")
+		}
+		if info.IP != "9.9.9.9" || info.Port != 44444 {
+			t.Errorf("映射地址错误: got %s:%d", info.IP, info.Port)
+		}
 	}
 
 	// 转发：连接本地监听端口 -> 数据经转发到 echo 目标原样返回

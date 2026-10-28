@@ -16,7 +16,7 @@ i18n
     fallbackLng: 'zh',
     interpolation: {
       escapeValue: false,
-    },
+    }
   })
 
 export default i18n

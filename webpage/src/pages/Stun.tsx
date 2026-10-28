@@ -463,8 +463,8 @@ const Stun: React.FC = () => {
             render: (v: string, r: any) => {
                 if (r.status !== 'running') return <Tag color="default">-</Tag>
                 if (v === 'penetrating') return <Tag color="success">穿透中</Tag>
-                if (v === 'timeout') return <Tag color="warning">超时</Tag>
-                if (v === 'failed') return <Tag color="error">失败</Tag>
+                if (v === 'timeout') return <Tooltip title={r.last_error || t('stun.failureHint')}><Tag color="warning">超时</Tag></Tooltip>
+                if (v === 'failed') return <Tooltip title={r.last_error || t('stun.failureHint')}><Tag color="error">失败</Tag></Tooltip>
                 return <Tag color="processing">检测中</Tag>
             },
         },

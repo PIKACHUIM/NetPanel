@@ -51,6 +51,7 @@ const AiCronTask: React.FC = () => {
       form.setFieldsValue(record)
     } else {
       form.resetFields()
+      form.setFieldsValue({ cron_expr: '0 * * * * *' })
     }
     setModalOpen(true)
   }

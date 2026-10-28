@@ -11,7 +11,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { domainRecordApi } from '../api'
+import { domainInfoApi, domainRecordApi } from '../api'
 import { useTableStyle } from '../hooks/useTableStyle'
 
 const { Option } = Select
@@ -25,7 +25,7 @@ const DomainRecordDetail: React.FC = () => {
   const navigate = useNavigate()
   const { domainInfoId } = useParams<{ domainInfoId: string }>()
   const location = useLocation()
-  const domainName = (location.state as any)?.domainName || ''
+  const [domainName, setDomainName] = useState((location.state as any)?.domainName || '')
   // 从路由 state 获取账号服务商，用于判断是否显示 Proxied 字段
   const accountProvider: string = (location.state as any)?.accountProvider || ''
   const isCloudflare = accountProvider === 'cloudflare'
@@ -52,6 +52,14 @@ const DomainRecordDetail: React.FC = () => {
   }
 
   useEffect(() => { fetchData() }, [domainInfoId])
+
+  useEffect(() => {
+    if (!domainInfoId || domainName) return
+    domainInfoApi.list().then((res: any) => {
+      const domain = (res.data || []).find((item: any) => String(item.id) === domainInfoId)
+      if (domain?.name) setDomainName(domain.name)
+    }).catch(() => undefined)
+  }, [domainInfoId, domainName])
 
   const handleAdd = () => {
     setEditRecord(null)
@@ -219,7 +227,7 @@ const DomainRecordDetail: React.FC = () => {
         size="middle"
         scroll={{ x: isCloudflare ? 1000 : 900 }}
         style={tableStyle}
-        pagination={{ pageSize: 50, showSizeChanger: true, showTotal: total => `共 ${total} 条` }}
+        pagination={{ pageSize: 50, showSizeChanger: true, showTotal: total => t('common.totalItems', { total }) }}
       />
 
       {/* 添加/编辑弹窗 */}

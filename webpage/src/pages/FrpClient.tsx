@@ -40,7 +40,6 @@ import {useTranslation} from 'react-i18next'
 import {frpcApi} from '../api'
 import {useTunnelApi} from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
-import request from '../api/request'
 import { useTableStyle } from '../hooks/useTableStyle'
 
 const {Option} = Select
@@ -107,6 +106,9 @@ const FrpClient: React.FC = () => {
         try {
             const res: any = await api.list()
             setData(res.data || [])
+        } catch (e: any) {
+            message.error(e?.response?.data?.message || e?.message || t('common.operationFailed'))
+            setData([])
         } finally {
             setLoading(false)
         }
@@ -117,7 +119,7 @@ const FrpClient: React.FC = () => {
     }, [])
 
     const fetchProxies = async (frpcId: number) => {
-        const res: any = await request.get(`/v1/frpc/${frpcId}/proxies`)
+        const res: any = await api.listProxies(frpcId)
         setProxies(res.data || [])
     }
 
@@ -126,7 +128,7 @@ const FrpClient: React.FC = () => {
         setSpeedTesting(true)
         setSpeedTestData([])
         try {
-            const res: any = await request.get('/v1/frpc/speedtest')
+            const res: any = await api.speedtest()
             setSpeedTestData(res.data || [])
         } catch (e: any) {
             message.error(e?.message || t('frp.speedTestFailed'))
@@ -227,9 +229,9 @@ const FrpClient: React.FC = () => {
     const handleSubmitProxy = async () => {
         const values = await proxyForm.validateFields()
         if (editProxy) {
-            await request.put(`/v1/frpc/${currentFrpc.id}/proxies/${editProxy.id}`, values)
+            await api.updateProxy(currentFrpc.id, editProxy.id, values)
         } else {
-            await request.post(`/v1/frpc/${currentFrpc.id}/proxies`, values)
+            await api.createProxy(currentFrpc.id, values)
         }
         message.success(t('common.success'))
         setProxyModalOpen(false)
@@ -237,7 +239,7 @@ const FrpClient: React.FC = () => {
     }
 
     const handleDeleteProxy = async (proxyId: number) => {
-        await request.delete(`/v1/frpc/${currentFrpc.id}/proxies/${proxyId}`)
+        await api.deleteProxy(currentFrpc.id, proxyId)
         fetchProxies(currentFrpc.id)
     }
 

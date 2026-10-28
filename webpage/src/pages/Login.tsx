@@ -151,7 +151,7 @@ const LoginPage: React.FC = () => {
   const tableStyle = useTableStyle()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { token, setToken, setUsername, setRoles, uiMode, setUIMode, wallpaper, setWallpaper, language, setLanguage } = useAppStore()
+  const { token, setToken, setUsername, setRoles, setIsAdmin, uiMode, setUIMode, wallpaper, setWallpaper, language, setLanguage } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [providers, setProviders] = useState<OAuthProvider[]>([])
   const [visible, setVisible] = useState(false)
@@ -236,7 +236,9 @@ const LoginPage: React.FC = () => {
       const res: any = await request.post('/v1/auth/login', values)
       setToken(res.data?.token)
       setUsername(values.username)
-      setRoles(res.data?.roles || '')
+      const roles = res.data?.roles || ''
+      setRoles(roles)
+      setIsAdmin(Boolean(res.data?.is_admin))
       message.success(t('login.loginSuccess'))
       if (redirectUrl) {
         window.location.assign(redirectUrl)
@@ -245,7 +247,8 @@ const LoginPage: React.FC = () => {
       let hasSeenOnboarding = false
       try { hasSeenOnboarding = localStorage.getItem('netpanel-onboarded') === '1' } catch { /* ignore */ }
       navigate(hasSeenOnboarding ? '/dashboard' : '/onboarding', { replace: true })
-    } catch {
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || error?.message || t('login.loginFailed'))
     } finally {
       setLoading(false)
     }

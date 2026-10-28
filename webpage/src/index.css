@@ -1028,3 +1028,17 @@ html body .ant-drawer-footer {
   white-space: nowrap;
   vertical-align: middle;
 }
+
+.np-readonly .ant-btn-primary:has(.anticon-plus),
+.np-readonly .ant-table-tbody .ant-btn-primary,
+.np-readonly .ant-table-tbody .ant-btn:has(.anticon-edit),
+.np-readonly .ant-table-tbody .ant-btn:has(.anticon-delete),
+.np-readonly .ant-table-tbody .ant-btn:has(.anticon-play-circle),
+.np-readonly .ant-table-tbody .ant-btn:has(.anticon-stop) {
+  display: none;
+}
+
+.np-readonly .ant-table-tbody .ant-switch {
+  opacity: 0.45;
+  pointer-events: none;
+}

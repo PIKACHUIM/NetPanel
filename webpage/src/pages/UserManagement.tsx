@@ -10,6 +10,7 @@ import {
   LockOutlined, MailOutlined, TeamOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
+import { useTranslation } from 'react-i18next'
 import dayjs from 'dayjs'
 import { adminApi } from '../api'
 import { useAppStore } from '../store/appStore'
@@ -36,6 +37,7 @@ const ROLE_OPTIONS = [
 ]
 
 const UserManagement: React.FC = () => {
+  const { t } = useTranslation()
   const { username: currentUsername, roles: currentRoles } = useAppStore()
   const tableStyle = useTableStyle()
   const [loading, setLoading] = useState(false)
@@ -179,8 +181,8 @@ const UserManagement: React.FC = () => {
       dataIndex: 'roles',
       key: 'roles',
       width: 140,
-      render: (roles: string) => {
-        const list = roles ? roles.split(',').filter(Boolean) : ['viewer']
+      render: (roles: string, record: UserItem) => {
+        const list = record.is_admin ? ['admin'] : roles ? roles.split(',').filter(Boolean) : ['viewer']
         return (
           <Space size={4} wrap>
             {list.includes('admin') && (
@@ -305,7 +307,7 @@ const UserManagement: React.FC = () => {
           rowKey="id"
           loading={loading}
           size="small"
-          pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 个用户` }}
+          pagination={{ pageSize: 20, showTotal: (total) => t('common.totalUsers', { total }) }}
         />
       </Card>
 

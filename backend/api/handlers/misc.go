@@ -224,6 +224,10 @@ func NewCronHandler(db *gorm.DB, log *logrus.Logger, mgr *cron.Manager) *CronHan
 	return &CronHandler{db: db, log: log, mgr: mgr}
 }
 
+func (h *CronHandler) Capabilities(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"shell_enabled": cron.ShellTaskEnabled()}})
+}
+
 func (h *CronHandler) List(c *gin.Context) {
 	var tasks []model.CronTask
 	h.db.Order("id desc").Find(&tasks)

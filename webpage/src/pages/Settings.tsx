@@ -55,7 +55,7 @@ const Settings: React.FC = () => {
         old_password: values.old_password,
         new_password: values.new_password,
       })
-      message.success('密码修改成功，请重新登录')
+      message.success(t('settings.passwordChangedToast'))
       pwdForm.resetFields()
       setPwdSuccess(true)
       // 延迟 1.5 秒后退出登录并跳转到登录页
@@ -103,7 +103,7 @@ const Settings: React.FC = () => {
               <Form.Item
                 name="old_password"
                 label={t('settings.oldPassword')}
-                rules={[{ required: true, message: `请输入${t('settings.oldPassword')}` }]}
+                rules={[{ required: true, message: t('settings.enterField', { field: t('settings.oldPassword') }) }] }
               >
                 <Input.Password placeholder={t('settings.oldPassword')} />
               </Form.Item>
@@ -111,8 +111,8 @@ const Settings: React.FC = () => {
                 name="new_password"
                 label={t('settings.newPassword')}
                 rules={[
-                  { required: true, message: `请输入${t('settings.newPassword')}` },
-                  { min: 6, message: '密码至少6位' },
+                  { required: true, message: t('settings.enterField', { field: t('settings.newPassword') }) },
+                  { min: 6, message: t('settings.passwordMinLength') },
                 ]}
               >
                 <Input.Password placeholder={t('settings.newPassword')} />
@@ -120,7 +120,7 @@ const Settings: React.FC = () => {
               <Form.Item
                 name="confirm_password"
                 label={t('settings.confirmPassword')}
-                rules={[{ required: true, message: `请确认${t('settings.newPassword')}` }]}
+                rules={[{ required: true, message: t('settings.confirmField', { field: t('settings.newPassword') }) }] }
               >
                 <Input.Password placeholder={t('settings.confirmPassword')} />
               </Form.Item>
@@ -165,15 +165,15 @@ const Settings: React.FC = () => {
                 </Text>
               <div style={{ lineHeight: 2 }}>
                 <div>
-                  <Text type="secondary">版本：</Text>
+                  <Text type="secondary">{t('settings.version')}: </Text>
                   <Tag color="blue">NetPanel v1.0.0</Tag>
                 </div>
                 <div>
-                  <Text type="secondary">技术栈：</Text>
+                  <Text type="secondary">{t('settings.techStack')}: </Text>
                   <Text>Go + React + Ant Design</Text>
                 </div>
                 <div>
-                  <Text type="secondary">数据库：</Text>
+                  <Text type="secondary">{t('settings.database')}: </Text>
                   <Text>SQLite</Text>
                 </div>
               </div>
@@ -196,7 +196,7 @@ const Settings: React.FC = () => {
             ) : (
               <div style={{ lineHeight: 2 }}>
                 <div>
-                  <Text type="secondary">{t('settings.ipv6.globalAddr')}</Text>
+                  <Text type="secondary" style={{ marginRight: 8 }}>{t('settings.ipv6.globalAddr')}</Text>
                   {ipv6.has_global ? (
                     <Tag color="green">{t('settings.ipv6.yes')}</Tag>
                   ) : (

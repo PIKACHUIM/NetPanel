@@ -287,7 +287,7 @@ const EntryTab: React.FC = () => {
         pagination={{
           current: page, pageSize, total,
           showSizeChanger: true, showQuickJumper: true,
-          showTotal: (n) => `共 ${n} 条`,
+          showTotal: (total) => t('common.totalItems', { total }),
           pageSizeOptions: ['20', '50', '100', '200'],
         }}
         onChange={handleTableChange}

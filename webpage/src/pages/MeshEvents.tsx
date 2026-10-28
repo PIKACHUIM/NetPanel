@@ -173,7 +173,7 @@ const MeshEvents: React.FC = () => {
           pageSize,
           total,
           showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`,
+          showTotal: (total) => t('common.totalItems', { total }),
           onChange: (p, ps) => { setPage(p); setPageSize(ps) },
         }}
       />

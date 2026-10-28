@@ -241,6 +241,7 @@ const MonitorServers: React.FC = () => {
           dataSource={servers}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 1000 }}
           pagination={{ pageSize: 10 }}
         />
       </Card>

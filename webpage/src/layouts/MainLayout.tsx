@@ -1,7 +1,7 @@
 import React, {useEffect, useState} from 'react'
 import {Outlet, useLocation, useNavigate} from 'react-router-dom'
 import type {MenuProps} from 'antd'
-import {Avatar, Dropdown, Layout, Menu, Popover, Space, theme as antTheme, Tooltip, Typography,} from 'antd'
+import {Avatar, Dropdown, Layout, Menu, Space, theme as antTheme, Tooltip, Typography,} from 'antd'
 import {
     ApartmentOutlined,
     ApiOutlined,
@@ -58,7 +58,8 @@ const MainLayout: React.FC = () => {
     const {t} = useTranslation()
     const navigate = useNavigate()
     const location = useLocation()
-    const {username, collapsed, setCollapsed, logout, language, setLanguage, uiMode, setUIMode, wallpaper, setWallpaper} = useAppStore()
+    const {username, roles, isAdmin: adminFlag, collapsed, setCollapsed, logout, language, setLanguage, uiMode, setUIMode, wallpaper, setWallpaper} = useAppStore()
+    const canAdmin = adminFlag || username === 'admin' || roles.split(',').includes('admin')
     const {token} = antTheme.useToken()
     const hasWp = hasWallpaper(wallpaper)
     const isDark = uiMode === 'dark'
@@ -221,6 +222,8 @@ const MainLayout: React.FC = () => {
         },
     ]
 
+    const visibleMenuItems = canAdmin ? menuItems : menuItems.filter(item => item && item.key !== 'admin')
+
     const userMenuItems: MenuProps['items'] = [
         {
             key: 'settings',
@@ -357,7 +360,7 @@ const MainLayout: React.FC = () => {
                             selectedKeys={[selectedKey]}
                             openKeys={openKeys}
                             onOpenChange={setOpenKeys}
-                            items={menuItems}
+                            items={visibleMenuItems}
                             onClick={({key}) => navigate(`/${key}`)}
                             style={{
                                 borderRight: 0,
@@ -535,7 +538,7 @@ const MainLayout: React.FC = () => {
 
                     {/* 内容区（背景由 index.css 根据 data-wallpaper 控制，避免 hydration 闪烁） */}
                     {/* 关键：滚动放在内部 div，Content 本身不滚动，否则会破坏子 card 的 backdrop-filter */}
-                    <Content style={{
+                    <Content className={canAdmin ? undefined : 'np-readonly'} style={{
                         height: 'calc(100vh - 56px)',
                         overflow: 'hidden',
                     }}>

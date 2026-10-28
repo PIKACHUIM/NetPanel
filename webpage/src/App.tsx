@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { Button, Spin } from 'antd'
+import { Button, Result, Spin } from 'antd'
+import { useTranslation } from 'react-i18next'
 import MainLayout from './layouts/MainLayout'
 import LoginPage from './pages/Login'
 import InitSetup from './pages/InitSetup'
@@ -77,6 +78,23 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return <>{children}</>
 }
 
+const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { username, roles, isAdmin } = useAppStore()
+  const { t } = useTranslation()
+  const canAdmin = isAdmin || username === 'admin' || roles.split(',').includes('admin')
+  if (!canAdmin) {
+    return (
+      <Result
+        status="403"
+        title={t('common.adminRequired')}
+        subTitle={t('common.adminOnlyPage')}
+        extra={<Button type="primary" onClick={() => window.location.assign('/dashboard')}>{t('common.returnDashboard')}</Button>}
+      />
+    )
+  }
+  return <>{children}</>
+}
+
 // 初始化守卫：状态未知时禁止跳过初始化检查。
 const InitGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<'loading' | 'init' | 'done' | 'error'>('loading')
@@ -147,11 +165,11 @@ const App: React.FC = () => {
         <Route path="access" element={<Suspense fallback={<PageLoader />}><Access /></Suspense>} />
         <Route path="callback/account" element={<Suspense fallback={<PageLoader />}><CallbackAccount /></Suspense>} />
         <Route path="callback/task" element={<Suspense fallback={<PageLoader />}><CallbackTask /></Suspense>} />
-        <Route path="settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
-        <Route path="admin/logs" element={<Suspense fallback={<PageLoader />}><SystemLogs /></Suspense>} />
-        <Route path="admin/audit" element={<Suspense fallback={<PageLoader />}><SystemAudit /></Suspense>} />
-        <Route path="admin/users" element={<Suspense fallback={<PageLoader />}><UserManagement /></Suspense>} />
-        <Route path="admin/oauth-providers" element={<Suspense fallback={<PageLoader />}><OAuthProviders /></Suspense>} />
+        <Route path="settings" element={<AdminRoute><Suspense fallback={<PageLoader />}><Settings /></Suspense></AdminRoute>} />
+        <Route path="admin/logs" element={<AdminRoute><Suspense fallback={<PageLoader />}><SystemLogs /></Suspense></AdminRoute>} />
+        <Route path="admin/audit" element={<AdminRoute><Suspense fallback={<PageLoader />}><SystemAudit /></Suspense></AdminRoute>} />
+        <Route path="admin/users" element={<AdminRoute><Suspense fallback={<PageLoader />}><UserManagement /></Suspense></AdminRoute>} />
+        <Route path="admin/oauth-providers" element={<AdminRoute><Suspense fallback={<PageLoader />}><OAuthProviders /></Suspense></AdminRoute>} />
         <Route path="mesh/nodes" element={<Suspense fallback={<PageLoader />}><MeshNodes /></Suspense>} />
         <Route path="mesh/tunnels" element={<Suspense fallback={<PageLoader />}><MeshTunnels /></Suspense>} />
         <Route path="mesh/topology" element={<Suspense fallback={<PageLoader />}><MeshTopology /></Suspense>} />

@@ -59,6 +59,7 @@ interface AppState {
   token: string | null
   username: string | null
   roles: string
+  isAdmin: boolean
   language: 'zh' | 'en'
   // 新主题系统：UI 模式 + 壁纸 独立选择
   uiMode: UIMode
@@ -69,6 +70,7 @@ interface AppState {
   setToken: (token: string | null) => void
   setUsername: (username: string | null) => void
   setRoles: (roles: string) => void
+  setIsAdmin: (isAdmin: boolean) => void
   setLanguage: (lang: 'zh' | 'en') => void
   setUIMode: (mode: UIMode) => void
   setWallpaper: (wp: WallpaperKey) => void
@@ -83,6 +85,7 @@ export const useAppStore = create<AppState>()(
       token: null,
       username: null,
       roles: '',
+      isAdmin: false,
       language: 'zh',
       uiMode: 'dark',
       wallpaper: 'none',
@@ -91,6 +94,7 @@ export const useAppStore = create<AppState>()(
       setToken: (token) => set({ token }),
       setUsername: (username) => set({ username }),
       setRoles: (roles) => set({ roles }),
+      setIsAdmin: (isAdmin) => set({ isAdmin }),
       setLanguage: (language) => set({ language }),
       setUIMode: (uiMode) => set({ uiMode, theme: uiMode }),
       setWallpaper: (wallpaper) => set((state) => ({
@@ -111,13 +115,15 @@ export const useAppStore = create<AppState>()(
         }
       },
       setCollapsed: (collapsed) => set({ collapsed }),
-      logout: () => set({ token: null, username: null, roles: '' }),
+      logout: () => set({ token: null, username: null, roles: '', isAdmin: false }),
     }),
     {
       name: 'netpanel-store',
       partialize: (state) => ({
         token: state.token,
         username: state.username,
+        roles: state.roles,
+        isAdmin: state.isAdmin,
         language: state.language,
         uiMode: state.uiMode,
         wallpaper: state.wallpaper,

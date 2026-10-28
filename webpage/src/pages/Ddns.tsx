@@ -519,7 +519,7 @@ const Ddns: React.FC = () => {
             total: logsTotal,
             pageSize: 20,
             showSizeChanger: false,
-            showTotal: (total) => `共 ${total} 条`,
+            showTotal: (total) => t('common.totalItems', { total }),
             onChange: (p) => logsRecord && handleViewLogs(logsRecord, p),
           }}
           locale={{ emptyText: t('ddns.noLogs') }}

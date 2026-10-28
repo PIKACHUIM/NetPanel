@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/api/middleware"
@@ -17,9 +18,9 @@ import (
 
 // PortForwardHandler 端口转发处理器
 type PortForwardHandler struct {
-	db       *gorm.DB
-	log      *logrus.Logger
-	mgr      *portforward.Manager
+	db        *gorm.DB
+	log       *logrus.Logger
+	mgr       *portforward.Manager
 	syslogMgr *syslog.Manager
 }
 
@@ -44,6 +45,18 @@ func (h *PortForwardHandler) auditAudit(c *gin.Context, action, msg string, id u
 	})
 }
 
+func friendlyPortForwardError(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "address already in use") || strings.Contains(lower, "only one usage of each socket address") || strings.Contains(lower, "eaddrinuse") {
+		return "监听端口已被占用，请更换端口后重试"
+	}
+	return text
+}
+
 // List 获取端口转发列表
 func (h *PortForwardHandler) List(c *gin.Context) {
 	var rules []model.PortForwardRule
@@ -65,19 +78,30 @@ func (h *PortForwardHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
+	if rule.ListenPort < 1 || rule.ListenPort > 65535 || rule.TargetPort < 1 || rule.TargetPort > 65535 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "端口范围必须为 1-65535"})
+		return
+	}
 	rule.Status = "stopped"
 	if err := h.db.Create(&rule).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	var startError string
 	if rule.Enable {
 		if err := h.mgr.Start(rule.ID); err != nil {
+			startError = friendlyPortForwardError(err)
 			h.log.Warnf("端口转发 [%d] 自动启动失败: %v", rule.ID, err)
+			_ = h.db.First(&rule, rule.ID).Error
 		}
 	}
-logger.WriteLog("info", "portforward", fmt.Sprintf("创建端口转发规则 [%d] %s:%d -> %s:%d", rule.ID, rule.ListenIP, rule.ListenPort, rule.TargetAddress, rule.TargetPort))
-h.auditAudit(c, "CREATE", fmt.Sprintf("创建端口转发规则 [%d]", rule.ID), rule.ID, nil, rule)
-c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
+	logger.WriteLog("info", "portforward", fmt.Sprintf("创建端口转发规则 [%d] %s:%d -> %s:%d", rule.ID, rule.ListenIP, rule.ListenPort, rule.TargetAddress, rule.TargetPort))
+	h.auditAudit(c, "CREATE", fmt.Sprintf("创建端口转发规则 [%d]", rule.ID), rule.ID, nil, rule)
+	if startError != "" {
+		c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "规则已创建，但启动失败", "warning": startError})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
 }
 
 // Update 更新端口转发规则
@@ -95,6 +119,11 @@ func (h *PortForwardHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if req.ListenPort < 1 || req.ListenPort > 65535 || req.TargetPort < 1 || req.TargetPort > 65535 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "端口范围必须为 1-65535"})
+		return
+	}
+
 	// 先停止
 	h.mgr.Stop(uint(id))
 
@@ -107,6 +136,8 @@ func (h *PortForwardHandler) Update(c *gin.Context) {
 	if req.Enable {
 		if err := h.mgr.Start(uint(id)); err != nil {
 			h.log.Warnf("端口转发 [%d] 重启失败: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": friendlyPortForwardError(err)})
+			return
 		}
 	}
 
@@ -140,7 +171,7 @@ func (h *PortForwardHandler) Delete(c *gin.Context) {
 func (h *PortForwardHandler) Start(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.mgr.Start(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": friendlyPortForwardError(err)})
 		return
 	}
 	h.db.Model(&model.PortForwardRule{}).Where("id = ?", id).Update("enable", true)

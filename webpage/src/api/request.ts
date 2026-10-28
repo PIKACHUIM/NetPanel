@@ -30,10 +30,12 @@ request.interceptors.response.use(
     return data
   },
   (error) => {
-    if (error.response?.status === 401) {
+    const requestPath = error.config?.url?.split('?')[0] || ''
+    const isLoginRequest = requestPath.endsWith('/v1/auth/login')
+    if (error.response?.status === 401 && !isLoginRequest) {
       useAppStore.getState().logout()
       window.location.href = '/login'
-    } else {
+    } else if (!isLoginRequest) {
       message.error(error.response?.data?.message || error.message || '网络错误')
     }
     return Promise.reject(error)

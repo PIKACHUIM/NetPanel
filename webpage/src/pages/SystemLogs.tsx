@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
+import { useTranslation } from 'react-i18next'
 import { adminApi } from '../api'
 import { useTableStyle } from '../hooks/useTableStyle'
 
@@ -61,6 +62,7 @@ interface QueryResult {
 }
 
 const SystemLogs: React.FC = () => {
+  const { t } = useTranslation()
   const tableStyle = useTableStyle()
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<QueryResult>({ total: 0, items: [] })
@@ -144,17 +146,17 @@ const SystemLogs: React.FC = () => {
   const handleCleanup = async (days: number) => {
     try {
       const res = await adminApi.cleanupLogs(days)
-      message.success(`清理完成，共删除 ${res.data?.deleted ?? 0} 条日志`)
+      message.success(t('systemLogs.cleanupSuccess', { total: res.data?.deleted ?? 0 }))
       fetchLogs(1, pageSize)
       fetchStats()
     } catch (e: any) {
-      message.error('清理失败: ' + (e?.response?.data?.message || e.message))
+      message.error(t('systemLogs.cleanupFailed', { message: e?.response?.data?.message || e.message }))
     }
   }
 
   const columns: ColumnsType<LogItem> = [
     {
-      title: '时间',
+      title: t('systemLogs.time'),
       dataIndex: 'log_time',
       key: 'log_time',
       width: 170,
@@ -165,7 +167,7 @@ const SystemLogs: React.FC = () => {
       ),
     },
     {
-      title: '级别',
+      title: t('systemLogs.level'),
       dataIndex: 'level',
       key: 'level',
       width: 80,
@@ -179,7 +181,7 @@ const SystemLogs: React.FC = () => {
       },
     },
     {
-      title: '服务',
+      title: t('systemLogs.service'),
       dataIndex: 'service',
       key: 'service',
       width: 110,
@@ -190,7 +192,7 @@ const SystemLogs: React.FC = () => {
       ),
     },
     {
-      title: '日志内容',
+      title: t('systemLogs.content'),
       dataIndex: 'message',
       key: 'message',
       ellipsis: { showTitle: false },
@@ -220,7 +222,7 @@ const SystemLogs: React.FC = () => {
         <Col xs={8}>
           <Card size="small" style={{ borderRadius: 8, borderLeft: '3px solid #0071e3' }}>
             <Statistic
-              title={<span style={{ fontSize: 12 }}>INFO 日志</span>}
+              title={<span style={{ fontSize: 12 }}>{t('systemLogs.info')}</span>}
               value={stats.info}
               valueStyle={{ color: '#0071e3', fontSize: 20 }}
               prefix={<InfoCircleOutlined />}
@@ -230,7 +232,7 @@ const SystemLogs: React.FC = () => {
         <Col xs={8}>
           <Card size="small" style={{ borderRadius: 8, borderLeft: '3px solid #fa8c16' }}>
             <Statistic
-              title={<span style={{ fontSize: 12 }}>WARN 日志</span>}
+              title={<span style={{ fontSize: 12 }}>{t('systemLogs.warn')}</span>}
               value={stats.warn}
               valueStyle={{ color: '#fa8c16', fontSize: 20 }}
               prefix={<WarningOutlined />}
@@ -240,7 +242,7 @@ const SystemLogs: React.FC = () => {
         <Col xs={8}>
           <Card size="small" style={{ borderRadius: 8, borderLeft: '3px solid #ff4d4f' }}>
             <Statistic
-              title={<span style={{ fontSize: 12 }}>ERROR 日志</span>}
+              title={<span style={{ fontSize: 12 }}>{t('systemLogs.error')}</span>}
               value={stats.error}
               valueStyle={{ color: '#ff4d4f', fontSize: 20 }}
               prefix={<CloseCircleOutlined />}
@@ -254,25 +256,25 @@ const SystemLogs: React.FC = () => {
         title={
           <Space>
             <FileTextOutlined style={{ color: '#0071e3' }} />
-            <span>系统日志</span>
+            <span>{t('systemLogs.title')}</span>
             <Badge count={data.total} overflowCount={99999} style={{ backgroundColor: '#0071e3' }} />
           </Space>
         }
         extra={
           <Space>
             <Popconfirm
-              title="清理日志"
-              description="选择清理多少天前的日志"
+              title={t('systemLogs.cleanupTitle')}
+              description={t('systemLogs.cleanupDescription')}
               onConfirm={() => handleCleanup(30)}
-              okText="清理30天前"
-              cancelText="取消"
+              okText={t('systemLogs.cleanupConfirm')}
+              cancelText={t('common.cancel')}
             >
               <Button icon={<ClearOutlined />} size="small" danger>
-                清理旧日志
+                {t('systemLogs.cleanup')}
               </Button>
             </Popconfirm>
             <Button icon={<ReloadOutlined />} size="small" onClick={() => fetchLogs(page, pageSize)}>
-              刷新
+              {t('systemLogs.refresh')}
             </Button>
           </Space>
         }
@@ -282,7 +284,7 @@ const SystemLogs: React.FC = () => {
         <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
           <Col xs={24} sm={12} md={5}>
             <Select
-              placeholder="服务类型"
+              placeholder={t('systemLogs.serviceType')}
               value={service || undefined}
               onChange={v => setService(v || '')}
               allowClear
@@ -298,7 +300,7 @@ const SystemLogs: React.FC = () => {
           </Col>
           <Col xs={24} sm={12} md={4}>
             <Select
-              placeholder="日志级别"
+              placeholder={t('systemLogs.level')}
               value={level || undefined}
               onChange={v => setLevel(v || '')}
               allowClear
@@ -312,7 +314,7 @@ const SystemLogs: React.FC = () => {
           </Col>
           <Col xs={24} sm={24} md={6}>
             <Input
-              placeholder="搜索日志内容..."
+              placeholder={t('systemLogs.searchPlaceholder')}
               value={keyword}
               onChange={e => setKeyword(e.target.value)}
               onPressEnter={handleSearch}
@@ -325,16 +327,16 @@ const SystemLogs: React.FC = () => {
               value={dateRange}
               onChange={v => setDateRange(v as any)}
               style={{ width: '100%' }}
-              placeholder={['开始日期', '结束日期']}
+              placeholder={[t('systemLogs.startDate'), t('systemLogs.endDate')]}
             />
           </Col>
           <Col xs={24} sm={24} md={3}>
             <div style={{ display: 'flex', gap: 4 }}>
               <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} style={{ flex: 1, minWidth: 0 }}>
-                搜索
+                {t('systemLogs.search')}
               </Button>
               <Button icon={<ReloadOutlined />} onClick={handleReset} style={{ flex: 1, minWidth: 0 }}>
-                重置
+                {t('systemLogs.reset')}
               </Button>
             </div>
           </Col>
@@ -343,14 +345,14 @@ const SystemLogs: React.FC = () => {
         {/* 排序切换 */}
         <div style={{ marginBottom: 8 }}>
           <Space>
-            <Text type="secondary" style={{ fontSize: 12 }}>时间排序：</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>{t('systemLogs.timeOrder')}:</Text>
             <Segmented
               size="small"
               value={order}
               onChange={v => { setOrder(v as 'desc' | 'asc'); setPage(1) }}
               options={[
-                { label: '最新优先', value: 'desc' },
-                { label: '最早优先', value: 'asc' },
+                { label: t('systemLogs.newest'), value: 'desc' },
+                { label: t('systemLogs.oldest'), value: 'asc' },
               ]}
             />
           </Space>
@@ -375,7 +377,7 @@ const SystemLogs: React.FC = () => {
             showSizeChanger: true,
             showQuickJumper: true,
             pageSizeOptions: ['20', '50', '100', '200'],
-            showTotal: (total) => `共 ${total} 条`,
+            showTotal: (total) => t('systemLogs.totalItems', { total }),
             onChange: (p, ps) => {
               setPage(p)
               setPageSize(ps)

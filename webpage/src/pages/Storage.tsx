@@ -34,7 +34,7 @@ const Storage: React.FC = () => {
 
   const columns = [
     { title: t('common.status'), dataIndex: 'status', width: 100, render: (s: string) => <StatusTag status={s} /> },
-    { title: t('common.enable'), dataIndex: 'enable', width: 80, render: (v: boolean, r: any) => <Switch size="small" checked={v} onChange={async (c) => { await storageApi.update(r.id, { ...r, enable: c }); c ? await storageApi.start(r.id) : await storageApi.stop(r.id); fetchData() }} /> },
+    { title: t('common.enable'), dataIndex: 'enable', width: 80, render: (v: boolean, r: any) => <Switch size="small" checked={v} onChange={async (c) => { await storageApi.update(r.id, { ...r, enable: c }); if (c) { await storageApi.start(r.id); message.success(t('common.started')) } else { await storageApi.stop(r.id); message.success(t('common.stopped')) } fetchData() }} /> },
     { title: t('common.name'), dataIndex: 'name' },
     { title: t('storage.protocol'), dataIndex: 'protocol', render: (v: string) => <Tag color="blue">{v?.toUpperCase()}</Tag> },
     { title: '监听', render: (_: any, r: any) => `${r.listen_addr || '0.0.0.0'}:${r.listen_port}` },
@@ -42,9 +42,9 @@ const Storage: React.FC = () => {
     { title: t('storage.readOnly'), dataIndex: 'read_only', render: (v: boolean) => v ? <Tag color="orange">只读</Tag> : <Tag color="green">读写</Tag> },
     { title: t('common.action'), width: 140, render: (_: any, r: any) => (
       <Space size={4}>
-        {r.status === 'running' ? <Button size="small" icon={<StopOutlined />} onClick={async () => { await storageApi.stop(r.id); fetchData() }} /> : <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await storageApi.start(r.id); fetchData() }} />}
+        {r.status === 'running' ? <Button size="small" icon={<StopOutlined />} onClick={async () => { await storageApi.stop(r.id); message.success(t('common.stopped')); fetchData() }} /> : <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await storageApi.start(r.id); message.success(t('common.started')); fetchData() }} />}
         <Button size="small" icon={<EditOutlined />} onClick={() => { setEditRecord(r); form.setFieldsValue(r); setModalOpen(true) }} />
-        <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await storageApi.delete(r.id); fetchData() }}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm>
+        <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await storageApi.delete(r.id); message.success(t('common.deleteSuccess')); fetchData() }}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm>
       </Space>
     )},
   ]

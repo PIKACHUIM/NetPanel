@@ -348,7 +348,7 @@ const DomainRecord: React.FC = () => {
         size="middle"
         scroll={{ x: 1100 }}
         style={tableStyle}
-        pagination={{ pageSize: 20, showSizeChanger: true, showTotal: total => `共 ${total} 条` }}
+        pagination={{ pageSize: 20, showSizeChanger: true, showTotal: total => t('common.totalItems', { total }) }}
       />
 
       {/* 添加域名弹窗 */}

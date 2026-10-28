@@ -101,6 +101,8 @@ const PortForward: React.FC = () => {
         try {
             const res: any = await api.list()
             setData(res.data || [])
+        } catch {
+            setData([])
         } finally {
             setLoading(false)
         }
@@ -152,13 +154,13 @@ const PortForward: React.FC = () => {
 
     const handleStart = async (id: number) => {
         await api.start(id)
-        message.success('已启动')
+        message.success(t('common.started'))
         fetchData()
     }
 
     const handleStop = async (id: number) => {
         await api.stop(id)
-        message.success('已停止')
+        message.success(t('common.stopped'))
         fetchData()
     }
 
@@ -173,9 +175,12 @@ const PortForward: React.FC = () => {
         if (editRecord) {
             await api.update(editRecord.id, values)
         } else {
-            await api.create(values)
+            const res: any = await api.create(values)
+            if (res?.warning) message.warning(res.warning)
+            else if (values.enable && res?.data?.status === 'error') message.error(res.data.last_error || t('common.operationFailed'))
+            else message.success(t('common.success'))
         }
-        message.success(t('common.success'))
+        if (editRecord) message.success(t('common.success'))
         setModalOpen(false)
         fetchData()
         tunnelCtx?.onRefresh?.()
@@ -310,6 +315,7 @@ const PortForward: React.FC = () => {
             )}
 
             <Table
+                scroll={{ x: 1050 }}
                 dataSource={data}
                 columns={columns}
                 rowKey="id"
@@ -370,7 +376,7 @@ const PortForward: React.FC = () => {
                                     </Col>
                                     <Col span={8}>
                                         <Form.Item name="listen_port" label={t('portForward.listenPort')}
-                                                   rules={[{required: true, message: '请填写端口'}]}>
+                                                   rules={[{required: true, message: '请填写端口'}, {type: 'number', min: 1, max: 65535, message: t('portForward.invalidPortRange')}]}>
                                             <InputNumber placeholder="端口" min={1} max={65535}
                                                          style={{width: '100%'}}/>
                                         </Form.Item>
@@ -414,7 +420,7 @@ const PortForward: React.FC = () => {
                                     </Col>
                                     <Col span={8}>
                                         <Form.Item name="target_port" label={t('portForward.targetPort')}
-                                                   rules={[{required: true, message: '请填写端口'}]}>
+                                                   rules={[{required: true, message: '请填写端口'}, {type: 'number', min: 1, max: 65535, message: t('portForward.invalidPortRange')}]}>
                                             <InputNumber placeholder="端口" min={1} max={65535}
                                                          style={{width: '100%'}}/>
                                         </Form.Item>
