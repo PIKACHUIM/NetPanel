@@ -50,7 +50,6 @@ const SystemAudit: React.FC = () => {
   const [data, setData] = useState<QueryResult>({ total: 0, items: [] })
   const [actors, setActors] = useState<string[]>([])
   const [resourceTypes, setResourceTypes] = useState<string[]>([])
-  const [actionTypes, setActionTypes] = useState<string[]>([])
 
   const [service, setService] = useState('audit')
   const [level, setLevel] = useState('audit')
@@ -64,8 +63,7 @@ const SystemAudit: React.FC = () => {
 
   const fetchMeta = useCallback(async () => {
     try {
-      const [svc, act, res] = await Promise.all([
-        adminApi.getLogServices(),
+      const [act, res] = await Promise.all([
         adminApi.getAuditActors(),
         adminApi.getAuditResourceTypes(),
       ])

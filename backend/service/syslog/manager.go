@@ -167,6 +167,7 @@ func (m *Manager) AuditWrite(params AuditParams) {
 type QueryParams struct {
 	Service      string    // 服务类型筛选，空表示全部
 	Level        string    // 日志级别筛选，空表示全部
+	ExcludeAudit bool      // 排除审计记录
 	ActionType   string    // 审计 action 类型（CREATE/UPDATE/DELETE/ENABLE/DISABLE），空表示全部
 	ResourceType string    // 审计资源类型（frp_proxy/caddy_site/...），空表示全部
 	Actor        string    // 操作者用户名，空表示全部
@@ -201,6 +202,9 @@ func (m *Manager) Query(params QueryParams) (*QueryResult, error) {
 
 	query := m.db.Model(&model.SystemLog{})
 
+	if params.ExcludeAudit {
+		query = query.Where("service <> ? AND level <> ?", "audit", "audit")
+	}
 	if params.Service != "" {
 		query = query.Where("service = ?", params.Service)
 	}

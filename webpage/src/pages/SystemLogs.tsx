@@ -12,8 +12,9 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { adminApi } from '../api'
-import { useTableStyle } from '../hooks/useTableStyle'
+import SystemAudit from './SystemAudit'
 
 const { RangePicker } = DatePicker
 const { Text } = Typography
@@ -63,7 +64,8 @@ interface QueryResult {
 
 const SystemLogs: React.FC = () => {
   const { t } = useTranslation()
-  const tableStyle = useTableStyle()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeView = searchParams.get('view') === 'audit' ? 'audit' : 'logs'
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<QueryResult>({ total: 0, items: [] })
   const [services, setServices] = useState<string[]>([])
@@ -83,7 +85,7 @@ const SystemLogs: React.FC = () => {
   const fetchLogs = useCallback(async (p = page, ps = pageSize) => {
     setLoading(true)
     try {
-      const params: Record<string, any> = { page: p, page_size: ps, order }
+      const params: Record<string, any> = { page: p, page_size: ps, order, exclude_audit: true }
       if (service) params.service = service
       if (level) params.level = level
       if (keyword) params.keyword = keyword
@@ -100,7 +102,7 @@ const SystemLogs: React.FC = () => {
   const fetchServices = useCallback(async () => {
     try {
       const res = await adminApi.getLogServices()
-      setServices(res.data || [])
+      setServices((res.data || []).filter((service: string) => service !== 'audit'))
     } catch {}
   }, [])
 
@@ -120,13 +122,15 @@ const SystemLogs: React.FC = () => {
   }, [])
 
   useEffect(() => {
+    if (activeView !== 'logs') return
     fetchServices()
     fetchStats()
-  }, [fetchServices, fetchStats])
+  }, [activeView, fetchServices, fetchStats])
 
   useEffect(() => {
+    if (activeView !== 'logs') return
     fetchLogs(page, pageSize)
-  }, [fetchLogs, page, pageSize])
+  }, [activeView, fetchLogs, page, pageSize])
 
   const handleSearch = () => {
     setPage(1)
@@ -217,6 +221,18 @@ const SystemLogs: React.FC = () => {
 
   return (
     <div>
+      <div style={{ marginBottom: 16 }}>
+        <Segmented
+          value={activeView}
+          onChange={value => setSearchParams(value === 'audit' ? { view: 'audit' } : {})}
+          options={[
+            { label: t('systemLogs.tab'), value: 'logs' },
+            { label: t('systemAudit.tab'), value: 'audit' },
+          ]}
+        />
+      </div>
+      {activeView === 'audit' ? <SystemAudit /> : (
+        <>
       {/* 统计卡片 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={8}>
@@ -390,6 +406,8 @@ const SystemLogs: React.FC = () => {
         .log-row-error td { background: rgba(255, 77, 79, 0.04) !important; }
         .log-row-warn td { background: rgba(250, 140, 22, 0.04) !important; }
       `}</style>
+        </>
+      )}
     </div>
   )
 }

@@ -42,7 +42,6 @@ const CallbackAccount = lazy(() => import('./pages/CallbackAccount'))
 const CallbackTask = lazy(() => import('./pages/CallbackTask'))
 const Settings = lazy(() => import('./pages/Settings'))
 const SystemLogs = lazy(() => import('./pages/SystemLogs'))
-const SystemAudit = lazy(() => import('./pages/SystemAudit'))
 const UserManagement = lazy(() => import('./pages/UserManagement'))
 const MeshNodes = lazy(() => import('./pages/MeshNodes'))
 const MeshTunnels = lazy(() => import('./pages/MeshTunnels'))
@@ -167,7 +166,7 @@ const App: React.FC = () => {
         <Route path="callback/task" element={<Suspense fallback={<PageLoader />}><CallbackTask /></Suspense>} />
         <Route path="settings" element={<AdminRoute><Suspense fallback={<PageLoader />}><Settings /></Suspense></AdminRoute>} />
         <Route path="admin/logs" element={<AdminRoute><Suspense fallback={<PageLoader />}><SystemLogs /></Suspense></AdminRoute>} />
-        <Route path="admin/audit" element={<AdminRoute><Suspense fallback={<PageLoader />}><SystemAudit /></Suspense></AdminRoute>} />
+        <Route path="admin/audit" element={<AdminRoute><Navigate to="/admin/logs?view=audit" replace /></AdminRoute>} />
         <Route path="admin/users" element={<AdminRoute><Suspense fallback={<PageLoader />}><UserManagement /></Suspense></AdminRoute>} />
         <Route path="admin/oauth-providers" element={<AdminRoute><Suspense fallback={<PageLoader />}><OAuthProviders /></Suspense></AdminRoute>} />
         <Route path="mesh/nodes" element={<Suspense fallback={<PageLoader />}><MeshNodes /></Suspense>} />

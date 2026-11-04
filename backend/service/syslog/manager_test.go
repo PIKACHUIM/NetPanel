@@ -93,3 +93,24 @@ func TestWriteNeverBlocks(t *testing.T) {
 		t.Fatal("入队在高负载下不应阻塞")
 	}
 }
+
+func TestQueryCanExcludeAuditRecords(t *testing.T) {
+	m := newTestManager(t)
+	defer m.Stop()
+
+	logs := []model.SystemLog{
+		{Level: "info", Service: "system", Message: "normal log", LogTime: time.Now()},
+		{Level: "audit", Service: "audit", Message: "audit log", LogTime: time.Now()},
+	}
+	if err := m.db.Create(&logs).Error; err != nil {
+		t.Fatalf("写入测试日志失败: %v", err)
+	}
+
+	result, err := m.Query(QueryParams{ExcludeAudit: true})
+	if err != nil {
+		t.Fatalf("查询日志失败: %v", err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].Message != "normal log" {
+		t.Fatalf("审计日志未被排除: total=%d items=%+v", result.Total, result.Items)
+	}
+}

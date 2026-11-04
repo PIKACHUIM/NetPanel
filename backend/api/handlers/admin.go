@@ -35,6 +35,7 @@ func (h *SyslogHandler) QueryLogs(c *gin.Context) {
 	params := syslog.QueryParams{
 		Service:      c.Query("service"),
 		Level:        c.Query("level"),
+		ExcludeAudit: c.Query("exclude_audit") == "true",
 		ActionType:   c.Query("action_type"),
 		ResourceType: c.Query("resource_type"),
 		Actor:        c.Query("actor"),
