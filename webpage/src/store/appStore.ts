@@ -55,6 +55,19 @@ export function getAnimeThemeBg(theme: ThemeMode): string | null {
   return getWallpaperBg(theme as WallpaperKey)
 }
 
+/**
+ * 判断系统是否偏好暗色。
+ * 用于首次访问时给出更符合用户预期的默认主题；SSR / 老浏览器下退化为亮色。
+ */
+function prefersDark(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  } catch {
+    return false
+  }
+}
+
 interface AppState {
   token: string | null
   username: string | null
@@ -87,9 +100,12 @@ export const useAppStore = create<AppState>()(
       roles: '',
       isAdmin: false,
       language: 'zh',
-      uiMode: 'dark',
+      // 默认跟随系统偏好：系统是亮色就用亮色，是暗色才用暗色。
+      // 原实现硬编码 'dark'，与后端 initDefaultData 里 ensureConfig("theme","light")
+      // 的意图不一致，且会让首次使用的用户在白天看到刺眼的暗色界面。
+      uiMode: prefersDark() ? 'dark' : 'light',
       wallpaper: 'none',
-      theme: 'dark',
+      theme: prefersDark() ? 'dark' : 'light',
       collapsed: false,
       setToken: (token) => set({ token }),
       setUsername: (username) => set({ username }),

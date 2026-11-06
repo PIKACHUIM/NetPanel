@@ -107,14 +107,44 @@ func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 	return &Manager{db: db, log: log, dataDir: dataDir}
 }
 
-// getBinaryPath 返回 cloudflared 二进制路径（data/bin/cloudflared[.exe]）。
+// bundledBinaryPath 是镜像内预置的 cloudflared 路径。
+//
+// 官方 Docker 镜像在构建时会把 cloudflared 一并打包到该位置（多阶段构建，
+// 见 Dockerfile 的 cloudflared-builder 阶段）。容器内自带二进制的好处是：
+//   - 开箱即用，无需面板联网下载（国内访问 GitHub Releases 经常超时）；
+//   - 版本随镜像锁定，可控可复现；
+//   - 离线/内网环境也能用。
+//
+// 该路径放在 data 目录之外，避免被 VOLUME 挂载遮蔽，也避免用户误删。
+const bundledBinaryPath = "/usr/local/bin/cloudflared"
+
+// getBinaryPath 返回 cloudflared 二进制路径。
+//
+// 解析顺序（后者可覆盖前者，便于用户手动升级）：
+//  1. data/bin/cloudflared —— 用户在面板内下载/上传的版本，优先级最高，
+//     这样用户可以自行升级到任意版本，不会被镜像里的版本锁死；
+//  2. /usr/local/bin/cloudflared —— 镜像内置版本（Docker 部署时的常见情形）；
+//  3. 退化到 data/bin 下的路径，供"尚未安装"的场景给前端展示待下载位置。
+//
 // Windows 下带 .exe 后缀，与 downloader.DownloadBinary 落盘的文件名保持一致。
 func (m *Manager) getBinaryPath() string {
 	name := binaryName
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	return filepath.Join(m.dataDir, "bin", name)
+	dataPath := filepath.Join(m.dataDir, "bin", name)
+
+	// 尚未进入容器化环境时（例如本地源码运行），优先用 data/bin 下的版本。
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(bundledBinaryPath); err == nil && !info.IsDir() {
+			// 镜像内置版本存在：若用户没有在 data/bin 放自己的版本，就用内置的。
+			if _, derr := os.Stat(dataPath); derr != nil {
+				return bundledBinaryPath
+			}
+		}
+	}
+
+	return dataPath
 }
 
 // isBinaryAvailable 检查 cloudflared 二进制是否存在
