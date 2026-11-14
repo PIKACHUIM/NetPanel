@@ -344,10 +344,11 @@ func startServer() *http.Server {
 
 	// 初始化路由
 	router := api.NewRouter(api.RouterOptions{
-		DB:             db,
-		Log:            log,
-		Config:         cfg,
-		PortForwardMgr: portforwardMgr,
+		DB:               db,
+		Log:              log,
+		Config:           cfg,
+		RetentionCleaner: retentionCleaner,
+		PortForwardMgr:   portforwardMgr,
 		StunMgr:        stunMgr,
 		FrpMgr:         frpMgr,
 		NpsMgr:         npsMgr,

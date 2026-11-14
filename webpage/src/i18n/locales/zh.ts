@@ -55,6 +55,7 @@ const zh = {
     deleteSuccess: '删除成功',
     deleted: '已删除',
     failed: '失败',
+    saved: '已保存',
     noLogs: '暂无日志',
     operationFailed: '操作失败',
     remarkPlaceholder: '请输入备注（可选）',
