@@ -363,6 +363,8 @@ export const systemApi = {
   changePassword: (data: any) => request.post('/v1/system/change-password', data),
   getInterfaces: () => request.get('/v1/system/interfaces'),
   getIPv6Info: () => request.get('/v1/system/ipv6'),
+  getHealth: () => request.get('/v1/system/health'),
+  cleanupRetention: () => request.post('/v1/system/cleanup'),
 }
 
 // ===== 系统管理（日志 + 用户）=====

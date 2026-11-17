@@ -21,6 +21,7 @@ import (
 	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
+	"github.com/netpanel/netpanel/service/retention"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
@@ -56,6 +57,8 @@ type RouterOptions struct {
 	MeshNodeMgr    *meshnode.Manager
 	AiMgr          *ai.Manager
 	LineregMgr     *linereg.Manager
+	// RetentionCleaner 数据保留清理器（手动清理端点用，可为 nil）
+	RetentionCleaner *retention.Cleaner
 }
 
 // NewRouter 创建路由
@@ -124,7 +127,7 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	admin.Use(middleware.JWTAuth(opts.DB), middleware.AdminOnly())
 
 	// 系统信息（配置读写与改密限管理员）
-	sysHandler := handlers.NewSystemHandler(opts.DB, opts.Log, opts.Config)
+	sysHandler := handlers.NewSystemHandler(opts.DB, opts.Log, opts.Config, opts.RetentionCleaner)
 	auth.GET("/system/info", sysHandler.GetInfo)
 	auth.GET("/system/stats", sysHandler.GetStats)
 	auth.GET("/system/interfaces", sysHandler.GetInterfaces)
@@ -133,6 +136,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/system/change-password", sysHandler.ChangePassword)
 	admin.GET("/system/config", sysHandler.GetConfig)
 	admin.PUT("/system/config", sysHandler.UpdateConfig)
+	// 手动数据保留清理（破坏性动作，仅管理员）
+	admin.POST("/system/cleanup", sysHandler.CleanupRetention)
 
 	// 端口转发（创建规则即可暴露任意内网目标，属高危能力）
 	pfHandler := handlers.NewPortForwardHandler(opts.DB, opts.Log, opts.PortForwardMgr, opts.SyslogMgr)

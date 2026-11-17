@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   LockOutlined, GlobalOutlined, InfoCircleOutlined,
-  CheckCircleOutlined,
+  CheckCircleOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -28,19 +28,52 @@ const Settings: React.FC = () => {
   // IPv6 状态卡片
   const [ipv6, setIpv6] = useState<{ has_global: boolean; public_reachable: boolean; global_addresses: string[] } | null>(null)
   const [ipv6Loaded, setIpv6Loaded] = useState(false)
+  // 数据保留天数（SystemConfig: retention_days，默认 30）
+  const [retentionDays, setRetentionDays] = useState<number>(30)
+  const [retentionLoaded, setRetentionLoaded] = useState(false)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
 
-  // 读取 IPv6 状态
-  const loadIPv6 = async () => {
+  // 读取 IPv6 状态与系统配置（含保留天数）
+  const loadPageData = async () => {
     try {
       const res = await systemApi.getIPv6Info()
       setIpv6(res?.data ?? null)
     } catch {
       // IPv6 检测失败不阻塞页面
     }
+    try {
+      const res = await systemApi.getConfig()
+      const days = parseInt(res?.data?.retention_days, 10)
+      if (!isNaN(days) && days > 0) setRetentionDays(days)
+    } catch {
+      // 读取失败保持默认 30
+    }
   }
   if (!ipv6Loaded) {
     setIpv6Loaded(true)
-    loadIPv6()
+    loadPageData()
+  }
+
+  const handleRetentionDaysChange = async (days: number) => {
+    setRetentionDays(days)
+    try {
+      await systemApi.updateConfig({ retention_days: String(days) })
+      message.success(t('common.saved'))
+    } catch {
+      message.error(t('common.operationFailed'))
+    }
+  }
+
+  const handleCleanup = async () => {
+    setCleanupLoading(true)
+    try {
+      const res: any = await systemApi.cleanupRetention()
+      message.success(`清理完成，共删除 ${res?.data?.deleted ?? 0} 条过期数据`)
+    } catch {
+      message.error(t('common.operationFailed'))
+    } finally {
+      setCleanupLoading(false)
+    }
   }
 
   const handleChangePassword = async () => {
@@ -154,6 +187,37 @@ const Settings: React.FC = () => {
                 <Option value="zh">🇨🇳 中文</Option>
                 <Option value="en">🇺🇸 English</Option>
               </Select>
+            </div>
+
+            <Divider />
+
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                <DeleteOutlined style={{ marginRight: 6, color: '#0071e3' }} />
+                数据保留
+              </Text>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Space>
+                  <Text type="secondary">时序数据保留：</Text>
+                  <Select
+                    value={retentionDays}
+                    onChange={handleRetentionDaysChange}
+                    style={{ width: 130 }}
+                  >
+                    {[7, 14, 30, 60, 90, 180, 365].map(d => (
+                      <Option key={d} value={d}>{d} 天</Option>
+                    ))}
+                  </Select>
+                </Space>
+                <Space style={{ marginBottom: 4 }}>
+                  <Button size="small" loading={cleanupLoading} onClick={handleCleanup} icon={<DeleteOutlined />}>
+                    立即清理
+                  </Button>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    清理监控指标、探测结果、WAF/系统日志等过期数据
+                  </Text>
+                </Space>
+              </Space>
             </div>
 
             <Divider />

@@ -54,6 +54,7 @@ const en = {
     deleteSuccess: 'Deleted successfully',
     deleted: 'Deleted',
     failed: 'Failed',
+    saved: 'Saved',
     noLogs: 'No logs',
     operationFailed: 'Operation failed',
     remarkPlaceholder: 'Enter an optional remark',
