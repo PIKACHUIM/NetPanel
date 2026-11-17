@@ -29,6 +29,7 @@ import (
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"github.com/netpanel/netpanel/service/enrollment"
 )
 
 // RouterOptions 路由选项
@@ -52,6 +53,7 @@ type RouterOptions struct {
 	WolMgr         *wol.Manager
 	CertMgr        *cert.Manager
 	CallbackMgr    *callback.Manager
+	EnrollmentMgr *enrollment.Manager
 	SyslogMgr      *syslog.Manager
 	WireguardMgr   *wireguard.Manager
 	MeshNodeMgr    *meshnode.Manager
