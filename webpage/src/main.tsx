@@ -45,7 +45,10 @@ const Root: React.FC = () => {
           borderRadius: 8,
           borderRadiusLG: 12,
           borderRadiusSM: 6,
-          fontFamily: "'MapleMono', monospace",
+          // 全局字体：与 index.css 的 --font-sans 保持一致。
+          // MapleMono 不含中文字形，若整体用它会导致中文回退到等宽字体。
+          fontFamily:
+            "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Segoe UI', 'MapleMono', 'Helvetica Neue', Arial, sans-serif",
           // 暗黑模式下的颜色调整
           ...(isDark ? {
             colorBgContainer: '#17181f',

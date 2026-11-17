@@ -1,14 +1,32 @@
 /* ===== 字体导入 ===== */
+/* MapleMono 是纯等宽编程字体，只覆盖拉丁字形，不含中文。
+   因此它只用于代码/日志/MAC 地址等需要等宽对齐的场景，
+   全局正文字体走 --font-sans（见下方 body）。 */
 @font-face {
   font-family: 'MapleMono';
   src: url('/MapleMono.woff2') format('woff2');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
+  /* 缩小中文字形缺失时的回退代价，避免布局跳动 */
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* ===== CSS 变量系统 ===== */
 :root {
+  /* ===== 字体系统 =====
+     --font-sans: 正文字体栈。中文字体放在最前，保证中文优先用系统中文字体渲染；
+                  MapleMono 只覆盖拉丁字符（见上方 unicode-range），
+                  因此英文/数字仍保持等宽观感，中文则是正常无衬线体。
+     --font-mono: 等宽字体，仅用于代码、日志、MAC 地址、Cron 表达式等场景。 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Segoe UI',
+    'MapleMono', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'MapleMono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
   /* 主色调（苹果蓝） */
   --color-primary: #0071e3;
   --color-primary-hover: #0077ed;
@@ -83,7 +101,10 @@ html {
 }
 
 body {
-  font-family: 'MapleMono', monospace;
+  /* 正文字体：优先系统中文字体，MapleMono 只作为拉丁字符的补充。
+     原实现直接写 'MapleMono', monospace —— 该字体不含中文，
+     中文会落到 monospace 默认字体（等宽、字形难看），这是"字体难看"的根因。 */
+  font-family: var(--font-sans);
   background: var(--bg-body);
   color: var(--text-primary);
   transition: background var(--transition-slow), color var(--transition-normal);
